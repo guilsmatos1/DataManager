@@ -114,7 +114,7 @@ if __name__ == "__main__":
         start = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
         end = datetime.now().strftime("%Y-%m-%d")
         
-        print(f"\n1. Solicitando download de AAPL (OpenBB) pelo Servidor ({start} to {end})...")
+        print(f"\n1. Solicitando download de USATECH (USATECH) pelo Servidor ({start} to {end})...")
         res = client.download("DUKASCOPY", "USATECH", start_date=start, end_date=end)
         print("Resposta:", res)
         # Observação: Como agora usamos BackgroundTasks, a resposta é instantânea
@@ -124,6 +124,16 @@ if __name__ == "__main__":
         for db in dbs:
             print(f" - {db['source']}/{db['asset']} ({db['timeframe']})")
             
+        print("\n3. Exemplo de download direto em CSV:")
+        csv_path = client.get_data(
+            source="DUKASCOPY",
+            asset="USATECH", 
+            timeframe="M1", 
+            save_path="usatech_amostra.csv",
+            save_format="csv"
+        )
+        print(f"Arquivo salvo localmente em: {csv_path}")
+
         print("\nExemplo finalizado com sucesso!")
     except Exception as e:
         print(f"Erro na conexão/teste: {e}")
