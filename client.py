@@ -111,29 +111,37 @@ if __name__ == "__main__":
     
     try:
         from datetime import datetime, timedelta
-        start = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
-        end = datetime.now().strftime("%Y-%m-%d")
-        
-        print(f"\n1. Solicitando download de USATECH (USATECH) pelo Servidor ({start} to {end})...")
-        res = client.download("DUKASCOPY", "USATECH", start_date=start, end_date=end)
-        print("Resposta:", res)
-        # Observação: Como agora usamos BackgroundTasks, a resposta é instantânea
-        
-        print("\n2. Listando bases no servidor:")
+        import time
+
+        target_source = "DUKASCOPY"
+        target_asset = "USATECH"
+        target_tf = "H1"
+
+        print(f"\n1. Listando bases no servidor...")
         dbs = client.list_databases()
-        for db in dbs:
-            print(f" - {db['source']}/{db['asset']} ({db['timeframe']})")
-            
-        print("\n3. Exemplo de download direto em CSV:")
+        exists = any(db['source'].upper() == target_source and db['asset'] == target_asset and db['timeframe'] == target_tf for db in dbs)
+
+        if exists:
+            print(f" -> A base {target_asset} ({target_tf}) já existe no servidor.")
+        else:
+            print(f" -> A base {target_asset} ({target_tf}) NÃO foi encontrada. Solicitando download...")
+            start = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
+            end = datetime.now().strftime("%Y-%m-%d")
+            res = client.download(target_source, target_asset, start_date=start, end_date=end)
+            print(f" -> Resposta do servidor: {res}")
+            print(" -> Aguardando alguns segundos para o processamento inicial (async)...")
+            time.sleep(5)
+
+        print(f"\n2. Baixando dados de {target_asset} ({target_tf}) para CSV local...")
         csv_path = client.get_data(
-            source="DUKASCOPY",
-            asset="USATECH", 
-            timeframe="M1", 
-            save_path="usatech_amostra.csv",
+            source=target_source,
+            asset=target_asset,
+            timeframe=target_tf,
+            save_path="usatech_resultado.csv",
             save_format="csv"
         )
-        print(f"Arquivo salvo localmente em: {csv_path}")
+        print(f" -> Sucesso! Arquivo salvo em: {csv_path}")
 
         print("\nExemplo finalizado com sucesso!")
     except Exception as e:
-        print(f"Erro na conexão/teste: {e}")
+        print(f"Erro no fluxo do cliente: {e}")
