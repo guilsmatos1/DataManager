@@ -24,7 +24,7 @@ The project follows a modular architecture:
 - `core/server.py` (`DataManager`): The central controller that orchestrates data flow, integrating the fetchers, storage, and processors.
 - `fetchers/`: Contains the integration logic for various data sources (`openbb_fetcher.py`, `dukascopy_fetcher.py`). All fetchers standardize the fetched data into `M1` (1-minute) resolution dataframes.
 - `data_management/`: 
-  - `storage.py`: Handles saving, loading, updating, and deleting the local databases using optimized formats (e.g., Parquet). Data is saved under the `database/` directory.
+  - `storage.py`: Handles saving, loading, updating, and deleting the local databases using optimized formats (e.g., Parquet). Data is saved under the `database/` directory, while metadata catalog (e.g., `dukas_assets.csv`) is kept in the `metadata/` directory.
   - `processor.py`: Contains data processing logic, primarily focusing on resampling OHLCV data from lower to higher timeframes.
 
 ## Instructions & Usage
@@ -46,7 +46,7 @@ Running via Docker ensures you don't have to install local dependencies or worry
 ```bash
 docker compose run --rm datamanager
 ```
-*Note: Any data downloaded using the docker container will be automatically persisted to the `./database` folder on your host machine.*
+*Note: Any data downloaded using the docker container will be automatically persisted to the `./database` and `./metadata` folders on your host machine.*
 
 #### Option B: Running Natively
 You can run DataManager in **Interactive Mode** or **Direct Command Mode**.

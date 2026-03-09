@@ -7,5 +7,6 @@ services:
       - "8686:8686" # Porta do servidor (esquerda) mapeada pra porta do container (direita)
     volumes:
       - ./database:/app/database
+      - ./metadata:/app/metadata
     # Comando padrão para abrir a API
     command: [ "python", "network_server.py" ]

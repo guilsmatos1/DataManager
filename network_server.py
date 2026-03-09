@@ -108,7 +108,7 @@ def get_info(source: str, asset: str, timeframe: str, api_key: str = Depends(get
 def search_assets(source: str = "openbb", query: Optional[str] = None, exchange: Optional[str] = None, api_key: str = Depends(get_api_key)):
     source = source.lower()
     if source == "dukascopy":
-        csv_path = Path("database") / "dukas_assets.csv"
+        csv_path = Path("metadata") / "dukas_assets.csv"
         if not csv_path.exists():
             return {"assets": []}
         import pandas as pd

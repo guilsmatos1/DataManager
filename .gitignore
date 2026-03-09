@@ -10,9 +10,11 @@ __pycache__/
 # Database and Downloads
 database/
 *.parquet
-*.csv
 *.sqlite
 *.db
+
+# Metadata (Allow dukas_assets.csv)
+!metadata/dukas_assets.csv
 
 # OS Files
 .DS_Store

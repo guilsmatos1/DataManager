@@ -92,7 +92,7 @@ if __name__ == "__main__":
     print("Testando DataManager Client...")
     
     # Inicia o cliente passando a host padrao e a chave (opcional se bater c/ o padrao do __init__)
-    client = DataManagerClient("http://127.0.0.1:8686", api_key="homelab_secreto_8686")
+    client = DataManagerClient("http://100.100.10.240:8686", api_key="K91DS441s31")
     
     try:
         from datetime import datetime, timedelta

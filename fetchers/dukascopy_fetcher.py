@@ -32,7 +32,7 @@ class DukascopyFetcher(BaseFetcher):
         
         # Como o script main e os workers rodam a partir de "Servidor de Dados", 
         # a pasta data deve estar no mesmo diretório de onde o comando é rodado.
-        csv_path = Path("database") / "dukas_assets.csv"
+        csv_path = Path("metadata") / "dukas_assets.csv"
         
         if csv_path.exists():
             df_assets = pd.read_csv(csv_path).fillna("")

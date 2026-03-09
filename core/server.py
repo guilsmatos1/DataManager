@@ -140,7 +140,7 @@ class DataManager:
         
         # Dukascopy
         duka_count = 0
-        csv_path = Path("database") / "dukas_assets.csv"
+        csv_path = Path("metadata") / "dukas_assets.csv"
         if csv_path.exists():
             try:
                 df = pd.read_csv(csv_path)
@@ -204,7 +204,7 @@ class DataManager:
             print(f"\n[{datetime.now()}] Buscando ativos offline (Dukascopy)...")
             try:
                 # O caminho é relativo à subpasta data onde salvamos o script CSV
-                csv_path = Path("database") / "dukas_assets.csv"
+                csv_path = Path("metadata") / "dukas_assets.csv"
                 if not csv_path.exists():
                     print("O arquivo 'dukas_assets.csv' não foi encontrado. Execute o script de merge primeiro.")
                     return
