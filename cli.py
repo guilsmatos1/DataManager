@@ -56,14 +56,23 @@ class DataManagerCLI(cmd.Cmd):
         
     def do_download(self, arg):
         """
-        Baixar novos dados. Uso: download <fonte> <ativo1,ativo2,...> [start_date] [end_date]
+        Baixar novos dados. Uso: download <fonte> <ativo1,ativo2,...> [start_date] [end_date] [-timeframe tf1,tf2,...]
         Exemplos:
           download OPENBB AAPL,MSFT 2023-01-01 2024-01-01
           download DUKASCOPY EURUSD,GBPUSD (baixa histórico completo)
+          download DUKASCOPY EURUSD -timeframe M15,H1,D1
         """
         args = arg.split()
+        
+        target_timeframes = []
+        if "-timeframe" in args:
+            idx = args.index("-timeframe")
+            if idx + 1 < len(args):
+                target_timeframes = [tf.strip() for tf in args[idx+1].split(',') if tf.strip()]
+            args = args[:idx] + args[idx+2:]
+
         if len(args) not in [2, 3, 4]:
-            print("Erro: Uso correto: download <fonte> <ativos,separados,por,virgula> [start_date] [end_date]")
+            print("Erro: Uso correto: download <fonte> <ativos,separados,por,virgula> [start_date] [end_date] [-timeframe tf1,tf2,...]")
             return
             
         source = args[0]
@@ -88,8 +97,10 @@ class DataManagerCLI(cmd.Cmd):
             for asset in assets:
                 try:
                     self.server.download_data(source, asset, start_date, end_date)
+                    for tf in target_timeframes:
+                        self.server.resample_database(source, asset, tf)
                 except Exception as e:
-                    print(f"{Fore.RED}Erro no download de {asset}: {e}")
+                    print(f"{Fore.RED}Erro no download/resample de {asset}: {e}")
         except Exception as e:
             print(f"{Fore.RED}Erro nas datas do download: {e}")
 

@@ -67,8 +67,9 @@ python main.py download OPENBB AAPL 2023-01-01 2023-12-31
 
 ### 3. Available Commands
 
-- `download <fonte> <ativos> [start_date] [end_date]`: Downloads data.
+- `download <fonte> <ativos> [start_date] [end_date] [-timeframe tf1,tf2,...]`: Downloads data.
   *Example:* `download OPENBB AAPL,MSFT 2023-01-01 2024-01-01`
+  *Example:* `download dukascopy usatech,usa30 -timeframe m15,h1`
 - `update <fonte> <ativos> [timeframe]`: Updates an existing database with new data.
   *Example:* `update OPENBB AAPL M1`
   *(Note: `update all` automatically updates all `M1` bases and reconstructs higher timeframes).*
