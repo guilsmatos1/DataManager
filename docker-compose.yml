@@ -1,12 +1,11 @@
-version: '3.8'
-
 services:
-  datamanager:
+  datamanager_api:
     build: .
-    container_name: datamanager
-    # Mantém o container interativo
-    stdin_open: true  # equivalente ao flag -i do docker run
-    tty: true         # equivalente ao flag -t do docker run
+    container_name: datamanager_server
+    restart: always # Faz ele reiniciar sempre e ligar com o PC
+    ports:
+      - "8686:8686" # Porta do servidor (esquerda) mapeada pra porta do container (direita)
     volumes:
-      # Monta a pasta database local para persistir dados baixados
       - ./database:/app/database
+    # Comando padrão para abrir a API
+    command: [ "python", "network_server.py" ]
