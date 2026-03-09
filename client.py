@@ -74,18 +74,27 @@ class DataManagerClient:
         assets = data.get("assets", [])
         return pd.DataFrame(assets)
 
-    def get_data(self, source: str, asset: str, timeframe: str, save_path: str = None) -> Union[pd.DataFrame, str]:
+    def get_data(self, source: str, asset: str, timeframe: str, save_path: str = None, save_format: str = "parquet") -> Union[pd.DataFrame, str]:
         """
         Baixa o arquivo `.parquet` do servidor.
         Se save_path for fornecido, salva no disco e retorna o caminho.
+        É possível definir o 'save_format' como 'parquet' ou 'csv'.
         Caso contrário, carrega direto na memória local do cliente como DataFrame.
         """
         res = self.session.get(f"{self.base_url}/data/{source}/{asset}/{timeframe}")
         res.raise_for_status()
         
         if save_path:
-            with open(save_path, 'wb') as f:
-                f.write(res.content)
+            save_format = save_format.lower()
+            if save_format == "csv":
+                file_obj = BytesIO(res.content)
+                df = pd.read_parquet(file_obj, engine='fastparquet')
+                df.to_csv(save_path)
+            elif save_format == "parquet":
+                with open(save_path, 'wb') as f:
+                    f.write(res.content)
+            else:
+                raise ValueError("Formato não suportado. Escolha 'parquet' ou 'csv'.")
             return save_path
         else:
             # Carrega o binário na memória para o pandas ler nativamente o parquet
