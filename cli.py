@@ -20,16 +20,16 @@ class DataManagerCLI(cmd.Cmd):
  |_____/ \__,_|\__\__,_|_|  |_|\__,_|_| |_|\__,_|\__, |\___|_|   
                                                   __/ |          
                                                  |___/           
-{Fore.WHITE}╔══════════════════════════════════════════════════════════════╗
-║             {Fore.CYAN}{Style.BRIGHT}DataManager{Fore.WHITE} - {Fore.GREEN}v1.2.0{Fore.WHITE}                             ║
-╠══════════════════════════════════════════════════════════════╝
-║ {Fore.YELLOW}● MODO INTERATIVO ●{Fore.WHITE}
-║
-║ {Style.BRIGHT}COMANDOS RÁPIDOS:{Style.NORMAL}
-║ {Fore.CYAN}download{Fore.WHITE} | {Fore.CYAN}update{Fore.WHITE} | {Fore.CYAN}search{Fore.WHITE} | {Fore.CYAN}list{Fore.WHITE} | {Fore.CYAN}resample{Fore.WHITE} | {Fore.CYAN}delete{Fore.WHITE}
-║
-║ {Fore.WHITE}Digite {Fore.YELLOW}'help'{Fore.WHITE} para o manual completo ou {Fore.YELLOW}'exit'{Fore.WHITE} para sair.
-╚══════════════════════════════════════════════════════════════╝
+{Fore.WHITE}════════════════════════════════════════════════════════════════════════
+                {Fore.CYAN}{Style.BRIGHT}DataManager{Fore.WHITE} - {Fore.GREEN}v1.2.0{Fore.WHITE}
+════════════════════════════════════════════════════════════════════════
+ {Fore.YELLOW}● MODO INTERATIVO ●{Fore.WHITE}
+
+ {Style.BRIGHT}COMANDOS:{Style.NORMAL}
+ {Fore.CYAN}download{Fore.WHITE} | {Fore.CYAN}update{Fore.WHITE} | {Fore.CYAN}search{Fore.WHITE} | {Fore.CYAN}list{Fore.WHITE} | {Fore.CYAN}resample{Fore.WHITE} | {Fore.CYAN}delete{Fore.WHITE} | {Fore.CYAN}quality{Fore.WHITE}
+        
+ {Fore.WHITE}Digite {Fore.YELLOW}'help'{Fore.WHITE} para o manual completo ou {Fore.YELLOW}'exit'{Fore.WHITE} para sair.
+════════════════════════════════════════════════════════════════════════
 """
     prompt = f"{Fore.GREEN}DataManager> {Style.RESET_ALL}"
 
@@ -40,6 +40,15 @@ class DataManagerCLI(cmd.Cmd):
             super().do_help(arg)
         else:
             print(self.intro)
+            print(f"{Fore.CYAN}{Style.BRIGHT}--- GUIA DE COMANDOS ---{Style.RESET_ALL}\n")
+            for attr in dir(self):
+                if attr.startswith("do_") and attr not in ["do_EOF", "do_quit", "do_help"]:
+                    cmd_name = attr[3:]
+                    doc = getattr(self, attr).__doc__
+                    print(f"{Fore.YELLOW}● {cmd_name.upper()}{Style.RESET_ALL}")
+                    if doc:
+                        cleaned_doc = "\n".join("  " + line.strip() for line in doc.strip().split("\n"))
+                        print(f"{Fore.WHITE}{cleaned_doc}\n")
 
     def __init__(self):
         super().__init__()
@@ -214,24 +223,56 @@ class DataManagerCLI(cmd.Cmd):
             
     def do_resample(self, arg):
         """
-        Converte uma base M1 existente para outro timeframe. Uso: resample <fonte> <ativo1,ativo2,...> <novo_timeframe>
-        Exemplo: resample OPENBB AAPL,MSFT H1
+        Converte uma base M1 existente para outro(s) timeframe(s). 
+        Uso: resample <fonte> <ativo1,ativo2,...> <novo_timeframe1,novo_timeframe2,...>
+        
+        Timeframes suportados: M2, M5, M10, M15, M30, H1, H2, H3, H4, H6, D1, W1
+        Exemplo: resample OPENBB AAPL,MSFT H1,H2
         """
         args = arg.split()
         if len(args) != 3:
-             print("Erro: Uso correto: resample <fonte> <ativos,separados,por,virgula> <novo_timeframe>")
+             print("Erro: Uso correto: resample <fonte> <ativos,separados,por,virgula> <novos_timeframes,separados>")
              return
              
         source = args[0]
         assets = [a.strip() for a in args[1].split(',') if a.strip()]
-        target_timeframe = args[2]
+        target_timeframes = [tf.strip() for tf in args[2].split(',') if tf.strip()]
+        
+        for asset in assets:
+            for tf in target_timeframes:
+                try:
+                    self.server.resample_database(source, asset, tf)
+                except Exception as e:
+                    print(f"{Fore.RED}Erro ao converter {asset} para {tf}: {e}")
+
+    def do_quality(self, arg):
+        """
+        Realiza testes de qualidade e retorna a quantidade de erros em uma base de dados.
+        Uso: quality <fonte> <ativo1,ativo2,...> [timeframe]
+        Exemplo: quality OPENBB AAPL,MSFT M1
+        
+        Análises realizadas:
+        - Relações OHLC: Garante lógicas básicas (High >= Low, High >= Open/Close, Low <= Open/Close).
+        - Duplicatas: Detecta registros com o mesmo timestamp exato (erros de importação).
+        - Ordenação Temporal: Confirma que os timestamps estão em ordem crescente e não voltam no tempo.
+        - Gaps: Quantifica ausência prolongada (buracos) de dados baseando-se na frequência da base.
+        """
+        args = arg.split()
+        if len(args) not in [2, 3]:
+            print("Erro: Uso correto: quality <fonte> <ativos,separados,por,virgula> [timeframe=M1]")
+            return
+
+        source = args[0]
+        assets = [a.strip() for a in args[1].split(',') if a.strip()]
+        timeframe = args[2] if len(args) == 3 else "M1"
         
         for asset in assets:
             try:
-                self.server.resample_database(source, asset, target_timeframe)
+                self.server.check_quality(source, asset, timeframe)
             except Exception as e:
-                print(f"{Fore.RED}Erro ao converter {asset}: {e}")
+                print(f"{Fore.RED}Erro ao analisar qualidade de {asset}: {e}")
         
+
     def do_exit(self, arg):
         """Sair do servidor"""
         print("Encerrando servidor...")

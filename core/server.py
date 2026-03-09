@@ -5,6 +5,14 @@ from data_management.storage import StorageManager
 from data_management.processor import DataProcessor
 from fetchers.dukascopy_fetcher import DukascopyFetcher
 from fetchers.openbb_fetcher import OpenBBFetcher
+from colorama import init, Fore, Style
+import logging
+
+# Desativar logs excessivos de bibliotecas externas
+logging.getLogger("dukascopy_python").setLevel(logging.WARNING)
+logging.getLogger("DUKASCRIPT").setLevel(logging.WARNING)
+
+init(autoreset=True)
 
 class DataManager:
     """
@@ -29,13 +37,19 @@ class DataManager:
 
     def download_data(self, source: str, asset: str, start_date: datetime, end_date: datetime):
         """Baixa e salva dados em M1."""
-        print(f"[{datetime.now()}] Iniciando download de {asset} via {source}...")
+        info = self.storage.get_database_info(source, asset, "M1")
+        if info.get("status") != "Not Found":
+            print(f"{Fore.YELLOW}⚠ Aviso: {Fore.WHITE}A base {Fore.YELLOW}{asset}{Fore.WHITE} (M1) de {source} já existe no banco de dados.")
+            print(f"  {Fore.CYAN}↳ Use o comando 'update' para adicionar dados recentes.{Style.RESET_ALL}")
+            raise Exception(f"Base {asset} (M1) já existe em {source}")
+
+        print(f"{Fore.CYAN}⇅ {Fore.WHITE}Iniciando download de {Fore.YELLOW}{asset}{Fore.WHITE} via {Fore.YELLOW}{source.upper()}{Fore.WHITE}...")
         fetcher = self._get_fetcher(source)
         df_m1 = fetcher.fetch_data(asset, start_date, end_date)
         
         # O Fetcher sempre devolve M1 naive-datetime indexado e ordenado
         self.storage.save_data(df_m1, source, asset, timeframe="M1")
-        print(f"[{datetime.now()}] Base de dados {asset} (M1) salva com sucesso! (Total: {len(df_m1)} linhas)")
+        print(f"{Fore.GREEN}✓ {Fore.WHITE}Base de dados {Fore.CYAN}{asset} (M1){Fore.WHITE} salva com sucesso! ({len(df_m1):,} linhas)")
 
     def update_data(self, source: str, asset: str, timeframe: str = "M1"):
         """Descobre a última data na base existente e faz download até hoje (append)."""
@@ -51,10 +65,10 @@ class DataManager:
         now = datetime.now()
         
         if last_date.date() >= now.date() and (now - last_date).total_seconds() < 3600:
-             print(f"[{datetime.now()}] {asset} já está atualizado.")
+             print(f"{Fore.YELLOW}ℹ {Fore.WHITE}{asset} já está atualizado.")
              return
              
-        print(f"[{datetime.now()}] Atualizando {asset} a partir de {last_date}...")
+        print(f"{Fore.CYAN}⟳ {Fore.WHITE}Atualizando {Fore.YELLOW}{asset}{Fore.WHITE} a partir de {last_date}...")
         fetcher = self._get_fetcher(source)
         
         # Importante: Como `timeframe` aqui pode ser H1 por exemplo, nós sempre atualizamos a base M1, 
@@ -67,7 +81,7 @@ class DataManager:
              new_df = self.processor.resample_ohlc(new_df, timeframe)
              
         self.storage.append_data(new_df, source, asset, timeframe)
-        print(f"[{datetime.now()}] Base {asset} ({timeframe}) atualizada com sucesso!")
+        print(f"{Fore.GREEN}✓ {Fore.WHITE}Base {Fore.CYAN}{asset} ({timeframe}){Fore.WHITE} atualizada com sucesso!\n")
 
     def update_all_databases(self):
         """Atualiza todas as bases de dados M1 e realiza o resample dinâmico para timeframes superiores."""
@@ -76,7 +90,7 @@ class DataManager:
             print(f"[{datetime.now()}] Nenhuma base de dados encontrada para atualizar.")
             return
 
-        print(f"\n[{datetime.now()}] Iniciando a atualização automática de todas as bases globais...")
+        print(f"\n{Fore.CYAN}{Style.BRIGHT}=== ATUALIZAÇÃO GLOBAL DE BASES ===")
 
         m1_dbs = [db for db in dbs if db['timeframe'] == 'M1']
         other_dbs = [db for db in dbs if db['timeframe'] != 'M1']
@@ -93,12 +107,12 @@ class DataManager:
         # Depois reconstrói as de maior timeframe baseando-se no novo M1 recém atualizado.
         for db in other_dbs:
             try:
-                print(f"\n[{datetime.now()}] Sincronizando e Reconstruindo timeframe {db['timeframe']} para {db['source']}/{db['asset']}...")
+                print(f"\n{Fore.CYAN}⚙ {Fore.WHITE}Sincronizando e Reconstruindo timeframe {Fore.YELLOW}{db['timeframe']}{Fore.WHITE} para {Fore.YELLOW}{db['source']}/{db['asset']}{Fore.WHITE}...")
                 self.resample_database(db['source'], db['asset'], db['timeframe'])
             except Exception as e:
-                print(f"[{datetime.now()}] Erro ao converter base {db['timeframe']} ({db['source']}/{db['asset']}): {e}")
+                print(f"{Fore.RED}✗ Erro ao converter base {db['timeframe']} ({db['source']}/{db['asset']}): {e}")
 
-        print(f"\n[{datetime.now()}] Tarefa global de atualização (Updates & Resamples) finalizada com sucesso!\n")
+        print(f"\n{Fore.GREEN}{Style.BRIGHT}✓ Tarefa global finalizada com sucesso!{Style.RESET_ALL}\n")
 
     def delete_database(self, source: str, asset: str, timeframe: str = None):
         """Exclui base de dados (ou todos os timeframes do ativo)"""
@@ -136,7 +150,7 @@ class DataManager:
         
     def show_search_summary(self):
         """Apresenta a quantidade total de ativos em cada fonte sem listar."""
-        print(f"\n[{datetime.now()}] Resumo de ativos disponíveis para busca:")
+        print(f"\n{Fore.CYAN}🔍 {Fore.WHITE}Resumo de ativos disponíveis para busca:")
         
         # Dukascopy
         duka_count = 0
@@ -166,7 +180,7 @@ class DataManager:
         """Busca em OpenBB ou Dukascopy ativos disponíveis."""
         source = source.lower()
         if source == "openbb":
-            print(f"\n[{datetime.now()}] Buscando ativos no OpenBB...")
+            print(f"\n{Fore.CYAN}🔍 {Fore.WHITE}Buscando ativos no OpenBB...")
             try:
                 from openbb import obb
                 kwargs = {}
@@ -201,7 +215,7 @@ class DataManager:
                 print(f"Erro ao buscar ativos no OpenBB: {e}")
                 
         elif source == "dukascopy":
-            print(f"\n[{datetime.now()}] Buscando ativos offline (Dukascopy)...")
+            print(f"\n{Fore.CYAN}🔍 {Fore.WHITE}Buscando ativos offline (Dukascopy)...")
             try:
                 # O caminho é relativo à subpasta data onde salvamos o script CSV
                 csv_path = Path("metadata") / "dukas_assets.csv"
@@ -248,7 +262,58 @@ class DataManager:
             print(f"Erro: Não há base M1 salva para {asset} na fonte {source}. Baixe-a primeiro.")
             return
 
-        print(f"[{datetime.now()}] Convertendo {asset} M1 para {target_timeframe}...")
+        print(f"{Fore.CYAN}⚙ {Fore.WHITE}Convertendo {Fore.YELLOW}{asset}{Fore.WHITE} M1 para {Fore.YELLOW}{target_timeframe}{Fore.WHITE}...")
         df_resampled = self.processor.resample_ohlc(df_m1, target_timeframe)
         self.storage.save_data(df_resampled, source, asset, target_timeframe)
-        print(f"[{datetime.now()}] Conversão finalizada e salva!")
+        print(f"{Fore.GREEN}✓ {Fore.WHITE}Conversão finalizada e salva!")
+
+    def check_quality(self, source: str, asset: str, timeframe: str = "M1"):
+        """Realiza validações de integridade e qualidade na base de dados especificada."""
+        try:
+            df = self.storage.load_data(source, asset, timeframe)
+        except FileNotFoundError:
+            print(f"{Fore.RED}Erro: Base de dados {asset} ({timeframe}) na fonte {source} não encontrada.")
+            return
+
+        print(f"\n{Fore.CYAN}{Style.BRIGHT}=== RELATÓRIO DE QUALIDADE: {asset.upper()} ({timeframe}) - {source.upper()} ===")
+        print(f"{Fore.WHITE}Total de Registros Analisados: {Fore.YELLOW}{len(df):,}")
+        print(f"{Fore.CYAN}{'-' * 60}")
+
+        # 1. Teste de Relações OHLC
+        try:
+            relations_mask = (df['High'] >= df['Low']) & \
+                             (df['High'] >= df['Open']) & \
+                             (df['High'] >= df['Close']) & \
+                             (df['Low'] <= df['Open']) & \
+                             (df['Low'] <= df['Close'])
+            failures_ohlc = (~relations_mask).sum()
+            c_ohlc = Fore.RED if failures_ohlc > 0 else Fore.GREEN
+            print(f"{Fore.WHITE}1. Relações Matemáticas OHLC : {c_ohlc}{failures_ohlc} erro(s)")
+        except KeyError:
+            print(f"{Fore.WHITE}1. Relações Matemáticas OHLC : {Fore.YELLOW}Ignorado (Faltam colunas de preço)")
+
+        # 2. Teste de Duplicatas no Índice Temporal
+        failures_dup = df.index.duplicated().sum()
+        c_dup = Fore.RED if failures_dup > 0 else Fore.GREEN
+        print(f"{Fore.WHITE}2. Registros Duplicados      : {c_dup}{failures_dup} erro(s)")
+        
+        # 3. Teste de Ordenação Temporal (Monotonicidade)
+        time_diffs = df.index.to_series().diff()
+        failures_ord = (time_diffs < pd.Timedelta(seconds=0)).sum()
+        c_ord = Fore.RED if failures_ord > 0 else Fore.GREEN
+        print(f"{Fore.WHITE}3. Ordenação Temporal        : {c_ord}{failures_ord} erro(s)")
+            
+        # 4. Análise de Gaps (Buracos)
+        if len(df) > 1:
+            time_diffs = df.index.to_series().diff().dropna()
+            expected_freq = time_diffs.median()
+            
+            gaps_mask = time_diffs > (expected_freq * 5)
+            failures_gaps = gaps_mask.sum()
+            c_gap = Fore.YELLOW if failures_gaps > 0 else Fore.GREEN
+            print(f"{Fore.WHITE}4. Ausência de Dados (Gaps)  : {c_gap}{failures_gaps} gap(s)")
+        else:
+            print(f"{Fore.WHITE}4. Ausência de Dados (Gaps)  : {Fore.YELLOW}Ignorado (Poucos dados para análise)")
+
+        print(f"{Fore.CYAN}{'-' * 60}{Style.RESET_ALL}\n")
+        return

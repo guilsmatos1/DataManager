@@ -6,11 +6,16 @@ class DataProcessor:
     # Mapeamento de abreviações comuns para as regras de resample do pandas
     TF_MAPPING = {
         'M1': '1min',
+        'M2': '2min',
         'M5': '5min',
+        'M10': '10min',
         'M15': '15min',
         'M30': '30min',
         'H1': '1h',
+        'H2': '2h',
+        'H3': '3h',
         'H4': '4h',
+        'H6': '6h',
         'D1': 'D',
         'W1': 'W',
     }

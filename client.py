@@ -100,7 +100,7 @@ if __name__ == "__main__":
         end = datetime.now().strftime("%Y-%m-%d")
         
         print(f"\n1. Solicitando download de AAPL (OpenBB) pelo Servidor ({start} to {end})...")
-        res = client.download("OPENBB", "AAPL", start_date=start, end_date=end)
+        res = client.download("DUKASCOPY", "USATECH", start_date=start, end_date=end)
         print("Resposta:", res)
         # Observação: Como agora usamos BackgroundTasks, a resposta é instantânea
         

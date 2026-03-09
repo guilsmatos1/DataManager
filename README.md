@@ -13,7 +13,7 @@ The main objective of DataManager is to simplify the management of financial dat
 ### Key Features
 - **Data Fetching:** Download historical OHLCV data from OpenBB and Dukascopy.
 - **Local Storage:** Store asset data efficiently on disk.
-- **Resampling:** Convert `M1` base data into any higher timeframe dynamically.
+- **Resampling:** Convert `M1` base data into any higher timeframe dynamically. Supported: `M2`, `M5`, `M10`, `M15`, `M30`, `H1`, `H2`, `H3`, `H4`, `H6`, `D1`, `W1`.
 - **Smart Updating:** Update existing databases by fetching only the newly available data (since the last saved date) and appending it.
 - **Asset Search:** Built-in search functionality to explore available tickers and assets from the supported sources.
 

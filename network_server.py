@@ -55,6 +55,13 @@ def download_data(req: DownloadRequest, background_tasks: BackgroundTasks, api_k
         end_dt = datetime.fromisoformat(req.end_date) if req.end_date else datetime.now()
         
         assets = [a.strip() for a in req.asset.split(',') if a.strip()]
+        
+        # Validação para impedir downloads em duplicidade
+        for asset in assets:
+            info = manager.storage.get_database_info(req.source, asset, "M1")
+            if info.get("status") != "Not Found":
+                raise HTTPException(status_code=409, detail=f"A base de dados de {asset} via {req.source} já existe no servidor. Use a requisição /update para atualizar os dados.")
+                
         for asset in assets:
             background_tasks.add_task(manager.download_data, req.source, asset, start_dt, end_dt)
         return {"status": "success", "message": f"Download de {req.asset} via {req.source} iniciado em segundo plano"}

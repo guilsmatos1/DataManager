@@ -4,17 +4,19 @@ import sys
 from .base import BaseFetcher
 from dukascopy_python import fetch, INTERVAL_MIN_1, OFFER_SIDE_BID
 
+from colorama import Fore, Style
+
 def display_progress_bar(iteration, total, prefix='Download:', suffix='Completo', length=40):
-    """Exibe um progress bar no terminal."""
+    """Exibe um progress bar colorido no terminal."""
     if total == 0:
         total = 1
     percent = f"{100 * (iteration / float(total)):.1f}"
     filled = int(length * iteration // total)
-    bar = '█' * filled + '-' * (length - filled)
-    sys.stdout.write(f'\r{prefix} |{bar}| {percent}% {suffix}')
+    bar = Fore.GREEN + '█' * filled + Style.DIM + Fore.WHITE + '-' * (length - filled)
+    sys.stdout.write(f'\r{Fore.WHITE}{prefix} |{bar}{Fore.WHITE}| {Fore.YELLOW}{percent}% {Fore.WHITE}{suffix}')
     sys.stdout.flush()
     if iteration == total:
-        print()
+        print(Style.RESET_ALL)
 
 class DukascopyFetcher(BaseFetcher):
     """
