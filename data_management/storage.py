@@ -4,7 +4,7 @@ import pandas as pd
 from pathlib import Path
 
 class StorageManager:
-    """Gerencia o armazenamento hierárquico dos dados no schema:
+    """Manages the hierarchical storage of data in the schema:
        database/{source}/{asset}/{timeframe}/
     """
     
@@ -14,15 +14,15 @@ class StorageManager:
         self.format = ".parquet"
 
     def _get_path(self, source: str, asset: str, timeframe: str) -> Path:
-        """Retorna o caminho do arquivo para o dado específico."""
+        """Returns the file path for the specific data."""
         asset_dir = self.base_dir / source.lower() / asset.upper() / timeframe.upper()
         asset_dir.mkdir(parents=True, exist_ok=True)
         return asset_dir / f"data{self.format}"
 
     def save_data(self, df: pd.DataFrame, source: str, asset: str, timeframe: str):
-        """Salva ou sobreescreve os dados completos."""
+        """Saves or overwrites the complete data."""
         file_path = self._get_path(source, asset, timeframe)
-        # Assegura que o index é DateTime e está ordenado
+        # Ensures the index is DateTime and is sorted
         if not isinstance(df.index, pd.DatetimeIndex):
             if 'date' in df.columns or 'time' in df.columns or 'datetime' in df.columns:
                 col = next(c for c in ['datetime', 'date', 'time'] if c in df.columns)
@@ -30,7 +30,7 @@ class StorageManager:
                 df.set_index(col, inplace=True)
         
         df.sort_index(inplace=True)
-        # Removendo fuso horário se houver para não conflitar Parquet
+        # Removing timezone if any to avoid Parquet conflict
         if df.index.tz is not None:
              df.index = df.index.tz_convert(None)
              
@@ -40,24 +40,24 @@ class StorageManager:
             df.to_csv(file_path)
             
     def append_data(self, df: pd.DataFrame, source: str, asset: str, timeframe: str):
-        """Atualiza/Concatena novos dados aos dados existentes."""
+        """Updates/Concatenates new data to existing data."""
         file_path = self._get_path(source, asset, timeframe)
         if not file_path.exists():
             return self.save_data(df, source, asset, timeframe)
             
-        # Carregar existente e juntar
+        # Load existing and join
         existing_df = self.load_data(source, asset, timeframe)
         combined_df = pd.concat([existing_df, df])
         
-        # Tratar duplicações dando exclusividade aos dados mais recentes ou primeiro a chegar
+        # Handle duplications keeping the latest or first arrived data
         combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
         self.save_data(combined_df, source, asset, timeframe)
         
     def load_data(self, source: str, asset: str, timeframe: str) -> pd.DataFrame:
-        """Carrega os dados de um arquivo."""
+        """Loads data from a file."""
         file_path = self._get_path(source, asset, timeframe)
         if not file_path.exists():
-            raise FileNotFoundError(f"Database não encontrada: {source} -> {asset} ({timeframe})")
+            raise FileNotFoundError(f"Database not found: {source} -> {asset} ({timeframe})")
             
         if self.format == ".parquet":
             return pd.read_parquet(file_path, engine='fastparquet')
@@ -66,13 +66,13 @@ class StorageManager:
             return df
 
     def delete_database(self, source: str, asset: str, timeframe: str = None) -> bool:
-        """Exclui a base de dados em específico ou todos os timeframes se não informado."""
+        """Deletes the specific database or all timeframes if not provided."""
         import shutil
         if timeframe:
             file_path = self._get_path(source, asset, timeframe)
             if file_path.exists():
                 file_path.unlink()
-                # Opcional: remover a pasta se estiver vazia
+                # Optional: remove the folder if empty
                 try:
                     os.rmdir(file_path.parent)
                 except OSError:
@@ -86,7 +86,7 @@ class StorageManager:
         return False
 
     def delete_all(self) -> bool:
-        """Exclui todas as bases de dados."""
+        """Deletes all databases."""
         import shutil
         try:
             for item in self.base_dir.iterdir():
@@ -97,7 +97,7 @@ class StorageManager:
             return False
 
     def get_database_info(self, source: str, asset: str, timeframe: str) -> dict:
-        """Retorna as informações descritivas da base de dados."""
+        """Returns descriptive info of the database."""
         file_path = self._get_path(source, asset, timeframe)
         if not file_path.exists():
             return {"status": "Not Found"}
@@ -114,17 +114,17 @@ class StorageManager:
         }
         
     def _cleanup_empty_dirs(self, directory: Path):
-        """Remove recursivamente diretórios vazios a partir de um ponto."""
+        """Recursively removes empty directories from a point."""
         if not directory.is_dir():
             return
 
-        # Primeiro, visita os filhos recursivamente
+        # First, recursively visits children
         for entry in directory.iterdir():
             if entry.is_dir():
                 self._cleanup_empty_dirs(entry)
 
-        # Se após a limpeza dos filhos, este diretório estiver vazio, remove-o
-        # Exceto se for a base_dir principal
+        # If after cleaning children this directory is empty, remove it
+        # Except if it is the main base_dir
         if directory != self.base_dir and not any(directory.iterdir()):
             try:
                 directory.rmdir()
@@ -132,12 +132,12 @@ class StorageManager:
                 pass
 
     def list_databases(self) -> list:
-        """Retorna uma lista de todas as bases baixadas e salvas."""
-        # Limpa pastas vazias antes de listar
+        """Returns a list of all downloaded and saved databases."""
+        # Cleans empty folders before listing
         self._cleanup_empty_dirs(self.base_dir)
         
         all_dbs = []
-        # Percorrendo subpastas (nível 3) -> source/asset/timeframe
+        # Looping through subfolders (level 3) -> source/asset/timeframe
         for source_path in self.base_dir.iterdir():
             if not source_path.is_dir(): continue
             for asset_path in source_path.iterdir():

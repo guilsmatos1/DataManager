@@ -6,7 +6,7 @@ from .base import BaseFetcher
 
 class OpenBBFetcher(BaseFetcher):
     """
-    Baixa dados M1 através do OpenBB (geralmente YFinance proxy).
+    Downloads M1 data via OpenBB (usually YFinance proxy).
     """
     @property
     def source_name(self) -> str:
@@ -34,12 +34,12 @@ class OpenBBFetcher(BaseFetcher):
              from openbb import obb
              res = obb.equity.price.historical(**kwargs)
         except Exception as e:
-             raise RuntimeError(f"Erro no módulo OpenBB ao buscar {asset}: {str(e)}")
+             raise RuntimeError(f"Error in OpenBB module when searching for {asset}: {str(e)}")
              
         df = res.to_df()
         
         if df.empty:
-            raise ValueError(f"OpenBB (YFinance) retornou vazio para {asset} de {start_str} até {end_str}")
+            raise ValueError(f"OpenBB (YFinance) returned empty for {asset} from {start_str} to {end_str}")
             
         # O OpenBB V4 rotorna o index "date"
         if df.index.name != 'date' and 'date' in df.columns:

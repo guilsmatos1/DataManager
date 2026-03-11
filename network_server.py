@@ -12,7 +12,7 @@ from pathlib import Path
 app = FastAPI(title="DataManager Network API", version="1.0.0")
 manager = DataManager()
 
-# --- SEGURANÇA: 1. Autenticação via API Key ---
+# --- SEGURANÇA: 1. Authentication via API Key ---
 API_KEY_NAME = "X-API-Key"
 API_KEY = os.getenv("DATAMANAGER_API_KEY", "YOUR_API_KEY_HERE")
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
@@ -20,9 +20,9 @@ api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 async def get_api_key(api_key: str = Security(api_key_header)):
     if api_key == API_KEY:
         return api_key
-    raise HTTPException(status_code=403, detail="Acesso negado: API Key inválida")
+    raise HTTPException(status_code=403, detail="Access denied: Invalid API Key")
 
-# --- SEGURANÇA: 2. Validação contra Path Traversal ---
+# --- SEGURANÇA: 2. Validation against Path Traversal ---
 SAFE_PATTERN = r"^[a-zA-Z0-9_,\s\-]+$"
 
 class DownloadRequest(BaseModel):
@@ -46,7 +46,7 @@ class ResampleRequest(BaseModel):
     asset: str = Field(..., pattern=SAFE_PATTERN)
     target_timeframe: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
 
-# --- SEGURANÇA: 3. Trefas assíncronas (BackgroundTasks) para não travar o servidor ---
+# --- SEGURANÇA: 3. Asynchronous tasks (BackgroundTasks) to avoid blocking the server ---
 
 @app.post("/download")
 def download_data(req: DownloadRequest, background_tasks: BackgroundTasks, api_key: str = Depends(get_api_key)):
@@ -56,15 +56,15 @@ def download_data(req: DownloadRequest, background_tasks: BackgroundTasks, api_k
         
         assets = [a.strip() for a in req.asset.split(',') if a.strip()]
         
-        # Validação para impedir downloads em duplicidade
+        # Validation to prevent duplicate downloads
         for asset in assets:
             info = manager.storage.get_database_info(req.source, asset, "M1")
             if info.get("status") != "Not Found":
-                raise HTTPException(status_code=409, detail=f"A base de dados de {asset} via {req.source} já existe no servidor. Use a requisição /update para atualizar os dados.")
+                raise HTTPException(status_code=409, detail=f"The database for {asset} via {req.source} already exists on the server. Use the /update request to update the data.")
                 
         for asset in assets:
             background_tasks.add_task(manager.download_data, req.source, asset, start_dt, end_dt)
-        return {"status": "success", "message": f"Download de {req.asset} via {req.source} iniciado em segundo plano"}
+        return {"status": "success", "message": f"Download of {req.asset} via {req.source} started in background"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -74,7 +74,7 @@ def update_data(req: UpdateRequest, background_tasks: BackgroundTasks, api_key: 
         assets = [a.strip() for a in req.asset.split(',') if a.strip()]
         for asset in assets:
             background_tasks.add_task(manager.update_data, req.source, asset, req.timeframe)
-        return {"status": "success", "message": f"Atualização de {req.asset} via {req.source} ({req.timeframe}) iniciada em segundo plano"}
+        return {"status": "success", "message": f"Update of {req.asset} via {req.source} ({req.timeframe}) started in background"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -104,7 +104,7 @@ def list_databases(api_key: str = Depends(get_api_key)):
 @app.get("/info/{source}/{asset}/{timeframe}")
 def get_info(source: str, asset: str, timeframe: str, api_key: str = Depends(get_api_key)):
     if not all(re.match(r"^[a-zA-Z0-9_.\-]+$", p) for p in [source, asset, timeframe]):
-        raise HTTPException(status_code=400, detail="Parâmetros de caminho inválidos nas URLs")
+        raise HTTPException(status_code=400, detail="Invalid path parameters in URLs")
         
     info = manager.info(source, asset, timeframe)
     if info.get("status") == "Not Found":
@@ -142,14 +142,14 @@ def search_assets(source: str = "openbb", query: Optional[str] = None, exchange:
 def resample_data(req: ResampleRequest, background_tasks: BackgroundTasks, api_key: str = Depends(get_api_key)):
     try:
         background_tasks.add_task(manager.resample_database, req.source, req.asset, req.target_timeframe)
-        return {"status": "success", "message": f"Resample de {req.asset} para {req.target_timeframe} iniciado em segundo plano"}
+        return {"status": "success", "message": f"Resample of {req.asset} to {req.target_timeframe} started in background"}
     except Exception as e:
          raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/data/{source}/{asset}/{timeframe}")
 def get_data_file(source: str, asset: str, timeframe: str, api_key: str = Depends(get_api_key)):
     if not all(re.match(r"^[a-zA-Z0-9_\-]+$", p) for p in [source, asset, timeframe]):
-        raise HTTPException(status_code=400, detail="Parâmetros de caminho inválidos")
+        raise HTTPException(status_code=400, detail="Invalid path parameters")
 
     file_path = manager.storage._get_path(source, asset, timeframe)
     if not file_path.exists():
@@ -163,5 +163,5 @@ def get_data_file(source: str, asset: str, timeframe: str, api_key: str = Depend
 
 if __name__ == "__main__":
     import uvicorn
-    print("Iniciando DataManager Network API (Protegida) ...")
+    print("Starting DataManager Network API (Protected) ...")
     uvicorn.run(app, host="0.0.0.0", port=8686)

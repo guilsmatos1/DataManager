@@ -5,8 +5,8 @@ from .base import BaseFetcher
 
 from colorama import Fore, Style
 
-def display_progress_bar(iteration, total, prefix='Download:', suffix='Completo', length=40):
-    """Exibe um progress bar colorido no terminal."""
+def display_progress_bar(iteration, total, prefix='Download:', suffix='Complete', length=40):
+    """Displays a colored progress bar in the terminal."""
     if total == 0:
         total = 1
     percent = f"{100 * (iteration / float(total)):.1f}"
@@ -19,7 +19,7 @@ def display_progress_bar(iteration, total, prefix='Download:', suffix='Completo'
 
 class DukascopyFetcher(BaseFetcher):
     """
-    Baixa dados M1 usando a biblioteca dukascopy-python em chunks com progress bar.
+    Downloads M1 data using the dukascopy-python library in chunks with a progress bar.
     """
     @property
     def source_name(self) -> str:
@@ -45,10 +45,10 @@ class DukascopyFetcher(BaseFetcher):
             if not match.empty:
                 asset_clean = match.iloc[0]["ticker"]
             else:
-                raise ValueError(f"O ativo '{asset_upper}' não existe na base da Dukascopy. Use 'search --source dukascopy --query {asset_upper}' para consultar tickets e aliases válidos.")
+                raise ValueError(f"Asset '{asset_upper}' does not exist in the Dukascopy database. Use 'search --source dukascopy --query {asset_upper}' to query valid tickers and aliases.")
         else:
             # Fallback provisório caso o arquivo CSV não exista
-            print(f"Aviso: Arquivo dukas_assets.csv não encontrado em {csv_path}. Baixando sem validação prévia...")
+            print(f"Warning: File dukas_assets.csv not found at {csv_path}. Downloading without prior validation...")
             asset_clean = asset_upper
             
         dfs = []
@@ -60,7 +60,7 @@ class DukascopyFetcher(BaseFetcher):
         chunk_size = 7
         total_chunks = (total_days // chunk_size) + (1 if total_days % chunk_size != 0 else 0)
         
-        display_progress_bar(0, total_chunks, prefix=f'Baixando {asset_clean}:')
+        display_progress_bar(0, total_chunks, prefix=f'Downloading {asset_clean}:')
         
         for i in range(total_chunks):
             chunk_start = start_date + timedelta(days=i * chunk_size)
@@ -81,10 +81,10 @@ class DukascopyFetcher(BaseFetcher):
                 # Finais de semana podem retornar falhas por falta de dados
                 pass
                 
-            display_progress_bar(i + 1, total_chunks, prefix=f'Baixando {asset_clean}:')
+            display_progress_bar(i + 1, total_chunks, prefix=f'Downloading {asset_clean}:')
             
         if not dfs:
-             raise ValueError(f"Dukascopy retornou vazio para {asset_clean} em {start_date} -> {end_date}")
+             raise ValueError(f"Dukascopy returned empty for {asset_clean} from {start_date} -> {end_date}")
              
         df = pd.concat(dfs)
         

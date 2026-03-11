@@ -4,7 +4,7 @@ from datetime import datetime
 
 class BaseFetcher(ABC):
     """
-    Interface base para todos os Data Fetchers
+    Base interface for all Data Fetchers
     """
     
     @property
@@ -15,8 +15,8 @@ class BaseFetcher(ABC):
     @abstractmethod
     def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
         """
-        Baixa dados M1 do ativo no intervalo de tempo especificado.
-        Espera retornar um pandas DataFrame com:
+        Downloads M1 data for the asset in the specified time range.
+        Expects to return a pandas DataFrame with:
         - Index: datetime timezone-naive
         - Colunas: Open, High, Low, Close, Volume
         """

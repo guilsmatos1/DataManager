@@ -1,7 +1,7 @@
 services:
   datamanager_api:
     image: ghcr.io/guilsmatos1/datamanager:latest # Puxando do Github Registry
-    container_name: datamanager_server
+    container_name: datamanager-server
     environment:
       - DATAMANAGER_API_KEY=${DATAMANAGER_API_KEY:-YOUR_API_KEY_HERE} # Chave de API, defina no CasaOS
     restart: always # Faz ele reiniciar sempre e ligar com o PC

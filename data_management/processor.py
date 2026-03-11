@@ -1,9 +1,9 @@
 import pandas as pd
 
 class DataProcessor:
-    """Classe utilitária para converter timeframes de OHLC."""
+    """Utility class for converting OHLC timeframes."""
     
-    # Mapeamento de abreviações comuns para as regras de resample do pandas
+    # Mapping of common abbreviations to pandas resample rules
     TF_MAPPING = {
         'M1': '1min',
         'M2': '2min',
@@ -23,16 +23,16 @@ class DataProcessor:
     @classmethod
     def resample_ohlc(cls, df: pd.DataFrame, target_timeframe: str) -> pd.DataFrame:
         """
-        Recebe um DataFrame OHLCV (em menor tempo, ex: M1) e converte para um maior tempo.
+        Takes an OHLCV DataFrame (lower timeframe, e.g. M1) and converts it to a higher timeframe.
         """
         if target_timeframe.upper() not in cls.TF_MAPPING:
-            raise ValueError(f"Timeframe alvo não suportado: {target_timeframe}. Use {list(cls.TF_MAPPING.keys())}")
+            raise ValueError(f"Target timeframe not supported: {target_timeframe}. Use {list(cls.TF_MAPPING.keys())}")
             
         rule = cls.TF_MAPPING[target_timeframe.upper()]
         
-        # Mapear os dicionarios de agregação
-        # Pressupõe colunas em minusculo como padrao nas devoluções de openbb/dukascopy
-        # Faremos validação flexível de colunas
+        # Map aggregation dictionaries
+        # Assumes lowercase columns as default in openbb/dukascopy returns
+        # We will do flexible column validation
         cols = {c.lower(): c for c in df.columns}
         
         agg_dict = {}
@@ -43,7 +43,7 @@ class DataProcessor:
         if 'volume' in cols: agg_dict[cols['volume']] = 'sum'
             
         if not agg_dict:
-            raise ValueError("O DataFrame não contém colunas válidas de OHLC para resample.")
+            raise ValueError("The DataFrame does not contain valid OHLC columns for resampling.")
             
         resampled_df = df.resample(rule).agg(agg_dict).dropna()
         return resampled_df

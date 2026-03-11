@@ -4,9 +4,9 @@ from cli import DataManagerCLI
 
 def main():
     parser = argparse.ArgumentParser(description="DataManager Command Line Interface")
-    parser.add_argument('-i', '--interactive', action='store_true', help="Iniciar no modo interativo")
+    parser.add_argument('-i', '--interactive', action='store_true', help="Start in interactive mode")
     # Capturar argumentos extras que compõem o comando nativo sem disparar erro
-    parser.add_argument('command', nargs=argparse.REMAINDER, help="Comando direto para execução")
+    parser.add_argument('command', nargs=argparse.REMAINDER, help="Direct command for execution")
     
     args = parser.parse_args()
 
@@ -30,7 +30,7 @@ def main():
             parser.print_help()
             
     except KeyboardInterrupt:
-        print("\nServidor interrompido pelo usuário.")
+        print("\nServer interrupted by user.")
         sys.exit(0)
 
 if __name__ == "__main__":
