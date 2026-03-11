@@ -37,7 +37,7 @@ class StorageManager:
     def _save_catalog(self, catalog: list):
         """Saves the metadata catalog to disk."""
         with open(self.catalog_path, "w") as f:
-            json.dump(catalog, f, indent=4)
+            json.dump(catalog, f)
 
     def _update_catalog_entry(self, source: str, asset: str, timeframe: str):
         """Updates or adds an entry to the catalog."""

@@ -184,21 +184,21 @@ class DataManagerCLI(cmd.Cmd):
             return
 
         print(f"\n{Fore.CYAN}{Style.BRIGHT}PERSISTED DATABASES:")
-        print(f"{Fore.WHITE}=" * 115)
-        header = f"{'ID':<4} | {'SOURCE':<12} | {'ASSET':<12} | {'TF':<5} | {'LINHAS':<10} | {'START':<19} | {'END':<19} | {'SIZE'}"
+        print(f"{Fore.WHITE}=" * 95)
+        header = f"{'ID':<3} | {'SOURCE':<10} | {'ASSET':<8} | {'TF':<4} | {'ROWS':<8} | {'START':<16} | {'END':<16} | {'SIZE'}"
         print(f"{Fore.YELLOW}{header}")
-        print(f"{Fore.WHITE}-" * 115)
+        print(f"{Fore.WHITE}-" * 95)
 
         for idx, db in enumerate(dbs):
             # Date formatting, removing seconds if necessary
-            start = db['start_date'][:19]
-            end = db['end_date'][:19]
-            row = (f"{idx+1:<4} | {db['source'].upper():<12} | {db['asset'].upper():<12} | "
-                   f"{db['timeframe'].upper():<5} | {db['rows']:<10} | {start:<19} | "
-                   f"{end:<19} | {db['file_size_kb']} KB")
+            start = db['start_date'][:16]
+            end = db['end_date'][:16]
+            row = (f"{idx+1:<3} | {db['source'].upper()[:10]:<10} | {db['asset'].upper()[:8]:<8} | "
+                   f"{db['timeframe'].upper()[:4]:<4} | {db['rows']:<8} | {start:<16} | "
+                   f"{end:<16} | {db['file_size_kb']} KB")
             print(f"{Fore.WHITE}{row}")
 
-        print(f"{Fore.WHITE}=" * 115)
+        print(f"{Fore.WHITE}=" * 95)
         print(f"{Fore.CYAN}Tip: Use 'rebuild' command to resync this list if you manually changed files.\n")
             
     def do_rebuild(self, arg):
