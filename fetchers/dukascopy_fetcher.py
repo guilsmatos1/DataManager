@@ -2,7 +2,6 @@ import pandas as pd
 from datetime import datetime, timedelta
 import sys
 from .base import BaseFetcher
-from dukascopy_python import fetch, INTERVAL_MIN_1, OFFER_SIDE_BID
 
 from colorama import Fore, Style
 
@@ -68,6 +67,7 @@ class DukascopyFetcher(BaseFetcher):
             chunk_end = min(chunk_start + timedelta(days=chunk_size), end_date)
             
             try:
+                from dukascopy_python import fetch, INTERVAL_MIN_1, OFFER_SIDE_BID
                 df_chunk = fetch(
                     instrument=asset_clean,
                     interval=INTERVAL_MIN_1,

@@ -2,8 +2,7 @@ import pandas as pd
 from datetime import datetime
 from .base import BaseFetcher
 
-# OpenBB v4 import
-from openbb import obb
+
 
 class OpenBBFetcher(BaseFetcher):
     """
@@ -32,6 +31,7 @@ class OpenBBFetcher(BaseFetcher):
             kwargs["end_date"] = end_date.strftime("%Y-%m-%d")
             
         try:
+             from openbb import obb
              res = obb.equity.price.historical(**kwargs)
         except Exception as e:
              raise RuntimeError(f"Erro no módulo OpenBB ao buscar {asset}: {str(e)}")
