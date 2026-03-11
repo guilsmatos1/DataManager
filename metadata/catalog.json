@@ -1,0 +1,29 @@
+[
+    {
+        "source": "openbb",
+        "asset": "AAPL",
+        "timeframe": "M1",
+        "rows": 1949,
+        "start_date": "2026-03-02 09:30:00",
+        "end_date": "2026-03-06 15:59:00",
+        "file_size_kb": 54.36
+    },
+    {
+        "source": "openbb",
+        "asset": "AAPL",
+        "timeframe": "H2",
+        "rows": 20,
+        "start_date": "2026-03-02 08:00:00",
+        "end_date": "2026-03-06 14:00:00",
+        "file_size_kb": 2.46
+    },
+    {
+        "source": "openbb",
+        "asset": "AAPL",
+        "timeframe": "H1",
+        "rows": 35,
+        "start_date": "2026-03-02 09:00:00",
+        "end_date": "2026-03-06 15:00:00",
+        "file_size_kb": 2.98
+    }
+]

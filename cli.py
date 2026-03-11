@@ -198,7 +198,15 @@ class DataManagerCLI(cmd.Cmd):
                    f"{end:<19} | {db['file_size_kb']} KB")
             print(f"{Fore.WHITE}{row}")
 
-        print(f"{Fore.WHITE}=" * 115 + "\n")    
+        print(f"{Fore.WHITE}=" * 115)
+        print(f"{Fore.CYAN}Tip: Use 'rebuild' command to resync this list if you manually changed files.\n")
+            
+    def do_rebuild(self, arg):
+        """Rebuilds the database catalog index. Usage: rebuild"""
+        print(f"{Fore.YELLOW}Rebuilding catalog. This might take a few seconds...")
+        result = self.server.storage.rebuild_catalog()
+        count = result.get('count', 0)
+        print(f"{Fore.GREEN}✓ Catalog rebuilt successfully! ({count} databases indexed)\n")
             
     def do_search(self, arg):
         """

@@ -2,6 +2,7 @@ import os
 import glob
 import pandas as pd
 from pathlib import Path
+import json
 
 class StorageManager:
     """Manages the hierarchical storage of data in the schema:
@@ -12,12 +13,60 @@ class StorageManager:
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.format = ".parquet"
+        self.catalog_path = self.base_dir.parent / "metadata" / "catalog.json"
+        
+        # Ensure metadata dir exists
+        self.catalog_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _get_path(self, source: str, asset: str, timeframe: str) -> Path:
         """Returns the file path for the specific data."""
         asset_dir = self.base_dir / source.lower() / asset.upper() / timeframe.upper()
         asset_dir.mkdir(parents=True, exist_ok=True)
         return asset_dir / f"data{self.format}"
+
+    def _load_catalog(self) -> list:
+        """Loads the metadata catalog from disk."""
+        if not self.catalog_path.exists():
+            return []
+        try:
+            with open(self.catalog_path, "r") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return []
+
+    def _save_catalog(self, catalog: list):
+        """Saves the metadata catalog to disk."""
+        with open(self.catalog_path, "w") as f:
+            json.dump(catalog, f, indent=4)
+
+    def _update_catalog_entry(self, source: str, asset: str, timeframe: str):
+        """Updates or adds an entry to the catalog."""
+        catalog = self._load_catalog()
+        info = self.get_database_info(source, asset, timeframe)
+        
+        # Remove existing if any
+        catalog = [c for c in catalog if not (c["source"].lower() == source.lower() and c["asset"].lower() == asset.lower() and c["timeframe"].lower() == timeframe.lower())]
+        
+        if info.get("status") != "Not Found":
+            catalog.append(info)
+            self._save_catalog(catalog)
+
+    def rebuild_catalog(self):
+        """Rebuilds the entire catalog by scanning the disk."""
+        catalog = []
+        # Loops logic previously in list_databases
+        for source_path in self.base_dir.iterdir():
+            if not source_path.is_dir(): continue
+            for asset_path in source_path.iterdir():
+                if not asset_path.is_dir(): continue
+                for time_path in asset_path.iterdir():
+                    if not time_path.is_dir(): continue
+                    if (time_path / f"data{self.format}").exists():
+                        info = self.get_database_info(source_path.name, asset_path.name, time_path.name)
+                        if info.get("status") != "Not Found":
+                            catalog.append(info)
+        self._save_catalog(catalog)
+        return {"status": "success", "count": len(catalog)}
 
     def save_data(self, df: pd.DataFrame, source: str, asset: str, timeframe: str):
         """Saves or overwrites the complete data."""
@@ -38,6 +87,8 @@ class StorageManager:
             df.to_parquet(file_path, engine='fastparquet')
         else:
             df.to_csv(file_path)
+        
+        self._update_catalog_entry(source, asset, timeframe)
             
     def append_data(self, df: pd.DataFrame, source: str, asset: str, timeframe: str):
         """Updates/Concatenates new data to existing data."""
@@ -77,11 +128,15 @@ class StorageManager:
                     os.rmdir(file_path.parent)
                 except OSError:
                     pass 
+                self._update_catalog_entry(source, asset, timeframe)
                 return True
         else:
             asset_dir = self.base_dir / source.lower() / asset.upper()
             if asset_dir.exists():
                 shutil.rmtree(asset_dir)
+                catalog = self._load_catalog()
+                catalog = [c for c in catalog if not (c["source"].lower() == source.lower() and c["asset"].lower() == asset.lower())]
+                self._save_catalog(catalog)
                 return True
         return False
 
@@ -92,6 +147,7 @@ class StorageManager:
             for item in self.base_dir.iterdir():
                 if item.is_dir():
                     shutil.rmtree(item)
+            self._save_catalog([])
             return True
         except OSError:
             return False
@@ -132,22 +188,6 @@ class StorageManager:
                 pass
 
     def list_databases(self) -> list:
-        """Returns a list of all downloaded and saved databases."""
-        # Cleans empty folders before listing
+        """Returns a list of all downloaded and saved databases (Fast catalog read)."""
         self._cleanup_empty_dirs(self.base_dir)
-        
-        all_dbs = []
-        # Looping through subfolders (level 3) -> source/asset/timeframe
-        for source_path in self.base_dir.iterdir():
-            if not source_path.is_dir(): continue
-            for asset_path in source_path.iterdir():
-                if not asset_path.is_dir(): continue
-                for time_path in asset_path.iterdir():
-                    if not time_path.is_dir(): continue
-                    if (time_path / f"data{self.format}").exists():
-                        all_dbs.append({
-                            "source": source_path.name,
-                            "asset": asset_path.name,
-                            "timeframe": time_path.name
-                        })
-        return all_dbs
+        return self._load_catalog()
