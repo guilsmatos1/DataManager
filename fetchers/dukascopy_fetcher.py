@@ -2,8 +2,13 @@ import pandas as pd
 from datetime import datetime, timedelta
 import sys
 from .base import BaseFetcher
+import logging
 
 from colorama import Fore, Style
+
+# Desativa prints e infos internos do dukascopy-python
+logging.getLogger("dukascopy_python").setLevel(logging.WARNING)
+logging.getLogger("DUKASCRIPT").setLevel(logging.WARNING)
 
 def display_progress_bar(iteration, total, prefix='Download:', suffix='Complete', length=40):
     """Displays a colored progress bar in the terminal."""
