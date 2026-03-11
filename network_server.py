@@ -14,7 +14,7 @@ manager = DataManager()
 
 # --- SEGURANÇA: 1. Autenticação via API Key ---
 API_KEY_NAME = "X-API-Key"
-API_KEY = os.getenv("DATAMANAGER_API_KEY", "K91DS441s31")
+API_KEY = os.getenv("DATAMANAGER_API_KEY", "YOUR_API_KEY_HERE")
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 
 async def get_api_key(api_key: str = Security(api_key_header)):

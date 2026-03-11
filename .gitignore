@@ -29,3 +29,7 @@ Thumbs.db
 .vscode/
 .idea/
 .ruff_cache/
+
+# AI
+.agents/
+

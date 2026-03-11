@@ -7,7 +7,7 @@ class DataManagerClient:
     """
     Cliente Python para se conectar ao DataManager Network API protegido com API Key.
     """
-    def __init__(self, base_url: str = "http://127.0.0.1:8686", api_key: str = "K91DS441s31"):
+    def __init__(self, base_url: str = "http://127.0.0.1:8686", api_key: str = "YOUR_API_KEY_HERE"):
         self.base_url = base_url.rstrip("/")
         # Usa um Session para carregar automaticamente o header customizado
         self.session = requests.Session()
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     print("Testando DataManager Client...")
     
     # Inicia o cliente passando a host padrao e a chave (opcional se bater c/ o padrao do __init__)
-    client = DataManagerClient("http://100.100.10.240:8686", api_key="K91DS441s31")
+    client = DataManagerClient("http://127.0.0.1:8686", api_key="YOUR_API_KEY_HERE")
     
     try:
         from datetime import datetime, timedelta
