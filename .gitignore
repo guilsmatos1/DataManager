@@ -33,4 +33,6 @@ Thumbs.db
 # AI
 .agents/
 
-\n# Logs\n*.log\n
+# Logs e outputs
+*.log
+log.log
