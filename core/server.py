@@ -8,7 +8,7 @@ from colorama import init, Fore, Style
 import logging
 from tqdm import tqdm
 
-# Desativar logs excessivos de bibliotecas externas
+# Disable excessive logging from external libraries
 logging.getLogger("dukascopy_python").setLevel(logging.WARNING)
 logging.getLogger("DUKASCRIPT").setLevel(logging.WARNING)
 
@@ -180,7 +180,7 @@ class DataManager:
         
     def show_search_summary(self):
         """Displays the total amount of assets from each source without listing."""
-        logger.info("Resumo de ativos disponíveis for busca:")
+        logger.info("Summary of available assets for search:")
         
         for source_name, fetcher in self._fetchers.items():
             try:
@@ -204,7 +204,7 @@ class DataManager:
             df = fetcher.search(query=query, exchange=exchange)
             
             if df.empty:
-                logger.info(f"Nenhum ativo encontrado for estes parâmetros no {source_key}.")
+                logger.info(f"No asset found for these parameters in {source_key}.")
                 return
                 
             print(f"Found {len(df)} results. Displaying the first 20:")
@@ -243,7 +243,7 @@ class DataManager:
         try:
             df_m1 = self.storage.load_data(source, asset, timeframe="M1")
         except FileNotFoundError:
-            logger.error(f"Não há base M1 salva for {asset} in source {source}. Download it first.")
+            logger.error(f"There is no saved M1 base for {asset} in source {source}. Download it first.")
             return
 
         logger.info(f"Converting {asset} M1 for {target_timeframe}...")
@@ -264,7 +264,7 @@ class DataManager:
         try:
             df = self.storage.load_data(source, asset, timeframe)
         except FileNotFoundError:
-            logger.error(f"Database {asset} ({timeframe}) in source {source} não encontrada.")
+            logger.error(f"Database {asset} ({timeframe}) in source {source} not found.")
             return
 
         logger.info(f"=== QUALITY REPORT: {asset.upper()} ({timeframe}) - {source.upper()} ===")
@@ -300,6 +300,6 @@ class DataManager:
             failures_gaps = gaps_mask.sum()
             logger.info(f"4. Absence of Data (Gaps)    : {failures_gaps} gap(s)")
         else:
-            logger.info("4. Absence of Data (Gaps)    : Ignorado (Poucos dados for análise)")
+            logger.info("4. Absence of Data (Gaps)    : Ignored (Few data for analysis)")
 
         return

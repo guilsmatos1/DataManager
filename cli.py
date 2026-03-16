@@ -31,7 +31,7 @@ class DataManagerCLI(cmd.Cmd):
  {Style.BRIGHT}COMMANDS:{Style.NORMAL}
  {Fore.CYAN}download{Fore.WHITE} | {Fore.CYAN}update{Fore.WHITE} | {Fore.CYAN}search{Fore.WHITE} | {Fore.CYAN}list{Fore.WHITE} | {Fore.CYAN}resample{Fore.WHITE} | {Fore.CYAN}delete{Fore.WHITE} | {Fore.CYAN}quality{Fore.WHITE}
         
- {Fore.WHITE}Digite {Fore.YELLOW}'help'{Fore.WHITE} para o manual completo ou {Fore.YELLOW}'exit'{Fore.WHITE} para sair.
+ {Fore.WHITE}Type {Fore.YELLOW}'help'{Fore.WHITE} for the full manual or {Fore.YELLOW}'exit'{Fore.WHITE} to quit.
 ════════════════════════════════════════════════════════════════════════
 """
     prompt = f"{Fore.GREEN}DataManager> {Style.RESET_ALL}"
@@ -59,7 +59,7 @@ class DataManagerCLI(cmd.Cmd):
         
     def do_download(self, arg):
         """
-        Download new data. Usage: download <fonte> <ativo1,ativo2,...> [start_date] [end_date] [-timeframe tf1,tf2,...]
+        Download new data. Usage: download <source> <asset1,asset2,...> [start_date] [end_date] [-timeframe tf1,tf2,...]
         Examples:
           download OPENBB AAPL,MSFT 2023-01-01 2024-01-01
           download DUKASCOPY EURUSD,GBPUSD (downloads full history)
@@ -75,7 +75,7 @@ class DataManagerCLI(cmd.Cmd):
             args = args[:idx] + args[idx+2:]
 
         if len(args) not in [2, 3, 4]:
-            logger.error("Correct usage: download <fonte> <assets,comma,separated> [start_date] [end_date] [-timeframe tf1,tf2,...]")
+            logger.error("Correct usage: download <source> <assets,comma,separated> [start_date] [end_date] [-timeframe tf1,tf2,...]")
             return
             
         source = args[0]
@@ -109,9 +109,9 @@ class DataManagerCLI(cmd.Cmd):
 
     def do_update(self, arg):
         """
-        Updates an existing database. Uso: update <fonte> <ativo1,ativo2,...> [timeframe]
-        Exemplo: update OPENBB AAPL,MSFT
-        Exemplo: update OPENBB AAPL,MSFT H1
+        Updates an existing database. Usage: update <source> <asset1,asset2,...> [timeframe]
+        Example: update OPENBB AAPL,MSFT
+        Example: update OPENBB AAPL,MSFT H1
         Special command: update all (Updates all M1 and resamples to higher TFs)
         """
         args = arg.split()
@@ -121,7 +121,7 @@ class DataManagerCLI(cmd.Cmd):
             return
 
         if len(args) not in [2, 3]:
-            logger.error("Correct usage: update <fonte> <assets,comma,separated> [timeframe=M1] ou update all")
+            logger.error("Correct usage: update <source> <assets,comma,separated> [timeframe=M1] or update all")
             return
             
         source = args[0]
@@ -136,8 +136,8 @@ class DataManagerCLI(cmd.Cmd):
 
     def do_delete(self, arg):
         """
-        Delete database(s). Uso: delete <fonte> <assets,comma,separated> [timeframe]
-                                       delete all
+        Delete database(s). Usage: delete <source> <assets,comma,separated> [timeframe]
+                                    delete all
         Examples: 
           delete OPENBB AAPL,MSFT M1
           delete dukascopy eurusd
@@ -153,7 +153,7 @@ class DataManagerCLI(cmd.Cmd):
             return
 
         if len(args) < 2 or len(args) > 3:
-            logger.error("Correct usage: delete <fonte> <assets,comma,separated> [timeframe] ou delete all")
+            logger.error("Correct usage: delete <source> <assets,comma,separated> [timeframe] or delete all")
             return
             
         source = args[0]
@@ -168,11 +168,11 @@ class DataManagerCLI(cmd.Cmd):
 
     def do_info(self, arg):
         """
-        Shows info about a database. Uso: info <fonte> <ativo> <timeframe>
+        Shows info about a database. Usage: info <source> <asset> <timeframe>
         """
         args = arg.split()
         if len(args) != 3:
-             logger.error("Correct usage: info <fonte> <ativo> <timeframe>")
+             logger.error("Correct usage: info <source> <asset> <timeframe>")
              return
              
         info = self.server.info(args[0], args[1], args[2])
@@ -180,7 +180,7 @@ class DataManagerCLI(cmd.Cmd):
              logger.info(f"{k.capitalize()}: {v}")
 
     def do_list(self, arg):
-        """Lists all saved databases with technical details. Uso: list"""
+        """Lists all saved databases with technical details. Usage: list"""
         dbs = self.server.list_all()
         if not dbs:
             logger.warning("No databases found on disk.")
@@ -214,24 +214,24 @@ class DataManagerCLI(cmd.Cmd):
     def do_search(self, arg):
         """
         Search supported assets via specific source (Default: OpenBB)
-        Uso: search [--source FONTE] [--query QUERY] [--exchange EXCHANGE]
+        Usage: search [--source SOURCE] [--query QUERY] [--exchange EXCHANGE]
         Examples:
           search
-          search --query "Apple"
+          search --query \"Apple\"
           search --exchange NYSE
-          search --source dukascopy --query "bitcoin"
+          search --source dukascopy --query \"bitcoin\"
         """
         if not arg.strip():
             self.server.show_search_summary()
             return
 
         parser = argparse.ArgumentParser(prog='search', description='Search assets', exit_on_error=False)
-        parser.add_argument('--source', type=str, default='openbb', help='Search source (openbb ou dukascopy)')
+        parser.add_argument('--source', type=str, default='openbb', help='Search source (openbb or dukascopy)')
         parser.add_argument('--query', type=str, help='Keyword to search')
-        parser.add_argument('--exchange', type=str, help='Exchange to filter (Apenas OpenBB)')
+        parser.add_argument('--exchange', type=str, help='Exchange to filter (OpenBB only)')
         
         try:
-            # shlex.split handles quotes well ("Apple Inc")
+            # shlex.split handles quotes well (\"Apple Inc\")
             args_parsed = parser.parse_args(shlex.split(arg))
             self.server.search_assets(
                 source=args_parsed.source,
@@ -245,15 +245,15 @@ class DataManagerCLI(cmd.Cmd):
             
     def do_resample(self, arg):
         """
-        Converts an existing M1 database to outro(s) timeframe(s). 
-        Uso: resample <fonte> <ativo1,ativo2,...> <novo_timeframe1,novo_timeframe2,...>
+        Converts an existing M1 database to other timeframe(s). 
+        Usage: resample <source> <asset1,asset2,...> <new_timeframe1,new_timeframe2,...>
         
         Supported timeframes: M2, M5, M10, M15, M30, H1, H2, H3, H4, H6, D1, W1
-        Exemplo: resample OPENBB AAPL,MSFT H1,H2
+        Example: resample OPENBB AAPL,MSFT H1,H2
         """
         args = arg.split()
         if len(args) != 3:
-             logger.error("Correct usage: resample <fonte> <assets,comma,separated> <novos_timeframes,separados>")
+             logger.error("Correct usage: resample <source> <assets,comma,separated> <new_timeframes,separated>")
              return
              
         source = args[0]
@@ -265,23 +265,23 @@ class DataManagerCLI(cmd.Cmd):
                 try:
                     self.server.resample_database(source, asset, tf)
                 except Exception as e:
-                    logger.error(f"Error converting {asset} para {tf}: {e}")
+                    logger.error(f"Error converting {asset} to {tf}: {e}")
 
     def do_quality(self, arg):
         """
         Performs quality tests and returns error count in a database.
-        Uso: quality <fonte> <ativo1,ativo2,...> [timeframe]
-        Exemplo: quality OPENBB AAPL,MSFT M1
+        Usage: quality <source> <asset1,asset2,...> [timeframe]
+        Example: quality OPENBB AAPL,MSFT M1
         
         Analyses performed:
-        - Relações OHLC: Ensures basic logic (High >= Low, High >= Open/Close, Low <= Open/Close).
-        - Duplicatas: Detects records with exact same timestamp (erros de importação).
-        - Ordenação Temporal: Confirms timestamps are in chronological order.
+        - OHLC Relations: Ensures basic logic (High >= Low, High >= Open/Close, Low <= Open/Close).
+        - Duplicates: Detects records with exact same timestamp (import errors).
+        - Temporal Ordering: Confirms timestamps are in chronological order.
         - Gaps: Quantifies prolonged absence (gaps) based on frequency.
         """
         args = arg.split()
         if len(args) not in [2, 3]:
-            logger.error("Correct usage: quality <fonte> <assets,comma,separated> [timeframe=M1]")
+            logger.error("Correct usage: quality <source> <assets,comma,separated> [timeframe=M1]")
             return
 
         source = args[0]

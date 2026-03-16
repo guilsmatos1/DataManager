@@ -15,7 +15,7 @@ class OpenBBFetcher(BaseFetcher):
     def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
         
         # Obb equity price history method (using yfinance provider as default for M1)
-        # Note que openbb V4 a sintaxe é struct: obb.equity.price.historical()
+        # Note that in openbb V4 the syntax is struct: obb.equity.price.historical()
         
         kwargs = {
             "symbol": asset,
@@ -23,9 +23,9 @@ class OpenBBFetcher(BaseFetcher):
             "provider": "yfinance"
         }
         
-        # Se o ano for > 2000, significa que o usuário especificou um range.
-        # Caso contrário (2000-01-01 default absoluto da CLI para Full History),
-        # omitimos start e end pro provider trazer o limite histórico dele próprio.
+        # If the year is > 2000, it means the user specified a range.
+        # Otherwise (2000-01-01 absolute default of the CLI for Full History),
+        # we omit start and end so the provider brings its own historical limit.
         if start_date.year > 2000:
             kwargs["start_date"] = start_date.strftime("%Y-%m-%d")
             kwargs["end_date"] = end_date.strftime("%Y-%m-%d")
@@ -39,13 +39,13 @@ class OpenBBFetcher(BaseFetcher):
         df = res.to_df()
         
         if df.empty:
-            raise ValueError(f"OpenBB (YFinance) returned empty for {asset} from {start_str} to {end_str}")
+            raise ValueError(f"OpenBB (YFinance) returned empty for {asset} from {start_date.date()} to {end_date.date()}")
             
-        # O OpenBB V4 rotorna o index "date"
+        # OpenBB V4 returns the "date" index
         if df.index.name != 'date' and 'date' in df.columns:
             df.set_index('date', inplace=True)
             
-        # Ajustar timezone e colunas para bater com o layout padrão do storage manager
+        # Adjust timezone and columns to match the standard layout of the storage manager
         if df.index.tz is not None:
              df.index = df.index.tz_convert(None)
              

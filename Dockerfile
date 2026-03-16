@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /app
 
-# Instalar dependências de sistema comumente necessárias para o openbb / pandas
+# Install system dependencies commonly required for openbb / pandas
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
@@ -12,5 +12,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Comando padrão
+# Default command
 CMD ["python", "main.py", "-i"]

@@ -12,7 +12,7 @@ from pathlib import Path
 app = FastAPI(title="DataManager Network API", version="1.0.0")
 manager = DataManager()
 
-# --- SEGURANÇA: 1. Authentication via API Key ---
+# --- SECURITY: 1. Authentication via API Key ---
 API_KEY_NAME = "X-API-Key"
 API_KEY = os.getenv("DATAMANAGER_API_KEY", "YOUR_API_KEY_HERE")
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
@@ -22,7 +22,7 @@ async def get_api_key(api_key: str = Security(api_key_header)):
         return api_key
     raise HTTPException(status_code=403, detail="Access denied: Invalid API Key")
 
-# --- SEGURANÇA: 2. Validation against Path Traversal ---
+# --- SECURITY: 2. Validation against Path Traversal ---
 SAFE_PATTERN = r"^[a-zA-Z0-9_,\s\-]+$"
 
 class DownloadRequest(BaseModel):
@@ -46,7 +46,7 @@ class ResampleRequest(BaseModel):
     asset: str = Field(..., pattern=SAFE_PATTERN)
     target_timeframe: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
 
-# --- SEGURANÇA: 3. Asynchronous tasks (BackgroundTasks) to avoid blocking the server ---
+# --- SECURITY: 3. Asynchronous tasks (BackgroundTasks) to avoid blocking the server ---
 
 @app.post("/download")
 def download_data(req: DownloadRequest, background_tasks: BackgroundTasks, api_key: str = Depends(get_api_key)):

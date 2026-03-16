@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from colorama import Fore, Style
 
-# Desativa prints e infos internos do dukascopy-python
+# Disable internal prints and info from dukascopy-python
 logging.getLogger("dukascopy_python").setLevel(logging.WARNING)
 logging.getLogger("DUKASCRIPT").setLevel(logging.WARNING)
 
@@ -25,14 +25,14 @@ class DukascopyFetcher(BaseFetcher):
         from pathlib import Path
         import os
         
-        # Como o script main e os workers rodam a partir de "Servidor de Dados", 
-        # a pasta data deve estar no mesmo diretório de onde o comando é rodado.
+        # As the main script and workers run from the project root,
+        # the metadata folder must be in the same directory where the command is run.
         csv_path = Path("metadata") / "dukas_assets.csv"
         
         if csv_path.exists():
             df_assets = pd.read_csv(csv_path).fillna("")
             
-            # Checa se existe no ticker ou no alias exato
+            # Check if it exists in the ticker or exact alias
             match = df_assets[(df_assets["ticker"].str.upper() == asset_upper) | 
                               (df_assets["alias"].str.upper() == asset_upper)]
             
@@ -41,7 +41,7 @@ class DukascopyFetcher(BaseFetcher):
             else:
                 raise ValueError(f"Asset '{asset_upper}' does not exist in the Dukascopy database. Use 'search --source dukascopy --query {asset_upper}' to query valid tickers and aliases.")
         else:
-            # Fallback provisório caso o arquivo CSV não exista
+            # Provisional fallback in case the CSV file does not exist
             asset_clean = asset_upper
             
         dfs = []
@@ -49,7 +49,7 @@ class DukascopyFetcher(BaseFetcher):
         if total_days <= 0:
             total_days = 1
             
-        # Vamos usar chunks de 7 dias para equilibrar velocidade de req e feedback na progress bar
+        # We will use 7-day chunks to balance request speed and progress bar feedback
         chunk_size = 7
         total_chunks = (total_days // chunk_size) + (1 if total_days % chunk_size != 0 else 0)
         
@@ -69,7 +69,7 @@ class DukascopyFetcher(BaseFetcher):
                 if df_chunk is not None and not df_chunk.empty:
                     dfs.append(df_chunk)
             except Exception as e:
-                # Finais de semana podem retornar falhas por falta de dados
+                # Weekends may return failures due to lack of data
                 pass
                 
         if not dfs:
@@ -77,10 +77,10 @@ class DukascopyFetcher(BaseFetcher):
              
         df = pd.concat(dfs)
         
-        # O Dukascopy-python já retorna um DF setado por index. Garantir que não tenha gaps indesejados e duplicatas 
+        # Dukascopy-python already returns a DF set by index. Ensure it has no unwanted gaps and duplicates 
         df = df[~df.index.duplicated(keep='last')]
         
-        # Tratamento de colunas e indice
+        # Column and index processing
         if df.index.tz is not None:
              df.index = df.index.tz_convert(None)
              

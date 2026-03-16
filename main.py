@@ -7,7 +7,7 @@ def main():
     setup_logger()
     parser = argparse.ArgumentParser(description="DataManager Command Line Interface")
     parser.add_argument('-i', '--interactive', action='store_true', help="Start in interactive mode")
-    # Capturar argumentos extras que compõem o comando nativo sem disparar erro
+    # Capture extra arguments that compose the native command without triggering an error
     parser.add_argument('command', nargs=argparse.REMAINDER, help="Direct command for execution")
     
     args = parser.parse_args()
@@ -16,19 +16,19 @@ def main():
         cli = DataManagerCLI()
         
         if args.interactive:
-            # Roda o shell continuo
+            # Run continuous shell
             cli.cmdloop()
         elif args.command:
-            # Chegou comando como argumento sem a flag -i
-            # Junta tudo como uma string e joga para o cmd nativo interpretar
+            # Command arrived as an argument without the -i flag
+            # Join everything as a string and pass it to the native cmd to interpret
             cmd_str = " ".join(args.command)
-            # Desativa o banner intro
+            # Disable intro banner
             cli.onecmd(cmd_str)
         else:
-            # Sem -i e sem comando, o que fazer?
-            # Imprime o help ou entra no modo interativo? O usuário pediu:
-            # "preciso que o sistema tbm funcione sem o modo interativo. coloque o comando -i para interativo e sem comando para o modo de terminal normal."
-            # Quando a pessoa apenas digita "python main.py" sem argumentos adicionais, sugerir os métodos.
+            # No -i and no command, what to do?
+            # Print help or enter interactive mode? The user requested:
+            # "I need the system to also work without interactive mode. Use -i for interactive and no command for normal terminal mode."
+            # When the user just types "python main.py" without additional arguments, suggest methods.
             parser.print_help()
             
     except KeyboardInterrupt:
