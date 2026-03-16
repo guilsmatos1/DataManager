@@ -21,3 +21,10 @@ class BaseFetcher(ABC):
         - Colunas: Open, High, Low, Close, Volume
         """
         pass
+
+    def search(self, query: str = None, **kwargs) -> pd.DataFrame:
+        """
+        Optional: Search for assets supported by this fetcher.
+        Returns a DataFrame with search results or raises NotImplementedError.
+        """
+        raise NotImplementedError(f"Search not implemented for {self.source_name}")

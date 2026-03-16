@@ -5,9 +5,12 @@ from dateutil.parser import parse
 from core.server import DataManager
 import argparse
 import shlex
+import logging
 from colorama import init, Fore, Style
 
 init(autoreset=True)
+
+logger = logging.getLogger("DataManager")
 
 class DataManagerCLI(cmd.Cmd):
     intro = fr"""
@@ -72,7 +75,7 @@ class DataManagerCLI(cmd.Cmd):
             args = args[:idx] + args[idx+2:]
 
         if len(args) not in [2, 3, 4]:
-            print("Error: Correct usage: download <fonte> <assets,comma,separated> [start_date] [end_date] [-timeframe tf1,tf2,...]")
+            logger.error("Correct usage: download <fonte> <assets,comma,separated> [start_date] [end_date] [-timeframe tf1,tf2,...]")
             return
             
         source = args[0]
@@ -85,14 +88,14 @@ class DataManagerCLI(cmd.Cmd):
             else:
                 # Go back to the distant past
                 start_date = datetime(2000, 1, 1)
-                print(f"{Fore.YELLOW}Start date omitted. Starting full history search from {start_date.date()}...")
+                logger.info(f"Start date omitted. Starting full history search from {start_date.date()}...")
                 
             if len(args) == 4:
                 end_date = parse(args[3])
             else:
                 end_date = datetime.now()
                 if len(args) < 4:
-                    print(f"{Fore.YELLOW}End date omitted. Going up to the current date ({end_date.date()}).")
+                    logger.info(f"End date omitted. Going up to the current date ({end_date.date()}).")
 
             for asset in assets:
                 try:
@@ -100,9 +103,9 @@ class DataManagerCLI(cmd.Cmd):
                     for tf in target_timeframes:
                         self.server.resample_database(source, asset, tf)
                 except Exception as e:
-                    print(f"{Fore.RED}Error downloading/resampling {asset}: {e}")
+                    logger.error(f"Error downloading/resampling {asset}: {e}")
         except Exception as e:
-            print(f"{Fore.RED}Error in download dates: {e}")
+            logger.error(f"Error in download dates: {e}")
 
     def do_update(self, arg):
         """
@@ -118,7 +121,7 @@ class DataManagerCLI(cmd.Cmd):
             return
 
         if len(args) not in [2, 3]:
-            print("Error: Correct usage: update <fonte> <assets,comma,separated> [timeframe=M1] ou update all")
+            logger.error("Correct usage: update <fonte> <assets,comma,separated> [timeframe=M1] ou update all")
             return
             
         source = args[0]
@@ -129,7 +132,7 @@ class DataManagerCLI(cmd.Cmd):
             try:
                 self.server.update_data(source, asset, timeframe)
             except Exception as e:
-                print(f"{Fore.RED}Error updating {asset}: {e}")
+                logger.error(f"Error updating {asset}: {e}")
 
     def do_delete(self, arg):
         """
@@ -146,11 +149,11 @@ class DataManagerCLI(cmd.Cmd):
             if confirm.lower() == 'y':
                 self.server.delete_all_databases()
             else:
-                print("Operation cancelled.")
+                logger.info("Operation cancelled.")
             return
 
         if len(args) < 2 or len(args) > 3:
-            print("Error: Correct usage: delete <fonte> <assets,comma,separated> [timeframe] ou delete all")
+            logger.error("Correct usage: delete <fonte> <assets,comma,separated> [timeframe] ou delete all")
             return
             
         source = args[0]
@@ -161,7 +164,7 @@ class DataManagerCLI(cmd.Cmd):
             try:
                 self.server.delete_database(source, asset, tf)
             except Exception as e:
-                print(f"{Fore.RED}Error deleting {asset}: {e}")
+                logger.error(f"Error deleting {asset}: {e}")
 
     def do_info(self, arg):
         """
@@ -169,18 +172,18 @@ class DataManagerCLI(cmd.Cmd):
         """
         args = arg.split()
         if len(args) != 3:
-             print("Error: Correct usage: info <fonte> <ativo> <timeframe>")
+             logger.error("Correct usage: info <fonte> <ativo> <timeframe>")
              return
              
         info = self.server.info(args[0], args[1], args[2])
         for k, v in info.items():
-             print(f"{k.capitalize()}: {v}")
+             logger.info(f"{k.capitalize()}: {v}")
 
     def do_list(self, arg):
         """Lists all saved databases with technical details. Uso: list"""
         dbs = self.server.list_all()
         if not dbs:
-            print(f"{Fore.YELLOW}No databases found on disk.")
+            logger.warning("No databases found on disk.")
             return
 
         print(f"\n{Fore.CYAN}{Style.BRIGHT}PERSISTED DATABASES:")
@@ -203,10 +206,10 @@ class DataManagerCLI(cmd.Cmd):
             
     def do_rebuild(self, arg):
         """Rebuilds the database catalog index. Usage: rebuild"""
-        print(f"{Fore.YELLOW}Rebuilding catalog. This might take a few seconds...")
+        logger.info("Rebuilding catalog. This might take a few seconds...")
         result = self.server.storage.rebuild_catalog()
         count = result.get('count', 0)
-        print(f"{Fore.GREEN}✓ Catalog rebuilt successfully! ({count} databases indexed)\n")
+        logger.info(f"✓ Catalog rebuilt successfully! ({count} databases indexed)")
             
     def do_search(self, arg):
         """
@@ -238,7 +241,7 @@ class DataManagerCLI(cmd.Cmd):
         except SystemExit:
             pass # argparse already printed help
         except Exception as e:
-            print(f"{Fore.RED}Internal parse error: {e}")
+            logger.error(f"Internal parse error: {e}")
             
     def do_resample(self, arg):
         """
@@ -250,7 +253,7 @@ class DataManagerCLI(cmd.Cmd):
         """
         args = arg.split()
         if len(args) != 3:
-             print("Error: Correct usage: resample <fonte> <assets,comma,separated> <novos_timeframes,separados>")
+             logger.error("Correct usage: resample <fonte> <assets,comma,separated> <novos_timeframes,separados>")
              return
              
         source = args[0]
@@ -262,7 +265,7 @@ class DataManagerCLI(cmd.Cmd):
                 try:
                     self.server.resample_database(source, asset, tf)
                 except Exception as e:
-                    print(f"{Fore.RED}Error converting {asset} para {tf}: {e}")
+                    logger.error(f"Error converting {asset} para {tf}: {e}")
 
     def do_quality(self, arg):
         """
@@ -278,7 +281,7 @@ class DataManagerCLI(cmd.Cmd):
         """
         args = arg.split()
         if len(args) not in [2, 3]:
-            print("Error: Correct usage: quality <fonte> <assets,comma,separated> [timeframe=M1]")
+            logger.error("Correct usage: quality <fonte> <assets,comma,separated> [timeframe=M1]")
             return
 
         source = args[0]
@@ -289,12 +292,12 @@ class DataManagerCLI(cmd.Cmd):
             try:
                 self.server.check_quality(source, asset, timeframe)
             except Exception as e:
-                print(f"{Fore.RED}Error analyzing quality of {asset}: {e}")
+                logger.error(f"Error analyzing quality of {asset}: {e}")
         
 
     def do_exit(self, arg):
         """Exit server"""
-        print("Shutting down server...")
+        logger.info("Shutting down server...")
         return True
         
     def do_quit(self, arg):

@@ -96,6 +96,8 @@ url-normalize==1.4.3
 urllib3==2.6.3
 uuid7==0.1.0
 uvicorn==0.40.0
+tqdm==4.66.1
+pytest==7.4.3
 webencodings==0.5.1
 websockets==16.0
 xlrd==2.0.2

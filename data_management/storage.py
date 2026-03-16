@@ -49,7 +49,8 @@ class StorageManager:
         
         if info.get("status") != "Not Found":
             catalog.append(info)
-            self._save_catalog(catalog)
+        
+        self._save_catalog(catalog)
 
     def rebuild_catalog(self):
         """Rebuilds the entire catalog by scanning the disk."""
@@ -69,8 +70,10 @@ class StorageManager:
         return {"status": "success", "count": len(catalog)}
 
     def save_data(self, df: pd.DataFrame, source: str, asset: str, timeframe: str):
-        """Saves or overwrites the complete data."""
+        """Saves data using an atomic swap to prevent corruption (Write-ahead-style)."""
         file_path = self._get_path(source, asset, timeframe)
+        temp_path = file_path.with_suffix(f".tmp{self.format}")
+
         # Ensures the index is DateTime and is sorted
         if not isinstance(df.index, pd.DatetimeIndex):
             if 'date' in df.columns or 'time' in df.columns or 'datetime' in df.columns:
@@ -83,12 +86,24 @@ class StorageManager:
         if df.index.tz is not None:
              df.index = df.index.tz_convert(None)
              
-        if self.format == ".parquet":
-            df.to_parquet(file_path, engine='fastparquet')
-        else:
-            df.to_csv(file_path)
-        
-        self._update_catalog_entry(source, asset, timeframe)
+        try:
+            # 1. Write to temporary file
+            if self.format == ".parquet":
+                df.to_parquet(temp_path, engine='fastparquet')
+            else:
+                df.to_csv(temp_path)
+            
+            # 2. Atomic rename (replace existing if successful)
+            temp_path.replace(file_path)
+            
+            # 3. Update metadata
+            self._update_catalog_entry(source, asset, timeframe)
+            
+        except Exception as e:
+            # If something fails, try to remove the partial temp file
+            if temp_path.exists():
+                temp_path.unlink()
+            raise e
             
     def append_data(self, df: pd.DataFrame, source: str, asset: str, timeframe: str):
         """Updates/Concatenates new data to existing data."""

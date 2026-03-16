@@ -1,8 +1,10 @@
 import sys
 import argparse
 from cli import DataManagerCLI
+from logger import setup_logger
 
 def main():
+    setup_logger()
     parser = argparse.ArgumentParser(description="DataManager Command Line Interface")
     parser.add_argument('-i', '--interactive', action='store_true', help="Start in interactive mode")
     # Capturar argumentos extras que compõem o comando nativo sem disparar erro

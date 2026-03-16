@@ -3,24 +3,13 @@ from datetime import datetime, timedelta
 import sys
 from .base import BaseFetcher
 import logging
+from tqdm import tqdm
 
 from colorama import Fore, Style
 
 # Desativa prints e infos internos do dukascopy-python
 logging.getLogger("dukascopy_python").setLevel(logging.WARNING)
 logging.getLogger("DUKASCRIPT").setLevel(logging.WARNING)
-
-def display_progress_bar(iteration, total, prefix='Download:', suffix='Complete', length=40):
-    """Displays a colored progress bar in the terminal."""
-    if total == 0:
-        total = 1
-    percent = f"{100 * (iteration / float(total)):.1f}"
-    filled = int(length * iteration // total)
-    bar = Fore.GREEN + '█' * filled + Style.DIM + Fore.WHITE + '-' * (length - filled)
-    sys.stdout.write(f'\r{Fore.WHITE}{prefix} |{bar}{Fore.WHITE}| {Fore.YELLOW}{percent}% {Fore.WHITE}{suffix}')
-    sys.stdout.flush()
-    if iteration == total:
-        print(Style.RESET_ALL)
 
 class DukascopyFetcher(BaseFetcher):
     """
@@ -53,7 +42,6 @@ class DukascopyFetcher(BaseFetcher):
                 raise ValueError(f"Asset '{asset_upper}' does not exist in the Dukascopy database. Use 'search --source dukascopy --query {asset_upper}' to query valid tickers and aliases.")
         else:
             # Fallback provisório caso o arquivo CSV não exista
-            print(f"Warning: File dukas_assets.csv not found at {csv_path}. Downloading without prior validation...")
             asset_clean = asset_upper
             
         dfs = []
@@ -65,9 +53,7 @@ class DukascopyFetcher(BaseFetcher):
         chunk_size = 7
         total_chunks = (total_days // chunk_size) + (1 if total_days % chunk_size != 0 else 0)
         
-        display_progress_bar(0, total_chunks, prefix=f'Downloading {asset_clean}:')
-        
-        for i in range(total_chunks):
+        for i in tqdm(range(total_chunks), desc=f"Fetching {asset_clean} (Dukascopy)", leave=False):
             chunk_start = start_date + timedelta(days=i * chunk_size)
             chunk_end = min(chunk_start + timedelta(days=chunk_size), end_date)
             
@@ -86,10 +72,8 @@ class DukascopyFetcher(BaseFetcher):
                 # Finais de semana podem retornar falhas por falta de dados
                 pass
                 
-            display_progress_bar(i + 1, total_chunks, prefix=f'Downloading {asset_clean}:')
-            
         if not dfs:
-             raise ValueError(f"Dukascopy returned empty for {asset_clean} from {start_date} -> {end_date}")
+             return pd.DataFrame() # Return empty instead of raising error to handle gaps in chunked download
              
         df = pd.concat(dfs)
         
@@ -105,5 +89,26 @@ class DukascopyFetcher(BaseFetcher):
         
         df.index.name = "datetime"
         df.sort_index(inplace=True)
+            
+        return df
+
+    def search(self, query: str = None, **kwargs) -> pd.DataFrame:
+        """Search Dukascopy offline database."""
+        from pathlib import Path
+        csv_path = Path("metadata") / "dukas_assets.csv"
+        
+        if not csv_path.exists():
+             return pd.DataFrame()
+             
+        df = pd.read_csv(csv_path).fillna("")
+        
+        if query:
+            # Case-insensitive search in ticker, alias or asset name
+            mask = (
+                df['ticker'].str.contains(query, case=False) |
+                df['alias'].str.contains(query, case=False) |
+                df['nome_do_ativo'].str.contains(query, case=False)
+            )
+            df = df[mask]
             
         return df

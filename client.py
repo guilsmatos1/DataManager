@@ -74,12 +74,36 @@ class DataManagerClient:
         assets = data.get("assets", [])
         return pd.DataFrame(assets)
 
-    def get_data(self, source: str, asset: str, timeframe: str, save_path: str = None, save_format: str = "parquet") -> Union[pd.DataFrame, str]:
+    def _apply_timezone(self, df: pd.DataFrame, timezone: str) -> pd.DataFrame:
+        """
+        Converts the DataFrame's DatetimeIndex from naive (UTC) to the target timezone.
+        The stored data is always in UTC but without timezone info (naive).
+        This method localizes to UTC first, then converts to the desired tz.
+        
+        Args:
+            df: DataFrame with naive DatetimeIndex (assumed UTC).
+            timezone: IANA timezone string (e.g. 'America/Sao_Paulo', 'US/Eastern', 'Europe/London').
+        
+        Returns:
+            DataFrame with timezone-aware DatetimeIndex converted to the target timezone.
+        """
+        import pytz
+        if df.index.tz is None:
+            df.index = df.index.tz_localize("UTC")
+        df.index = df.index.tz_convert(timezone)
+        return df
+
+    def get_data(self, source: str, asset: str, timeframe: str, save_path: str = None, save_format: str = "parquet", timezone: str = None) -> Union[pd.DataFrame, str]:
         """
         Downloads the `.parquet` file from the server.
         If save_path is provided, saves to disk and returns the path.
         You can define 'save_format' as 'parquet' or 'csv'.
         Otherwise, loads directly into the client's local memory as a DataFrame.
+        
+        Args:
+            timezone: Optional IANA timezone string to convert the index.
+                      Examples: 'America/Sao_Paulo', 'US/Eastern', 'Europe/London', 'Asia/Tokyo'.
+                      If None, the data is returned as-is (naive UTC).
         """
         res = self.session.get(f"{self.base_url}/data/{source}/{asset}/{timeframe}")
         res.raise_for_status()
@@ -89,10 +113,18 @@ class DataManagerClient:
             if save_format == "csv":
                 file_obj = BytesIO(res.content)
                 df = pd.read_parquet(file_obj, engine='fastparquet')
+                if timezone:
+                    df = self._apply_timezone(df, timezone)
                 df.to_csv(save_path)
             elif save_format == "parquet":
-                with open(save_path, 'wb') as f:
-                    f.write(res.content)
+                if timezone:
+                    file_obj = BytesIO(res.content)
+                    df = pd.read_parquet(file_obj, engine='fastparquet')
+                    df = self._apply_timezone(df, timezone)
+                    df.to_parquet(save_path, engine='fastparquet')
+                else:
+                    with open(save_path, 'wb') as f:
+                        f.write(res.content)
             else:
                 raise ValueError("Format not supported. Choose 'parquet' or 'csv'.")
             return save_path
@@ -100,6 +132,8 @@ class DataManagerClient:
             # Loads the binary into memory for pandas to natively read the parquet
             file_obj = BytesIO(res.content)
             df = pd.read_parquet(file_obj, engine='fastparquet')
+            if timezone:
+                df = self._apply_timezone(df, timezone)
             return df
 
 if __name__ == "__main__":

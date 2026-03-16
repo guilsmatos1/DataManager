@@ -53,3 +53,16 @@ class OpenBBFetcher(BaseFetcher):
         df.rename(columns=col_map, inplace=True)
             
         return df
+
+    def search(self, query: str = None, **kwargs) -> pd.DataFrame:
+        """Search assets via OpenBB API."""
+        from openbb import obb
+        search_args = {}
+        if query:
+            search_args['query'] = query
+        if 'exchange' in kwargs:
+            search_args['exchange'] = kwargs['exchange']
+            
+        res = obb.equity.search(**search_args)
+        df = res.to_df()
+        return df
