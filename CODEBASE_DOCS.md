@@ -1,126 +1,126 @@
-# DataManager — Documentação Técnica do Codebase
+# DataManager — Codebase Technical Documentation
 
-> **Versão:** v1.2.0  
+> **Version:** v1.2.0  
 > **Python:** 3.12  
-> **Propósito:** Ferramenta de download, armazenamento e gestão de dados OHLCV (Open, High, Low, Close, Volume) de ativos financeiros, com suporte a múltiplas fontes de dados, resampling de timeframes e API de rede.
+> **Purpose:** Tool for downloading, storing, and managing OHLCV (Open, High, Low, Close, Volume) data of financial assets, with support for multiple data sources, timeframe resampling, and a network API.
 
 ---
 
-## Índice
+## Table of Contents
 
-1. [Visão Geral da Arquitetura](#1-visão-geral-da-arquitetura)
-2. [Estrutura de Diretórios](#2-estrutura-de-diretórios)
-3. [Módulos e Arquivos](#3-módulos-e-arquivos)
-   - [main.py](#31-mainpy--ponto-de-entrada)
-   - [cli.py](#32-clipy--interface-de-linha-de-comando)
-   - [core/server.py](#33-coreserverpy--controlador-central)
-   - [data_management/storage.py](#34-data_managementstoragepy--camada-de-persistência)
-   - [data_management/processor.py](#35-data_managementprocessorpy--resampling-de-timeframes)
-   - [fetchers/base.py](#36-fetchersbasepy--interface-abstrata)
+1. [Architecture Overview](#1-architecture-overview)
+2. [Directory Structure](#2-directory-structure)
+3. [Modules and Files](#3-modules-and-files)
+   - [main.py](#31-mainpy--entry-point)
+   - [cli.py](#32-clipy--command-line-interface)
+   - [core/server.py](#33-coreserverpy--central-controller)
+   - [data_management/storage.py](#34-data_managementstoragepy--persistence-layer)
+   - [data_management/processor.py](#35-data_managementprocessorpy--timeframe-resampling)
+   - [fetchers/base.py](#36-fetchersbasepy--abstract-interface)
    - [fetchers/dukascopy_fetcher.py](#37-fetchersdukascopy_fetcherpy)
    - [fetchers/openbb_fetcher.py](#38-fetchersopenbb_fetcherpy)
-   - [network_server.py](#39-network_serverpy--api-rest-fastapi)
-   - [client.py](#310-clientpy--cliente-python-para-a-api)
-4. [Fluxo de Dados](#4-fluxo-de-dados)
-5. [Sistema de Armazenamento](#5-sistema-de-armazenamento)
-6. [Catálogo de Metadados](#6-catálogo-de-metadados)
-7. [Fontes de Dados Suportadas](#7-fontes-de-dados-suportadas)
-8. [Timeframes Suportados](#8-timeframes-suportados)
-9. [Segurança da API](#9-segurança-da-api)
-10. [Deploy com Docker](#10-deploy-com-docker)
-11. [Dependências Principais](#11-dependências-principais)
-12. [Referência de Comandos CLI](#12-referência-de-comandos-cli)
-13. [Referência da API REST](#13-referência-da-api-rest)
+   - [network_server.py](#39-network_serverpy--fastapi-rest-api)
+   - [client.py](#310-clientpy--python-client-for-the-api)
+4. [Data Flow](#4-data-flow)
+5. [Storage System](#5-storage-system)
+6. [Metadata Catalog](#6-metadata-catalog)
+7. [Supported Data Sources](#7-supported-data-sources)
+8. [Supported Timeframes](#8-supported-timeframes)
+9. [API Security](#9-api-security)
+10. [Docker Deployment](#10-docker-deployment)
+11. [Main Dependencies](#11-main-dependencies)
+12. [CLI Command Reference](#12-cli-command-reference)
+13. [REST API Reference](#13-rest-api-reference)
 
 ---
 
-## 1. Visão Geral da Arquitetura
+## 1. Architecture Overview
 
-O DataManager tem **dois modos de operação** independentes mas que compartilham o mesmo núcleo (`core/server.py`):
+DataManager has **two independent operation modes** that share the same core (`core/server.py`):
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        MODOS DE USO                         │
+│                        USAGE MODES                          │
 │                                                             │
 │  ┌──────────────────┐          ┌──────────────────────────┐ │
-│  │   CLI Local       │          │  API REST (FastAPI)       │ │
-│  │   main.py         │          │  network_server.py        │ │
-│  │   cli.py          │          │  client.py                │ │
+│  │    Local CLI     │          │    REST API (FastAPI)    │ │
+│  │    main.py       │          │    network_server.py     │ │
+│  │    cli.py        │          │    client.py             │ │
 │  └────────┬─────────┘          └──────────┬───────────────┘ │
 │           │                               │                  │
 │           └──────────────┬────────────────┘                  │
 │                          ▼                                   │
 │               ┌─────────────────────┐                        │
-│               │  core/server.py     │                        │
-│               │  DataManager        │                        │
+│               │    core/server.py   │                        │
+│               │    DataManager      │                        │
 │               └────────┬────────────┘                        │
 │                        │                                     │
-│         ┌──────────────┼──────────────┐                     │
+│         ┌──────────────┼──────────────┐                      │
 │         ▼              ▼              ▼                      │
-│  ┌─────────────┐ ┌──────────┐ ┌────────────┐               │
-│  │  Fetchers   │ │ Storage  │ │ Processor  │               │
-│  │ (Dukascopy) │ │ Manager  │ │ (Resample) │               │
-│  │ (OpenBB)    │ │          │ │            │               │
-│  └─────────────┘ └──────────┘ └────────────┘               │
+│  ┌─────────────┐ ┌──────────┐ ┌────────────┐                │
+│  │  Fetchers   │ │ Storage  │ │ Processor  │                │
+│  │ (Dukascopy) │ │ Manager  │ │ (Resample) │                │
+│  │ (OpenBB)    │ │          │ │            │                │
+│  └─────────────┘ └──────────┘ └────────────┘                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Princípio fundamental:** Todo dado é sempre baixado e armazenado em **M1 (1 minuto)** primeiro. Timeframes maiores (H1, D1, etc.) são gerados por **resampling** a partir do M1 base.
+**Fundamental Principle:** All data is always downloaded and stored in **M1 (1 minute)** first. Higher timeframes (H1, D1, etc.) are generated via **resampling** from the base M1 data.
 
 ---
 
-## 2. Estrutura de Diretórios
+## 2. Directory Structure
 
 ```
 DataManager/
 │
-├── main.py                    # Ponto de entrada da aplicação (CLI)
-├── cli.py                     # Interface interativa de comandos (cmd.Cmd)
-├── network_server.py          # Servidor HTTP FastAPI (modo API)
-├── client.py                  # Cliente Python para consumir a API
-├── requirements.txt           # Dependências Python fixadas por versão
-├── Dockerfile                 # Imagem Docker da aplicação
-├── docker-compose.yml         # Configuração de deploy (modo API)
-├── .env.example               # Exemplo de variáveis de ambiente
+├── main.py                    # Application entry point (CLI)
+├── cli.py                     # Interactive command interface (cmd.Cmd)
+├── network_server.py          # FastAPI HTTP server (API mode)
+├── client.py                  # Python client for consuming the API
+├── requirements.txt           # Python dependencies pinned by version
+├── Dockerfile                 # Application Docker image
+├── docker-compose.yml         # Deployment configuration (API mode)
+├── .env.example               # Environment variables example
 │
 ├── core/
-│   └── server.py              # DataManager: controlador central da lógica
+│   └── server.py              # DataManager: central logic controller
 │
 ├── data_management/
-│   ├── storage.py             # StorageManager: leitura/escrita de Parquet + catálogo
-│   └── processor.py          # DataProcessor: resampling de OHLCV
+│   ├── storage.py             # StorageManager: Parquet read/write + catalog
+│   └── processor.py           # DataProcessor: OHLCV resampling
 │
 ├── fetchers/
-│   ├── base.py                # BaseFetcher: interface abstrata (ABC)
-│   ├── dukascopy_fetcher.py   # Integração com dukascopy-python
-│   └── openbb_fetcher.py      # Integração com OpenBB (yfinance como backend)
+│   ├── base.py                # BaseFetcher: abstract interface (ABC)
+│   ├── dukascopy_fetcher.py   # Integration with dukascopy-python
+│   └── openbb_fetcher.py      # Integration with OpenBB (yfinance as backend)
 │
 ├── metadata/
-│   ├── catalog.json           # Índice JSON de todos os databases salvos
-│   └── dukas_assets.csv       # Lista de ~3.000 ativos válidos do Dukascopy
+│   ├── catalog.json           # JSON index of all saved databases
+│   └── dukas_assets.csv       # List of ~3,000 valid Dukascopy assets
 │
 └── database/
     └── {source}/
         └── {ASSET}/
             └── {TIMEFRAME}/
-                └── data.parquet   # Arquivo de dados OHLCV
+                └── data.parquet   # OHLCV data file
 ```
 
 ---
 
-## 3. Módulos e Arquivos
+## 3. Modules and Files
 
-### 3.1 `main.py` — Ponto de Entrada
+### 3.1 `main.py` — Entry Point
 
-**Responsabilidade:** Parseia argumentos de linha de comando e decide o modo de execução.
+**Responsibility:** Parses command-line arguments and decides the execution mode.
 
-**Lógica:**
-- `python main.py -i` → Abre o shell interativo (`cli.cmdloop()`)
-- `python main.py download DUKASCOPY EURUSD` → Executa um comando diretamente (`cli.onecmd()`)
-- `python main.py` (sem argumentos) → Exibe o help do argparse
+**Logic:**
+- `python main.py -i` → Opens the interactive shell (`cli.cmdloop()`)
+- `python main.py download DUKASCOPY EURUSD` → Executes a command directly (`cli.onecmd()`)
+- `python main.py` (no arguments) → Displays argparse help
 
 ```python
-# Estrutura simplificada:
+# Simplified structure:
 parser.add_argument('-i', '--interactive', action='store_true')
 parser.add_argument('command', nargs=argparse.REMAINDER)
 
@@ -132,65 +132,65 @@ else:
     parser.print_help()
 ```
 
-**Tratamento especial:** `KeyboardInterrupt` (Ctrl+C) é capturado globalmente e encerra com `sys.exit(0)`.
+**Special Handling:** `KeyboardInterrupt` (Ctrl+C) is caught globally and exits with `sys.exit(0)`.
 
 ---
 
-### 3.2 `cli.py` — Interface de Linha de Comando
+### 3.2 `cli.py` — Command Line Interface
 
-**Responsabilidade:** Define todos os comandos disponíveis ao usuário usando `cmd.Cmd` do stdlib Python.
+**Responsibility:** Defines all commands available to the user using Python stdlib's `cmd.Cmd`.
 
-**Classe:** `DataManagerCLI(cmd.Cmd)`
+**Class:** `DataManagerCLI(cmd.Cmd)`
 
-**Instancia internamente:** `DataManager` (de `core/server.py`)
+**Internally Instantiates:** `DataManager` (from `core/server.py`)
 
-#### Comandos disponíveis:
+#### Available Commands:
 
-| Método | Comando | Descrição |
-|--------|---------|-----------|
-| `do_download` | `download` | Baixa dados novos para um ou mais ativos |
-| `do_update` | `update` | Atualiza databases existentes com dados recentes |
-| `do_delete` | `delete` | Remove databases do disco |
-| `do_info` | `info` | Exibe metadados de um database específico |
-| `do_list` | `list` | Lista todos os databases salvos em tabela formatada |
-| `do_rebuild` | `rebuild` | Reconstrói o catálogo `catalog.json` escaneando o disco |
-| `do_search` | `search` | Busca ativos disponíveis nas fontes (OpenBB ou Dukascopy) |
-| `do_resample` | `resample` | Converte M1 para outros timeframes |
-| `do_quality` | `quality` | Relatório de integridade dos dados |
-| `do_exit` / `do_quit` | `exit` / `quit` | Encerra o programa |
+| Method | Command | Description |
+|--------|---------|-------------|
+| `do_download` | `download` | Downloads new data for one or more assets |
+| `do_update` | `update` | Updates existing databases with recent data |
+| `do_delete` | `delete` | Removes databases from disk |
+| `do_info` | `info` | Displays metadata for a specific database |
+| `do_list` | `list` | Lists all saved databases in a formatted table |
+| `do_rebuild` | `rebuild` | Rebuilds the `catalog.json` catalog by scanning the disk |
+| `do_search` | `search` | Searches for available assets in sources (OpenBB or Dukascopy) |
+| `do_resample` | `resample` | Converts M1 to other timeframes |
+| `do_quality` | `quality` | Data integrity report |
+| `do_exit` / `do_quit` | `exit` / `quit` | Exits the program |
 
-#### Detalhes de parsing por comando:
+#### Parsing details per command:
 
 **`download`:**
 ```
-download <fonte> <ativo1,ativo2,...> [start_date] [end_date] [-timeframe tf1,tf2,...]
+download <source> <asset1,asset2,...> [start_date] [end_date] [-timeframe tf1,tf2,...]
 ```
-- Suporta **múltiplos ativos** via vírgula.
-- Flag `-timeframe` opcional: após download do M1, faz resample automático para os TFs especificados.
-- Se `start_date` omitido → usa `2000-01-01` (histórico completo).
-- Se `end_date` omitido → usa `datetime.now()`.
-- Protege cada ativo com `try/except` individual para não abortar os demais.
+- Supports **multiple assets** via comma separation.
+- Optional `-timeframe` flag: after M1 download, automatically resamples to specified TFs.
+- If `start_date` is omitted → uses `2000-01-01` (full history).
+- If `end_date` is omitted → uses `datetime.now()`.
+- Protects each asset with individual `try/except` to not abort others.
 
 **`update`:**
 ```
-update <fonte> <ativo1,ativo2,...> [timeframe=M1]
+update <source> <asset1,asset2,...> [timeframe=M1]
 update all
 ```
-- `update all` → chama `DataManager.update_all_databases()` que atualiza todos os M1s e faz resample dos TFs derivados.
+- `update all` → calls `DataManager.update_all_databases()` which updates all M1s and resamples derived TFs.
 
 **`search`:**
-- Usa `argparse` interno com `shlex.split` para suportar queries com espaço e aspas.
-- Parâmetros: `--source`, `--query`, `--exchange`.
+- Uses internal `argparse` with `shlex.split` to support queries with spaces and quotes.
+- Parameters: `--source`, `--query`, `--exchange`.
 
 ---
 
-### 3.3 `core/server.py` — Controlador Central
+### 3.3 `core/server.py` — Central Controller
 
-**Responsabilidade:** Orquestra todas as operações de negócio, coordenando Fetchers, Storage e Processor.
+**Responsibility:** Orchestrates all business operations, coordinating Fetchers, Storage, and Processor.
 
-**Classe:** `DataManager`
+**Class:** `DataManager`
 
-#### Inicialização:
+#### Initialization:
 ```python
 self.storage = StorageManager()
 self.processor = DataProcessor()
@@ -199,85 +199,85 @@ self._fetchers = {
     "OPENBB": OpenBBFetcher()
 }
 ```
-O mapeamento de fontes é um dicionário; adicionar uma nova fonte requer apenas inserir um novo par chave→fetcher.
+Source mapping is a dictionary; adding a new source requires only inserting a new key→fetcher pair.
 
-#### Métodos principais:
+#### Main Methods:
 
 **`download_data(source, asset, start_date, end_date)`**
-- Verifica se o database M1 já existe (evita duplicatas).
-- Chama `fetcher.fetch_data()`.
-- Salva via `storage.save_data()` sempre em timeframe `M1`.
+- Checks if the M1 database already exists (avoids duplicates).
+- Calls `fetcher.fetch_data()`.
+- Saves via `storage.save_data()` always in timeframe `M1`.
 
 **`update_data(source, asset, timeframe="M1")`**
-- Lê a última data do database existente via `storage.get_database_info()`.
-- Verifica se está atualizado (margem de 1 hora).
-- Baixa apenas os dados novos (do `last_date` até `now`).
-- Se o `timeframe` for diferente de M1, converte os novos dados antes de appendar.
-- Usa `storage.append_data()` para concatenar sem duplicatas.
+- Reads the last date of the existing database via `storage.get_database_info()`.
+- Checks if it's up to date (1-hour margin).
+- Downloads only new data (from `last_date` to `now`).
+- If `timeframe` is different from M1, converts new data before appending.
+- Uses `storage.append_data()` to concatenate without duplicates.
 
 **`update_all_databases()`**
-- Separa databases em dois grupos: M1 e higher TFs.
-- Primeiro atualiza todos os M1s.
-- Depois reconstrói todos os TFs derivados usando `resample_database()`.
+- Separates databases into two groups: M1 and higher TFs.
+- First updates all M1s.
+- Then rebuilds all derived TFs using `resample_database()`.
 
 **`resample_database(source, asset, target_timeframe)`**
-- Carrega o M1 completo do disco.
-- Usa `DataProcessor.resample_ohlc()` para converter.
-- Salva o resultado (sobrescreve o TF de destino).
+- Loads full M1 from disk.
+- Uses `DataProcessor.resample_ohlc()` to convert.
+- Saves the result (overwrites target TF).
 
 **`check_quality(source, asset, timeframe="M1")`**
-Executa 4 verificações e reporta erros encontrados:
-1. **Relações OHLC:** `High >= Low`, `High >= Open/Close`, `Low <= Open/Close`
-2. **Duplicatas:** Timestamps duplicados no índice
-3. **Ordenação temporal:** Índice deve ser crescentemente monotônico
-4. **Gaps:** Detecta ausências maiores que 5x a frequência mediana esperada
+Performs 4 checks and reports found errors:
+1. **OHLC Relations:** `High >= Low`, `High >= Open/Close`, `Low <= Open/Close`
+2. **Duplicates:** Duplicate timestamps in index
+3. **Temporal Ordering:** Index must be increasingly monotonic
+4. **Gaps:** Detects absences greater than 5x the expected median frequency
 
 **`search_assets(source, query, exchange)`**
-- **OpenBB:** Chama `obb.equity.search()` e exibe os 20 primeiros resultados.
-- **Dukascopy:** Filtra o CSV local `metadata/dukas_assets.csv` nos campos `ticker`, `alias` e `nome_do_ativo`.
+- **OpenBB:** Calls `obb.equity.search()` and displays first 20 results.
+- **Dukascopy:** Filters local CSV `metadata/dukas_assets.csv` on `ticker`, `alias`, and `nome_do_ativo` fields.
 
 ---
 
-### 3.4 `data_management/storage.py` — Camada de Persistência
+### 3.4 `data_management/storage.py` — Persistence Layer
 
-**Responsabilidade:** Toda operação de leitura e escrita de dados no disco, e manutenção do catálogo JSON.
+**Responsibility:** All data read and write operations on disk, and maintenance of the JSON catalog.
 
-**Classe:** `StorageManager`
+**Class:** `StorageManager`
 
-#### Estrutura de paths:
+#### Path Structure:
 ```python
-# Caminho de um arquivo de dados:
+# Data file path:
 database/{source_lower}/{ASSET_UPPER}/{TIMEFRAME_UPPER}/data.parquet
 
-# Exemplo:
+# Example:
 database/dukascopy/EURUSD/M1/data.parquet
 database/openbb/AAPL/H1/data.parquet
 ```
 
-#### Formato de armazenamento:
-- **Parquet** via `fastparquet` (padrão). O índice é sempre um `DatetimeIndex` sem timezone (naive).
-- O arquivo único por combinação source/asset/timeframe é sempre `data.parquet`.
+#### Storage Format:
+- **Parquet** via `fastparquet` (default). Index is always a timezone-naive `DatetimeIndex`.
+- The single file per source/asset/timeframe combination is always `data.parquet`.
 
-#### Métodos principais:
+#### Main Methods:
 
 **`save_data(df, source, asset, timeframe)`**
-- Garante que o índice seja `DatetimeIndex`.
-- Remove timezone do índice se presente (`tz_convert(None)`).
-- Ordena o índice antes de salvar.
-- Atualiza o `catalog.json` após salvar.
+- Ensures index is `DatetimeIndex`.
+- Removes timezone from index if present (`tz_convert(None)`).
+- Sorts index before saving.
+- Updates `catalog.json` after saving.
 
 **`append_data(df, source, asset, timeframe)`**
-- Carrega o DataFrame existente.
-- Concatena com `pd.concat`.
-- Remove duplicatas de índice (`keep='last'`).
-- Chama `save_data()` para persistir.
+- Loads existing DataFrame.
+- Concatenates with `pd.concat`.
+- Removes index duplicates (`keep='last'`).
+- Calls `save_data()` to persist.
 
 **`load_data(source, asset, timeframe) → pd.DataFrame`**
-- Lê o `.parquet` via `fastparquet`.
-- Lança `FileNotFoundError` se não existir.
+- Reads `.parquet` via `fastparquet`.
+- Raises `FileNotFoundError` if it doesn't exist.
 
 **`get_database_info(source, asset, timeframe) → dict`**
-Retorna:
+Returns:
 ```python
 {
     "source": str,
@@ -289,31 +289,31 @@ Retorna:
     "file_size_kb": float
 }
 ```
-Ou `{"status": "Not Found"}` se o arquivo não existir.
+Or `{"status": "Not Found"}` if the file doesn't exist.
 
 **`rebuild_catalog() → dict`**
-- Varre todo o diretório `database/` recursivamente.
-- Reconstrói o `catalog.json` do zero.
-- Útil quando arquivos são movidos/deletados manualmente.
+- Scans entire `database/` directory recursively.
+- Rebuilds `catalog.json` from scratch.
+- Useful when files are moved/deleted manually.
 
 **`list_databases() → list`**
-- Primeiro limpa diretórios vazios (`_cleanup_empty_dirs`).
-- Retorna o conteúdo do `catalog.json` (leitura rápida, sem I/O de Parquet).
+- First cleans empty directories (`_cleanup_empty_dirs`).
+- Returns content of `catalog.json` (fast read, no Parquet I/O).
 
 **`delete_database(source, asset, timeframe=None) → bool`**
-- Se `timeframe` fornecido: deleta apenas aquele arquivo `.parquet`.
-- Se `timeframe=None`: deleta o diretório completo do ativo (todos os TFs).
-- Atualiza o catálogo após deleção.
+- If `timeframe` provided: deletes only that `.parquet` file.
+- If `timeframe=None`: deletes entire asset directory (all TFs).
+- Updates catalog after deletion.
 
 ---
 
-### 3.5 `data_management/processor.py` — Resampling de Timeframes
+### 3.5 `data_management/processor.py` — Timeframe Resampling
 
-**Responsabilidade:** Converter DataFrames OHLCV de um timeframe menor para um maior.
+**Responsibility:** Converts OHLCV DataFrames from a lower timeframe to a higher one.
 
-**Classe:** `DataProcessor`
+**Class:** `DataProcessor`
 
-#### Mapeamento de timeframes para regras do pandas:
+#### Mapping of timeframes to pandas rules:
 
 ```python
 TF_MAPPING = {
@@ -326,73 +326,73 @@ TF_MAPPING = {
 ```
 
 **`resample_ohlc(df, target_timeframe) → pd.DataFrame`** (classmethod)
-- Detecta automaticamente os nomes das colunas (case-insensitive: `open`, `Open`, `OPEN` → todos funcionam).
-- Regras de agregação:
+- Automatically detects column names (case-insensitive: `open`, `Open`, `OPEN` → all work).
+- Aggregation rules:
   - `Open` → `first`
   - `High` → `max`
   - `Low` → `min`
   - `Close` → `last`
   - `Volume` → `sum`
-- Usa `df.resample(rule).agg(agg_dict).dropna()`.
-- Lança `ValueError` para TF não suportado ou DataFrame sem colunas OHLC.
+- Uses `df.resample(rule).agg(agg_dict).dropna()`.
+- Raises `ValueError` for unsupported TF or DataFrame without OHLC columns.
 
 ---
 
-### 3.6 `fetchers/base.py` — Interface Abstrata
+### 3.6 `fetchers/base.py` — Abstract Interface
 
-**Responsabilidade:** Define o contrato que todos os fetchers devem implementar.
+**Responsibility:** Defines the contract that all fetchers must implement.
 
-**Classe:** `BaseFetcher(ABC)`
+**Class:** `BaseFetcher(ABC)`
 
 ```python
 @property
 @abstractmethod
 def source_name(self) -> str:
-    """Nome legível da fonte (ex: 'Dukascopy')"""
+    """Readable name of the source (e.g., 'Dukascopy')"""
 
 @abstractmethod
 def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
     """
-    Retorna DataFrame com:
+    Returns DataFrame with:
     - Index: DatetimeIndex timezone-naive
-    - Colunas: Open, High, Low, Close, Volume (capitalizadas)
+    - Columns: Open, High, Low, Close, Volume (capitalized)
     """
 ```
 
-**Contrato de retorno garantido por todos os fetchers:**
-- Índice: `DatetimeIndex` sem timezone, nome `"datetime"`
-- Colunas: `Open`, `High`, `Low`, `Close`, `Volume` (primeira letra maiúscula)
-- Dados ordenados cronologicamente
-- Sem duplicatas de índice
+**Return contract guaranteed by all fetchers:**
+- Index: `DatetimeIndex` without timezone, name `"datetime"`
+- Columns: `Open`, `High`, `Low`, `Close`, `Volume` (first letter uppercase)
+- Chronologically sorted data
+- No index duplicates
 
 ---
 
 ### 3.7 `fetchers/dukascopy_fetcher.py`
 
-**Responsabilidade:** Download de dados M1 via biblioteca `dukascopy-python`.
+**Responsibility:** M1 data download via `dukascopy-python` library.
 
-**Classe:** `DukascopyFetcher(BaseFetcher)`
+**Class:** `DukascopyFetcher(BaseFetcher)`
 
-#### Lógica de download em chunks:
-- Divide o período total em **chunks de 7 dias**.
-- Para cada chunk, chama `dukascopy_python.fetch()` com `INTERVAL_MIN_1` e `OFFER_SIDE_BID`.
-- Exibe **barra de progresso colorida** no terminal (usando `colorama`).
-- Erros individuais de chunk são silenciados (fins de semana retornam vazio, o que é esperado).
+#### Chunked download logic:
+- Splits total period into **7-day chunks**.
+- For each chunk, calls `dukascopy_python.fetch()` with `INTERVAL_MIN_1` and `OFFER_SIDE_BID`.
+- Displays **colored progress bar** in terminal (using `colorama`).
+- Individual chunk errors are silenced (weekends return empty, which is expected).
 
-#### Validação de ticker:
-- Antes de baixar, verifica se o ticker existe no arquivo `metadata/dukas_assets.csv`.
-- Suporta busca tanto pelo campo `ticker` quanto pelo campo `alias` (case-insensitive).
-- Lança `ValueError` com mensagem orientativa se o ticker não for encontrado.
+#### Ticker Validation:
+- Before downloading, checks if ticker exists in `metadata/dukas_assets.csv`.
+- Supports searching by both `ticker` field and `alias` field (case-insensitive).
+- Raises `ValueError` with guidance message if ticker is not found.
 
-#### Pós-processamento:
+#### Post-processing:
 ```python
-# Remove duplicatas (mantém o último)
+# Remove duplicates (keep last)
 df = df[~df.index.duplicated(keep='last')]
 
 # Remove timezone
 df.index = df.index.tz_convert(None)
 
-# Padroniza nomes das colunas: open → Open, high → High, etc.
+# Standardize column names: open → Open, high → High, etc.
 col_map = {c.lower(): c.capitalize() for c in df.columns}
 df.rename(columns=col_map, inplace=True)
 
@@ -404,162 +404,162 @@ df.sort_index(inplace=True)
 
 ### 3.8 `fetchers/openbb_fetcher.py`
 
-**Responsabilidade:** Download de dados M1 via OpenBB (usando YFinance como provider).
+**Responsibility:** M1 data download via OpenBB (using YFinance as provider).
 
-**Classe:** `OpenBBFetcher(BaseFetcher)`
+**Class:** `OpenBBFetcher(BaseFetcher)`
 
-#### Lógica principal:
+#### Main Logic:
 ```python
 kwargs = {
     "symbol": asset,
     "interval": "1m",
     "provider": "yfinance"
 }
-# Datas são incluídas apenas se o usuário especificou (start_date.year > 2000)
+# Dates are included only if user specified (start_date.year > 2000)
 res = obb.equity.price.historical(**kwargs)
 df = res.to_df()
 ```
 
-**Nota importante:** Se `start_date.year <= 2000` (valor default da CLI para histórico completo), as datas são omitidas do request para que o YFinance retorne o máximo disponível.
+**Important Note:** If `start_date.year <= 2000` (CLI default for full history), dates are omitted from the request so YFinance returns maximum available data.
 
-#### Limitação conhecida:
-O YFinance limita dados intraday (M1) a aproximadamente os últimos 30 dias. Para históricos maiores, use Dukascopy.
+#### Known Limitation:
+YFinance limits intraday data (M1) to approximately the last 30 days. For longer history, use Dukascopy.
 
-#### Pós-processamento: idêntico ao Dukascopy (padronização de timezone e nomes de colunas).
+#### Post-processing: identical to Dukascopy (timezone and column name standardization).
 
 ---
 
-### 3.9 `network_server.py` — API REST (FastAPI)
+### 3.9 `network_server.py` — REST API (FastAPI)
 
-**Responsabilidade:** Expõe as funcionalidades do `DataManager` como uma API HTTP protegida por API Key.
+**Responsibility:** Exposes `DataManager` functionalities as an HTTP API protected by API Key.
 
 **Framework:** FastAPI v0.128  
-**Porta padrão:** `8686`  
-**Instância global:** `manager = DataManager()` (singleton)
+**Default Port:** `8686`  
+**Global Instance:** `manager = DataManager()` (singleton)
 
-#### Segurança (3 camadas):
+#### Security (3 layers):
 
-1. **Autenticação por API Key** via header `X-API-Key`
-   - Chave lida de `DATAMANAGER_API_KEY` env var (fallback: `"YOUR_API_KEY_HERE"`)
-   - Retorna HTTP 403 se a chave for inválida
+1. **API Key Authentication** via `X-API-Key` header
+   - Key read from `DATAMANAGER_API_KEY` env var (fallback: `"YOUR_API_KEY_HERE"`)
+   - Returns HTTP 403 if key is invalid
 
-2. **Validação de entrada** via Pydantic com regex patterns
+2. **Input Validation** via Pydantic with regex patterns
    - `source`: `^[a-zA-Z0-9_]+$`
    - `asset`: `^[a-zA-Z0-9_,\s\-]+$`
    - `timeframe`: `^[a-zA-Z0-9_]+$`
 
-3. **Proteção contra Path Traversal** via `re.match()` nos parâmetros de URL
+3. **Path Traversal Protection** via `re.match()` on URL parameters
 
 #### Endpoints:
 
-| Método | Rota | Descrição | Async |
-|--------|------|-----------|-------|
-| `POST` | `/download` | Baixa novo ativo (background task) | ✅ |
-| `POST` | `/update` | Atualiza database (background task) | ✅ |
-| `POST` | `/delete` | Deleta database(s) | ❌ |
-| `POST` | `/resample` | Gera timeframe derivado (background task) | ✅ |
-| `GET` | `/list` | Lista todos os databases | ❌ |
-| `GET` | `/info/{source}/{asset}/{timeframe}` | Metadados de um database | ❌ |
-| `GET` | `/search` | Busca ativos disponíveis | ❌ |
-| `GET` | `/data/{source}/{asset}/{timeframe}` | Baixa o arquivo `.parquet` bruto | ❌ |
+| Method | Route | Description | Async |
+|--------|-------|-------------|-------|
+| `POST` | `/download` | Downloads new asset (background task) | ✅ |
+| `POST` | `/update` | Updates database (background task) | ✅ |
+| `POST` | `/delete` | Deletes database(s) | ❌ |
+| `POST` | `/resample` | Generates derived timeframe (background task) | ✅ |
+| `GET` | `/list` | Lists all databases | ❌ |
+| `GET` | `/info/{source}/{asset}/{timeframe}` | Database metadata | ❌ |
+| `GET` | `/search` | Searches for available assets | ❌ |
+| `GET` | `/data/{source}/{asset}/{timeframe}` | Downloads raw `.parquet` file | ❌ |
 
-**Operações longas** (`download`, `update`, `resample`) são executadas em **BackgroundTasks** do FastAPI para não bloquear o servidor. O endpoint retorna imediatamente com `{"status": "success", "message": "...started in background"}`.
+**Long operations** (`download`, `update`, `resample`) are executed in FastAPI **BackgroundTasks** to not block the server. Endpoint returns immediately with `{"status": "success", "message": "...started in background"}`.
 
-**`GET /data/{source}/{asset}/{timeframe}`:** Retorna o arquivo `.parquet` como stream binário (`application/octet-stream`) para download direto.
+**`GET /data/{source}/{asset}/{timeframe}`:** Returns `.parquet` file as binary stream (`application/octet-stream`) for direct download.
 
-#### Execução direta:
+#### Direct Execution:
 ```bash
 python network_server.py
-# ou
+# or
 uvicorn network_server:app --host 0.0.0.0 --port 8686
 ```
 
 ---
 
-### 3.10 `client.py` — Cliente Python para a API
+### 3.10 `client.py` — Python Client for the API
 
-**Responsabilidade:** Wrapper Python para consumir a API REST do DataManager de forma programática.
+**Responsibility:** Python wrapper to consume DataManager REST API programmatically.
 
-**Classe:** `DataManagerClient`
+**Class:** `DataManagerClient`
 
-#### Inicialização:
+#### Initialization:
 ```python
 client = DataManagerClient(
     base_url="http://127.0.0.1:8686",
     api_key="YOUR_API_KEY_HERE"
 )
 ```
-Usa `requests.Session` para enviar automaticamente o header `X-API-Key` em todas as requisições.
+Uses `requests.Session` to automatically send `X-API-Key` header in all requests.
 
-#### Métodos:
+#### Methods:
 
-| Método | HTTP | Descrição | Retorno |
-|--------|------|-----------|---------|
-| `download(source, asset, start_date, end_date)` | POST | Aciona download no servidor | `dict` |
-| `update(source, asset, timeframe)` | POST | Aciona atualização | `dict` |
-| `delete(source, asset, timeframe)` | POST | Deleta database | `dict` |
-| `resample(source, asset, target_timeframe)` | POST | Aciona resample | `dict` |
-| `list_databases()` | GET | Lista databases | `list[dict]` |
-| `info(source, asset, timeframe)` | GET | Metadados | `dict` |
-| `search(source, query, exchange)` | GET | Busca ativos | `pd.DataFrame` |
-| `get_data(source, asset, timeframe, save_path, save_format)` | GET | Baixa dados | `pd.DataFrame` ou `str` |
+| Method | HTTP | Description | Return |
+|--------|------|-------------|--------|
+| `download(source, asset, start_date, end_date)` | POST | Triggers server download | `dict` |
+| `update(source, asset, timeframe)` | POST | Triggers update | `dict` |
+| `delete(source, asset, timeframe)` | POST | Deletes database | `dict` |
+| `resample(source, asset, target_timeframe)` | POST | Triggers resample | `dict` |
+| `list_databases()` | GET | Lists databases | `list[dict]` |
+| `info(source, asset, timeframe)` | GET | Metadata | `dict` |
+| `search(source, query, exchange)` | GET | Searches assets | `pd.DataFrame` |
+| `get_data(source, asset, timeframe, save_path, save_format)` | GET | Downloads data | `pd.DataFrame` or `str` |
 
-**`get_data()`** é o método mais importante para uso programático:
-- Sem `save_path`: carrega o Parquet em memória e retorna `pd.DataFrame`.
-- Com `save_path` e `save_format="parquet"`: salva o arquivo `.parquet` diretamente no disco.
-- Com `save_path` e `save_format="csv"`: converte para CSV e salva no disco.
+**`get_data()`** is the most important method for programmatic use:
+- No `save_path`: loads Parquet into memory and returns `pd.DataFrame`.
+- With `save_path` and `save_format="parquet"`: saves `.parquet` file directly to disk.
+- With `save_path` and `save_format="csv"`: converts to CSV and saves to disk.
 
 ---
 
-## 4. Fluxo de Dados
+## 4. Data Flow
 
-### 4.1 Fluxo de Download Completo
+### 4.1 Full Download Flow
 
 ```
-Usuário: download DUKASCOPY EURUSD 2020-01-01 2024-01-01
+User: download DUKASCOPY EURUSD 2020-01-01 2024-01-01
   │
   ▼
 CLI.do_download()
-  │ → Parseia source, asset, datas
-  │ → Chama DataManager.download_data()
+  │ → Parses source, asset, dates
+  │ → Calls DataManager.download_data()
   │
   ▼
 DataManager.download_data()
-  │ → Verifica: storage.get_database_info() → "Not Found" (ok, continua)
+  │ → Checks: storage.get_database_info() → "Not Found" (ok, continue)
   │ → _get_fetcher("DUKASCOPY") → DukascopyFetcher()
   │ → fetcher.fetch_data(asset, start, end)
   │
   ▼
 DukascopyFetcher.fetch_data()
-  │ → Valida ticker no dukas_assets.csv
-  │ → Loop em chunks de 7 dias com barra de progresso
+  │ → Validates ticker in dukas_assets.csv
+  │ → Chunk loop (7 days) with progress bar
   │ → pd.concat(dfs)
-  │ → Remove duplicatas, remove timezone, padroniza colunas
-  │ → Retorna DataFrame M1
+  │ → Removes duplicates, removes timezone, standardizes columns
+  │ → Returns M1 DataFrame
   │
   ▼
-DataManager.download_data() (continua)
+DataManager.download_data() (continued)
   │ → storage.save_data(df_m1, "DUKASCOPY", "EURUSD", "M1")
   │
   ▼
 StorageManager.save_data()
   │ → _get_path() → "database/dukascopy/EURUSD/M1/data.parquet"
-  │ → Garante index DatetimeIndex, remove tz, ordena
+  │ → Ensures DatetimeIndex, removes tz, sorts
   │ → df.to_parquet(file_path, engine='fastparquet')
-  │ → _update_catalog_entry() → atualiza catalog.json
+  │ → _update_catalog_entry() → updates catalog.json
   │
   ▼
-Saída: "✓ Database EURUSD (M1) saved successfully! (X rows)"
+Output: "✓ Database EURUSD (M1) saved successfully! (X rows)"
 ```
 
-### 4.2 Fluxo de Resample
+### 4.2 Resample Flow
 
 ```
-Usuário: resample DUKASCOPY EURUSD H4
+User: resample DUKASCOPY EURUSD H4
   │
   ▼
 DataManager.resample_database("DUKASCOPY", "EURUSD", "H4")
-  │ → storage.load_data("DUKASCOPY", "EURUSD", "M1")  ← carrega o M1 base
+  │ → storage.load_data("DUKASCOPY", "EURUSD", "M1")  ← loads base M1
   │ → processor.resample_ohlc(df_m1, "H4")
   │      → rule = "4h"
   │      → df.resample("4h").agg({Open: first, High: max, Low: min, Close: last, Volume: sum})
@@ -567,40 +567,40 @@ DataManager.resample_database("DUKASCOPY", "EURUSD", "H4")
   │ → storage.save_data(df_h4, "DUKASCOPY", "EURUSD", "H4")
   │
   ▼
-Saída: "✓ Conversion finished and saved!"
-  Arquivo: database/dukascopy/EURUSD/H4/data.parquet
+Output: "✓ Conversion finished and saved!"
+  File: database/dukascopy/EURUSD/H4/data.parquet
 ```
 
 ---
 
-## 5. Sistema de Armazenamento
+## 5. Storage System
 
-### Hierarquia de diretórios:
+### Directory Hierarchy:
 ```
 database/
-  {source_lowercase}/        # ex: dukascopy, openbb
-    {ASSET_UPPERCASE}/       # ex: EURUSD, AAPL
-      {TIMEFRAME_UPPERCASE}/ # ex: M1, H1, D1
-        data.parquet         # único arquivo de dados por combinação
+  {source_lowercase}/        # e.g., dukascopy, openbb
+    {ASSET_UPPERCASE}/       # e.g., EURUSD, AAPL
+      {TIMEFRAME_UPPERCASE}/ # e.g., M1, H1, D1
+        data.parquet         # single data file per combination
 ```
 
-### Formato Parquet:
+### Parquet Format:
 - Engine: `fastparquet`
-- Índice: `DatetimeIndex` com `name="datetime"`, sem timezone
-- Colunas: `Open`, `High`, `Low`, `Close`, `Volume`
+- Index: `DatetimeIndex` with `name="datetime"`, no timezone
+- Columns: `Open`, `High`, `Low`, `Close`, `Volume`
 
-### Por que Parquet?
-- Compressão eficiente para dados de séries temporais
-- Leitura rápida por colunas (columnar format)
-- Preserva tipos de dados nativos (float64, datetime64)
+### Why Parquet?
+- Efficient compression for time series data
+- Fast columnar reading
+- Preserves native data types (float64, datetime64)
 
 ---
 
-## 6. Catálogo de Metadados
+## 6. Metadata Catalog
 
-**Arquivo:** `metadata/catalog.json`
+**File:** `metadata/catalog.json`
 
-O catálogo é uma lista JSON de objetos, um por database armazenado:
+The catalog is a JSON list of objects, one per stored database:
 
 ```json
 [
@@ -616,186 +616,186 @@ O catálogo é uma lista JSON de objetos, um por database armazenado:
 ]
 ```
 
-**Atualização automática:** O catálogo é atualizado a cada `save_data()`, `append_data()` e `delete_database()`.
+**Automatic Update:** Catalog is updated upon every `save_data()`, `append_data()`, and `delete_database()`.
 
-**`rebuild`:** O comando `rebuild` (CLI) ou método `storage.rebuild_catalog()` varre todo o diretório `database/` e reconstrói o JSON do zero, útil após operações manuais no sistema de arquivos.
+**`rebuild`:** `rebuild` (CLI) command or `storage.rebuild_catalog()` method scans entire `database/` directory and rebuilds JSON from scratch, useful after manual filesystem operations.
 
-**Leitura rápida:** `list_databases()` lê apenas o JSON (sem abrir nenhum Parquet), tornando o comando `list` muito rápido independente do volume de dados.
-
----
-
-## 7. Fontes de Dados Suportadas
-
-| Chave | Fetcher | Backend | Dados disponíveis |
-|-------|---------|---------|-------------------|
-| `DUKASCOPY` | `DukascopyFetcher` | `dukascopy-python` | Forex, índices, commodities, criptos (~3.000 ativos). Histórico completo desde ~2000. |
-| `OPENBB` | `OpenBBFetcher` | `openbb` + `yfinance` | Ações, ETFs, índices. Dados M1 limitados a ~30 dias. |
-
-### Arquivo de ativos Dukascopy:
-`metadata/dukas_assets.csv` — CSV com ~3.000 linhas e colunas:
-- `ticker` — Identificador oficial (ex: `EURUSD`)
-- `alias` — Nome alternativo aceito na CLI
-- `nome_do_ativo` — Nome legível (ex: "Euro vs US Dollar")
-- `categoria` — Grupo do ativo (Forex, Crypto, etc.)
+**Fast Read:** `list_databases()` only reads JSON (without opening any Parquet), making the `list` command very fast regardless of data volume.
 
 ---
 
-## 8. Timeframes Suportados
+## 7. Supported Data Sources
 
-| Abreviação | Equivalente pandas | Nome |
-|------------|-------------------|------|
-| `M1` | `1min` | 1 Minuto (base) |
-| `M2` | `2min` | 2 Minutos |
-| `M5` | `5min` | 5 Minutos |
-| `M10` | `10min` | 10 Minutos |
-| `M15` | `15min` | 15 Minutos |
-| `M30` | `30min` | 30 Minutos |
-| `H1` | `1h` | 1 Hora |
-| `H2` | `2h` | 2 Horas |
-| `H3` | `3h` | 3 Horas |
-| `H4` | `4h` | 4 Horas |
-| `H6` | `6h` | 6 Horas |
-| `D1` | `D` | Diário |
-| `W1` | `W` | Semanal |
+| Key | Fetcher | Backend | Available Data |
+|-----|---------|---------|----------------|
+| `DUKASCOPY` | `DukascopyFetcher` | `dukascopy-python` | Forex, indices, commodities, cryptos (~3,000 assets). Full history since ~2000. |
+| `OPENBB` | `OpenBBFetcher` | `openbb` + `yfinance` | Stocks, ETFs, indices. M1 data limited to ~30 days. |
 
-**Importante:** Apenas `M1` é baixado diretamente dos fetchers. Todos os outros são gerados por resample.
+### Dukascopy Assets File:
+`metadata/dukas_assets.csv` — CSV with ~3,000 rows and columns:
+- `ticker` — Official identifier (e.g., `EURUSD`)
+- `alias` — Alternative name accepted in CLI
+- `nome_do_ativo` — Readable name (e.g., "Euro vs US Dollar")
+- `categoria` — Asset group (Forex, Crypto, etc.)
 
 ---
 
-## 9. Segurança da API
+## 8. Supported Timeframes
 
-### Autenticação
-- Header obrigatório: `X-API-Key: <chave>`
-- Configurada via variável de ambiente `DATAMANAGER_API_KEY`
-- HTTP 403 em caso de chave inválida ou ausente
+| Abbreviation | Pandas Equivalent | Name |
+|--------------|-------------------|------|
+| `M1` | `1min` | 1 Minute (base) |
+| `M2` | `2min` | 2 Minutes |
+| `M5` | `5min` | 5 Minutes |
+| `M10` | `10min` | 10 Minutes |
+| `M15` | `15min` | 15 Minutes |
+| `M30` | `30min` | 30 Minutes |
+| `H1` | `1h` | 1 Hour |
+| `H2` | `2h` | 2 Hours |
+| `H3` | `3h` | 3 Hours |
+| `H4` | `4h` | 4 Hours |
+| `H6` | `6h` | 6 Hours |
+| `D1` | `D` | Daily |
+| `W1` | `W` | Weekly |
 
-### Proteção contra injeção
-- Todos os campos de entrada são validados com regex Pydantic (ex: `^[a-zA-Z0-9_]+$`)
-- Parâmetros de URL em `GET /info` e `GET /data` são validados com `re.match()` antes do uso
-
-### Operações assíncronas
-- Downloads e updates rodam em `BackgroundTasks` do FastAPI
-- O servidor nunca fica bloqueado em operações longas
-- Evita duplicatas no `/download` verificando a existência do M1 antes de agendar o background task (retorna HTTP 409 Conflict se já existir)
+**Important:** Only `M1` is downloaded directly from fetchers. All others are generated via resampling.
 
 ---
 
-## 10. Deploy com Docker
+## 9. API Security
 
-### Modo API (recomendado para servidor):
+### Authentication
+- Mandatory Header: `X-API-Key: <key>`
+- Configured via `DATAMANAGER_API_KEY` environment variable
+- HTTP 403 if key is invalid or missing
+
+### Injection Protection
+- All input fields are validated with Pydantic regex (e.g., `^[a-zA-Z0-9_]+$`)
+- URL parameters in `GET /info` and `GET /data` are validated with `re.match()` before use
+
+### Async Operations
+- Downloads and updates run in FastAPI `BackgroundTasks`
+- Server is never blocked during long operations
+- Prevents duplicates in `/download` by checking M1 existence before scheduling background task (returns HTTP 409 Conflict if already exists)
+
+---
+
+## 10. Docker Deployment
+
+### API Mode (recommended for server):
 ```bash
 docker-compose up -d
 ```
 
-O `docker-compose.yml` configura:
-- Imagem: `ghcr.io/guilsmatos1/datamanager:latest`
-- Porta: `8686:8686`
-- Volumes persistentes: `./database` e `./metadata` (dados nunca são perdidos ao recriar o container)
-- Reinício automático: `restart: always`
-- Variável de ambiente: `DATAMANAGER_API_KEY`
-- Comando padrão: `python network_server.py`
+`docker-compose.yml` configures:
+- Image: `ghcr.io/guilsmatos1/datamanager:latest`
+- Port: `8686:8686`
+- Persistent Volumes: `./database` and `./metadata` (data never lost when recreating container)
+- Auto Restart: `restart: always`
+- Environment Variable: `DATAMANAGER_API_KEY`
+- Default Command: `python network_server.py`
 
 ### Dockerfile:
 ```dockerfile
 FROM python:3.12-slim
 WORKDIR /app
-RUN apt-get install -y gcc g++   # necessário para compilar dependências nativas
+RUN apt-get install -y gcc g++   # needed for compiling native dependencies
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-CMD ["python", "main.py", "-i"]  # modo CLI interativo por padrão no Dockerfile
+CMD ["python", "main.py", "-i"]  # interactive CLI mode by default in Dockerfile
 ```
 
 ---
 
-## 11. Dependências Principais
+## 11. Main Dependencies
 
-| Pacote | Versão | Função |
-|--------|--------|--------|
-| `pandas` | 3.0.1 | Manipulação de DataFrames, resampling, I/O |
-| `fastparquet` | 2025.12.0 | Leitura/escrita de arquivos Parquet |
-| `fastapi` | 0.128.8 | Framework da API REST |
-| `uvicorn` | 0.40.0 | Servidor ASGI para FastAPI |
-| `pydantic` | 2.12.5 | Validação de payloads da API |
-| `dukascopy-python` | 4.0.1 | Download de dados Dukascopy |
-| `openbb` | 4.7.0 | Plataforma de dados financeiros |
-| `yfinance` | 1.2.0 | Backend de dados para OpenBB |
-| `colorama` | 0.4.6 | Output colorido no terminal |
-| `requests` | 2.32.5 | HTTP client (usado pelo `client.py`) |
-| `python-dateutil` | 2.9.0 | Parse flexível de datas na CLI |
+| Package | Version | Function |
+|---------|---------|----------|
+| `pandas` | 3.0.1 | DataFrame manipulation, resampling, I/O |
+| `fastparquet` | 2025.12.0 | Parquet file read/write |
+| `fastapi` | 0.128.8 | REST API Framework |
+| `uvicorn` | 0.40.0 | ASGI server for FastAPI |
+| `pydantic` | 2.12.5 | API payload validation |
+| `dukascopy-python` | 4.0.1 | Dukascopy data download |
+| `openbb` | 4.7.0 | Financial data platform |
+| `yfinance` | 1.2.0 | Data backend for OpenBB |
+| `colorama` | 0.4.6 | Colored terminal output |
+| `requests` | 2.32.5 | HTTP client (used by `client.py`) |
+| `python-dateutil` | 2.9.0 | Flexible date parsing in CLI |
 
 ---
 
-## 12. Referência de Comandos CLI
+## 12. CLI Command Reference
 
-### Exemplos de uso completos:
+### Full Usage Examples:
 
 ```bash
-# Modo interativo
+# Interactive mode
 python main.py -i
 
-# Modo direto (sem shell interativo)
+# Direct mode (without interactive shell)
 python main.py download DUKASCOPY EURUSD 2020-01-01 2024-01-01
 python main.py list
 python main.py quality DUKASCOPY EURUSD M1
 ```
 
-### Dentro do shell interativo:
+### Inside Interactive Shell:
 
 ```bash
-# Download com histórico completo (desde 2000-01-01)
+# Download with full history (since 2000-01-01)
 download DUKASCOPY EURUSD
 
-# Download múltiplos ativos com resampling automático
+# Download multiple assets with automatic resampling
 download DUKASCOPY EURUSD,GBPUSD,USDJPY 2023-01-01 2024-01-01 -timeframe H1,H4,D1
 
-# Atualizar um ativo
+# Update an asset
 update DUKASCOPY EURUSD
 
-# Atualizar todos os databases de uma vez
+# Update all databases at once
 update all
 
-# Listar todos os databases
+# List all databases
 list
 
-# Reconstruir catálogo (após mudanças manuais)
+# Rebuild catalog (after manual changes)
 rebuild
 
-# Buscar ativos
-search                                    # mostra resumo de fontes
-search --query "bitcoin"                  # busca em OpenBB
-search --source dukascopy --query "EUR"   # busca offline no CSV
+# Search assets
+search                                    # shows source summary
+search --query "bitcoin"                  # search in OpenBB
+search --source dukascopy --query "EUR"   # offline search in CSV
 
-# Criar timeframe derivado do M1
+# Create derived timeframe from M1
 resample DUKASCOPY EURUSD H1
 resample DUKASCOPY EURUSD,GBPUSD H1,H4,D1
 
-# Ver metadados de um database
+# View database metadata
 info DUKASCOPY EURUSD M1
 
-# Verificar qualidade dos dados
+# Check data quality
 quality DUKASCOPY EURUSD M1
 quality OPENBB AAPL,MSFT M1
 
-# Deletar um timeframe específico
+# Delete a specific timeframe
 delete DUKASCOPY EURUSD H1
 
-# Deletar todos os timeframes de um ativo
+# Delete all timeframes of an asset
 delete DUKASCOPY EURUSD
 
-# Deletar TUDO (pede confirmação)
+# Delete EVERYTHING (asks for confirmation)
 delete all
 
-# Sair
+# Exit
 exit
 ```
 
 ---
 
-## 13. Referência da API REST
+## 13. REST API Reference
 
 **Base URL:** `http://<host>:8686`  
-**Autenticação:** Header `X-API-Key: <sua_chave>`
+**Authentication:** Header `X-API-Key: <your_key>`
 
 ### POST /download
 ```json
@@ -803,14 +803,14 @@ exit
 {
   "source": "DUKASCOPY",
   "asset": "EURUSD",
-  "start_date": "2020-01-01",   // opcional
-  "end_date": "2024-01-01"      // opcional
+  "start_date": "2020-01-01",   // optional
+  "end_date": "2024-01-01"      // optional
 }
 
 // Response 200:
 {"status": "success", "message": "Download of EURUSD via DUKASCOPY started in background"}
 
-// Response 409 (já existe):
+// Response 409 (already exists):
 {"detail": "The database for EURUSD via DUKASCOPY already exists..."}
 ```
 
@@ -825,13 +825,13 @@ exit
 
 ### POST /delete
 ```json
-// Deletar um timeframe:
+// Delete a timeframe:
 {"source": "DUKASCOPY", "asset": "EURUSD", "timeframe": "H1"}
 
-// Deletar todos os timeframes do ativo:
+// Delete all timeframes of the asset:
 {"source": "DUKASCOPY", "asset": "EURUSD"}
 
-// Deletar tudo:
+// Delete everything:
 {"source": "all", "asset": "all"}
 ```
 
@@ -861,7 +861,7 @@ exit
 ### GET /info/{source}/{asset}/{timeframe}
 ```
 GET /info/dukascopy/EURUSD/M1
-// Response: mesmo objeto de get_database_info()
+// Response: same object from get_database_info()
 ```
 
 ### GET /search
@@ -870,40 +870,40 @@ GET /search?source=dukascopy&query=bitcoin
 GET /search?source=openbb&query=Apple&exchange=NASDAQ
 
 // Response 200:
-{"assets": [...lista de objetos...]}
+{"assets": [...list of objects...]}
 ```
 
 ### GET /data/{source}/{asset}/{timeframe}
 ```
 GET /data/dukascopy/EURUSD/M1
 
-// Response: arquivo binário .parquet
+// Response: binary .parquet file
 // Content-Type: application/octet-stream
 // Content-Disposition: attachment; filename="dukascopy_EURUSD_M1.parquet"
 ```
 
 ---
 
-## Notas para Contribuição / Extensão
+## Notes for Contribution / Extension
 
-### Adicionar uma nova fonte de dados:
-1. Criar `fetchers/minha_fonte_fetcher.py` herdando de `BaseFetcher`
-2. Implementar `source_name` (property) e `fetch_data()` (retornando DataFrame no padrão)
-3. Registrar no dicionário `_fetchers` em `core/server.py`:
+### Adding a new data source:
+1. Create `fetchers/my_source_fetcher.py` inheriting from `BaseFetcher`
+2. Implement `source_name` (property) and `fetch_data()` (returning standardized DataFrame)
+3. Register in `_fetchers` dictionary in `core/server.py`:
    ```python
-   self._fetchers["MINHA_FONTE"] = MinhaFonteFetcher()
+   self._fetchers["MY_SOURCE"] = MySourceFetcher()
    ```
-4. Nenhuma outra alteração necessária — CLI e API funcionarão automaticamente.
+4. No other changes needed — CLI and API will work automatically.
 
-### Adicionar um novo timeframe:
-1. Adicionar entrada no dicionário `TF_MAPPING` em `data_management/processor.py`:
+### Adding a new timeframe:
+1. Add entry to `TF_MAPPING` dictionary in `data_management/processor.py`:
    ```python
    'M45': '45min',
    ```
-2. O sistema inteiro passa a suportar o novo TF automaticamente.
+2. The entire system supports the new TF automatically.
 
-### Invariantes importantes (contratos do sistema):
-- Todo dado persistido tem índice `DatetimeIndex` sem timezone, ordenado.
-- Todo fetcher retorna colunas com primeira letra maiúscula: `Open`, `High`, `Low`, `Close`, `Volume`.
-- O timeframe `M1` é sempre o dado base; nunca faça resample de um TF derivado para gerar outro.
-- O catálogo `catalog.json` deve sempre refletir o estado real do disco. Use `rebuild` em caso de dúvida.
+### Important Invariants (system contracts):
+- All persisted data has a sorted, timezone-naive `DatetimeIndex`.
+- All fetchers return columns with first letter capitalized: `Open`, `High`, `Low`, `Close`, `Volume`.
+- `M1` timeframe is always the base data; never resample from a derived TF to generate another.
+- `catalog.json` must always reflect real disk state. Use `rebuild` in case of doubt.
