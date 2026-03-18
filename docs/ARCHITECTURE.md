@@ -206,16 +206,23 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 ### 3.4 `services/scheduler.py` — Background Job Manager
 
-**Responsibility:** Manages recurring data update tasks using APScheduler. Supports Cron and Intervals.
+**Responsibility:** Manages recurring data update tasks using APScheduler.
+
+**Features:**
+- Supports **Cron** expressions (5 fields) and **Intervals** (minutes).
+- Jobs run in background daemon threads.
+- In-memory job storage (does not persist across restarts).
 
 ---
 
 ### 3.5 `core/config.py` — Centralized Settings
 
 **Responsibility:** Manages application configuration via Pydantic Settings.
-- **`api_key`**: `DATAMANAGER_API_KEY`.
-- **`host` / `port`**: `HOST`, `PORT`.
-- **`is_api_key_configured`**: Helper to check if a custom key is set.
+
+**Settings:**
+- `api_key`: Secret for REST API authentication (`DATAMANAGER_API_KEY`).
+- `host` / `port`: Network server configuration.
+- Loads from `.env` file automatically.
 
 ---
 
@@ -233,7 +240,7 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 #### Data Versioning:
 - **Automatic Backups:** Every `save_data` call creates a timestamped backup in `database/.versions/`.
 - **Rotation:** Keeps the last 5 versions for each asset/timeframe combination.
-- **Restoration:** Supports restoring the latest or a specific version.
+- **Restoration:** Supports restoring the latest or a specific version (internal method).
 
 ---
 
@@ -254,9 +261,12 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 ### 3.8 `fetchers/` — Data Integration
 
 **`CcxtFetcher` (new):**
-- Support for 100+ crypto exchanges.
+- Support for 100+ crypto exchanges via `ccxt` library.
 - Syntax: `exchange:SYMBOL` (e.g., `binance:BTC/USDT`). Defaults to binance.
 - Automatically handles rate limits and chunked OHLCV fetching.
+
+**`BaseFetcher`:**
+- Abstract base class defining `fetch_data` and `search` interfaces.
 
 ---
 
@@ -264,12 +274,21 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 **Responsibility:** Exposes functionalities via HTTP with enhanced security and performance.
 
-#### New Enhancements:
+#### Features:
 - **Dashboard (`GET /`)**: Overview of instance status and storage statistics.
-- **Health Check (`GET /health`)**: Basic connectivity test.
 - **Rate Limiting**: Rolling window (60 requests per minute per IP).
-- **Data Streaming**: `GET /.../stream` returns line-by-line CSV, ideal for very large datasets.
-- **Pagination**: `/list` supports `skip` and `limit`.
+- **Data Streaming**: `GET /data/.../stream` returns line-by-line CSV.
+- **Background Tasks**: Long-running operations are offloaded to avoid blocking.
+
+---
+
+## 4. Data Flow
+
+1. **Request:** User triggers a command (CLI) or endpoint (API).
+2. **Orchestration:** `DataManager` service identifies the required `Fetcher`.
+3. **Fetching:** `Fetcher` downloads `M1` data in chunks from the provider.
+4. **Storage:** `StorageManager` saves/appends data as `.parquet` and updates the SQLite catalog.
+5. **Post-processing:** If a higher timeframe was requested, `DataProcessor` resamples the `M1` file.
 
 ---
 
@@ -282,7 +301,7 @@ database/
   {source}/
     {ASSET}/
       {TIMEFRAME}/
-        data.parquet
+        data.parquet         # Fastparquet engine
 ```
 
 ---
@@ -291,17 +310,79 @@ database/
 
 **File:** `metadata/catalog.db`
 
-The catalog is a SQLite database with a `catalog` table:
-- **WAL Mode**: Enabled for maximum performance in concurrent environments.
-- **Fast Read**: `list_databases()` is an O(1) database query instead of scanning files.
-- **Sync**: `rebuild` command synchronizes the DB with actual disk state.
+The catalog uses SQLite with **WAL (Write-Ahead Logging)** mode.
+- Table: `catalog` (source, asset, timeframe, rows, start_date, end_date, file_size_kb).
+- Primary Key: `(source, asset, timeframe)`.
 
 ---
 
 ## 7. Supported Data Sources
 
-| Key | Fetcher | Backend | Notes |
-|-----|---------|---------|-------|
-| `DUKASCOPY` | `DukascopyFetcher` | `dukascopy-python` | Forex/Indices. Full history. |
-| `OPENBB` | `OpenBBFetcher` | `openbb` + `yfinance` | Stocks/ETFs. ~30d limit for M1. |
-| `CCXT` | `CcxtFetcher` | `ccxt` | Crypto. Supports `exchange:SYMBOL`. |
+| Source | Library | Markets | Notes |
+|--------|---------|---------|-------|
+| `DUKASCOPY` | `dukascopy-python` | Forex, Commodities | High quality, full history. |
+| `OPENBB` | `openbb` | Stocks, ETFs, Crypto | Uses yfinance proxy for M1. |
+| `CCXT` | `ccxt` | Crypto | Supports multi-exchange prefix. |
+
+---
+
+## 8. Supported Timeframes
+
+Standard OHLCV resampling rules:
+- **Intraday:** `M1` (base), `M2`, `M5`, `M10`, `M15`, `M30`.
+- **Hourly:** `H1`, `H2`, `H3`, `H4`, `H6`.
+- **Daily/Weekly:** `D1`, `W1`.
+
+---
+
+## 9. API Security
+
+1. **API Key Authentication:** Requires `X-API-Key` header matching `DATAMANAGER_API_KEY`.
+2. **Rate Limiting:** Sliding window protection (60 req/min) per source IP.
+3. **Input Validation:** Strict Pydantic models for all request bodies and path parameters.
+
+---
+
+## 10. Docker Deployment
+
+- **Base Image:** `python:3.12-slim`.
+- **Package Manager:** `uv` (installs from `uv.lock`).
+- **Volumes:** `./database` and `./metadata` should be persisted for data durability.
+
+---
+
+## 11. Main Dependencies
+
+- **FastAPI / Uvicorn**: Web server.
+- **Pandas / Fastparquet**: Data processing and storage.
+- **APScheduler**: Background task scheduling.
+- **ccxt / openbb / dukascopy-python**: Data providers.
+- **Pydantic / Pydantic-Settings**: Validation and configuration.
+
+---
+
+## 12. CLI Command Reference
+
+| Command | Usage Example |
+|---------|---------------|
+| `download` | `download CCXT binance:BTC/USDT 2024-01-01` |
+| `update` | `update DUKASCOPY EURUSD M1` |
+| `resample` | `resample OPENBB AAPL H1` |
+| `search` | `search --source dukascopy --query gold` |
+| `list` | `list` |
+| `schedule` | `schedule add CCXT BTC/USDT --interval 60` |
+| `quality` | `quality DUKASCOPY EURUSD M1` |
+
+---
+
+## 13. REST API Reference
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | `GET` | Dashboard and storage statistics |
+| `/list` | `GET` | List all databases (paginated) |
+| `/download` | `POST` | Start a background download task |
+| `/update` | `POST` | Start a background update task |
+| `/data/{s}/{a}/{t}` | `GET` | Download a Parquet file |
+| `/data/.../stream` | `GET` | Stream data as CSV |
+| `/schedule` | `POST` | Create a recurring update job |

@@ -100,7 +100,8 @@ uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686 --reload
 
 - `download <source> <assets> [start_date] [end_date] [-timeframe tf1,tf2,...]`: Downloads data.
   *Example:* `download OPENBB AAPL,MSFT 2023-01-01 2024-01-01`
-  *Example:* `download dukascopy usatech,usa30 -timeframe m15,h1`
+  *Example:* `download DUKASCOPY EURUSD,GBPUSD -timeframe M15,H1`
+  *Example:* `download CCXT binance:BTC/USDT,eth:ETH/USDT`
 - `update <source> <assets> [timeframe]`: Updates an existing database with new data.
   *Example:* `update OPENBB AAPL M1`
   *(Note: `update all` automatically updates all `M1` bases and reconstructs higher timeframes).*
@@ -116,7 +117,7 @@ uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686 --reload
   *Example:* `schedule add OPENBB AAPL H1 --cron "0 9 * * 1-5"`
   *Example:* `schedule list`
   *Example:* `schedule remove <job_id>`
-- `rebuild`: Rebuilds the `catalog.json` index by scanning the physical files on disk.
+- `rebuild`: Rebuilds the `catalog.db` index by scanning the physical files on disk.
 - `quality <source> <assets> [timeframe]`: Performs a data integrity report (checks for gaps, duplicates, and OHLC logic).
 
 ### 5. Programmatic Usage (Python Client)
