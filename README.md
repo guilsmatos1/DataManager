@@ -49,9 +49,13 @@ For version-specific changes (v1.2.0), refer to the [Migration Guide](docs/MIGRA
 ## Instructions & Usage
 
 ### 1. Installation
-Ensure you have [uv](https://docs.astral.sh/uv/) installed, then install all dependencies:
+Ensure you have [uv](https://docs.astral.sh/uv/) installed, then install dependencies:
 ```bash
+# Standard installation
 uv sync --dev
+
+# Installation with crypto support (CCXT)
+uv sync --dev --extra crypto
 ```
 
 ### 2. Configuration
@@ -127,10 +131,12 @@ You can also use DataManager programmatically in your own Python scripts using t
 ```python
 from datamanager.client import DataManagerClient
 
+# Connect to the API (requires DATAMANAGER_API_KEY in .env)
 client = DataManagerClient(base_url="http://localhost:8686", api_key="YOUR_API_KEY")
 
-# Download data to a Pandas DataFrame
-df = client.get_data("DUKASCOPY", "EURUSD", "H1")
+# Download data directly into a Pandas DataFrame
+# Optional: use 'timezone' parameter for automatic conversion (e.g., "America/New_York", "UTC")
+df = client.get_data("DUKASCOPY", "EURUSD", "H1", timezone="America/Sao_Paulo")
 print(df.head())
 
 # Or save it directly to a CSV file

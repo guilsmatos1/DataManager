@@ -265,8 +265,28 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - Syntax: `exchange:SYMBOL` (e.g., `binance:BTC/USDT`). Defaults to binance.
 - Automatically handles rate limits and chunked OHLCV fetching.
 
-**`BaseFetcher`:**
+**BaseFetcher**:
 - Abstract base class defining `fetch_data` and `search` interfaces.
+
+---
+
+### 3.9 `fetchers/dukascopy.py` — Forex & Commodities
+
+**Responsibility:** Interface with the `dukascopy-python` library.
+
+- Downloads tick-level data and aggregates to M1.
+- Supports ~3,000 assets (defined in `metadata/dukas_assets.csv`).
+- Reliable source for long-term Forex history.
+
+---
+
+### 3.10 `fetchers/openbb.py` — Stocks & ETFs
+
+**Responsibility:** Interface with the `OpenBB` platform.
+
+- Uses `yfinance` as the primary backend for M1 data.
+- Supports major global stock exchanges and ETFs.
+- Note: M1 history for stocks is typically limited to the last 7-30 days by the provider.
 
 ---
 
@@ -279,6 +299,45 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - **Rate Limiting**: Rolling window (60 requests per minute per IP).
 - **Data Streaming**: `GET /data/.../stream` returns line-by-line CSV.
 - **Background Tasks**: Long-running operations are offloaded to avoid blocking.
+
+---
+
+### 3.12 `schemas/` — Data Validation
+
+**Responsibility:** Defines Pydantic models for structured API communication.
+
+- Ensures all incoming requests have valid data types.
+- Provides consistent error messages for invalid API calls.
+
+---
+
+### 3.13 `client.py` — Python Client for the API
+
+**Responsibility:** High-level library to consume the REST API from other Python applications.
+
+**Class:** `DataManagerClient`
+
+- Handles authentication (`X-API-Key`).
+- Provides methods for downloading data directly to Pandas DataFrames.
+- Includes automatic timezone conversion.
+
+---
+
+### 3.14 `utils/logger.py` — Centralized Logging
+
+**Responsibility:** Standardizes output across CLI and API.
+
+- **Console:** Colorized, human-readable logs.
+- **File (`log.log`):** Structured JSON logs for machine analysis and persistence.
+
+---
+
+### 3.15 `utils/retry.py` — Exponential Backoff
+
+**Responsibility:** Ensures network resiliency.
+
+- Utility function `with_retry` used by Fetchers.
+- Default: 3 attempts with increasing delays (1s, 2s, 4s).
 
 ---
 
