@@ -37,13 +37,41 @@ DataManager now uses [uv](https://docs.astral.sh/uv/) for lightning-fast depende
 # Install uv (if not already present)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Synchronize dependencies
+# Synchronize dependencies (including new ccxt support)
 uv sync --dev
 ```
 
 ---
 
-## 3. API Modernization (FastAPI)
+## 3. Storage Evolution: SQLite Catalog
+
+The legacy `catalog.json` has been replaced by a high-performance **SQLite database** (`metadata/catalog.db`).
+
+- **WAL Mode**: Enabled by default to support concurrent read/write operations without locking issues.
+- **Improved Performance**: Database listings and metadata lookups no longer require full file scans.
+- **Automatic Migration**: The system will automatically populate `catalog.db` upon first run or when the `rebuild` command is executed.
+
+---
+
+## 4. New Data Sources & Features
+
+### CCXT Fetcher
+Support for over 100 crypto exchanges via the CCXT library.
+- Usage: `download CCXT binance:BTC/USDT`
+- Default exchange is `binance` if not specified.
+
+### Data Versioning
+Automatic backup system for your databases.
+- Every `save` operation creates a timestamped version in `database/.versions/`.
+- Up to 5 historical versions are kept per asset/timeframe.
+
+### Gap Interpolation
+New utility to handle missing data in OHLCV series.
+- Supports forward-filling prices and zero-filling volume to maintain continuous time-series.
+
+---
+
+## 5. API Modernization (FastAPI)
 
 The network server has been moved to `src/datamanager/api/` and standardized as a FastAPI application with better security and performance.
 

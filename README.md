@@ -4,21 +4,29 @@
 **DataManager** is a centralized tool designed to fetch, manage, store, update, and resample financial OHLCV (Open, High, Low, Close, Volume) data. By providing an interactive Command-Line Interface (CLI) as well as a single-command mode, it offers a streamlined way to maintain local databases of financial assets.
 
 Currently, it supports the following data sources:
-- **OpenBB**
-- **Dukascopy**
+- **OpenBB**: Stocks, ETFs, indices (via yfinance).
+- **Dukascopy**: Forex, commodities, indices, cryptos.
+- **CCXT**: Extensive crypto support across multiple exchanges (e.g., `binance:BTC/USDT`).
 
 ## Purpose and Objectives
 The main objective of DataManager is to simplify the management of financial data. Instead of repeatedly fetching data from APIs when running tests or analyses, DataManager downloads the data locally (by default at a 1-Minute `M1` timeframe) and provides tools to reliably update it or resample it into larger timeframes (e.g., `H1`, `D1`).
 
 ### Key Features
-- **Data Fetching:** Download historical OHLCV data from OpenBB and Dukascopy.
-- **Local Storage:** Store asset data efficiently on disk.
+- **Data Fetching:** Download historical OHLCV data from OpenBB, Dukascopy, and CCXT.
+- **Local Storage:** Store asset data efficiently in Parquet format with atomic writes and cross-platform file locking.
 - **Resampling:** Convert `M1` base data into any higher timeframe dynamically. Supported: `M2`, `M5`, `M10`, `M15`, `M30`, `H1`, `H2`, `H3`, `H4`, `H6`, `D1`, `W1`.
-- **Smart Updating:** Update existing databases by fetching only the newly available data (since the last saved date) and appending it.
+- **Smart Updating:** Update existing databases by fetching only the newly available data and appending it.
+- **Data Versioning:** Automatic timestamped backups (up to 5 versions) for every saved asset/timeframe.
+- **Gap Interpolation:** Built-in logic to fill missing candles via forward-filling prices and zero-filling volume.
 - **Asset Search:** Built-in search functionality to explore available tickers and assets from the supported sources.
 - **Scheduled Updates:** Automate recurring data updates using Cron expressions or time intervals (API & CLI).
+- **REST API Modernization:** 
+  - **Dashboard & Stats:** Overview of total rows, sources, and storage usage.
+  - **Data Streaming:** High-performance CSV streaming for large datasets.
+  - **Rate Limiting:** Sliding window protection (60 req/min).
+  - **Pagination:** Support for `skip` and `limit` in asset listings.
 - **Network Resiliency:** Automatic retry with exponential backoff for network-related fetch errors.
-- **Concurrency Safety:** Robust file locking mechanism to prevent data corruption during simultaneous access.
+- **Concurrency Safety:** Robust SQLite-backed catalog with WAL mode for safe multi-process access.
 
 ## Architecture
 DataManager follows a modular src layout (`src/datamanager/`). For a complete technical breakdown, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -30,13 +38,13 @@ For version-specific changes (v1.2.0), refer to the [Migration Guide](docs/MIGRA
 - `src/datamanager/services/scheduler.py` (`SchedulerService`): Manages background automated update tasks using APScheduler.
 - `src/datamanager/fetchers/`: Contains the integration logic for various data sources. All fetchers standardize the data into `M1` resolution dataframes.
 - `src/datamanager/db/`:
-  - `storage.py`: Handles persistence using Parquet format with atomic writes and cross-platform file locking.
-  - `processor.py`: Contains data processing logic for OHLCV resampling.
-- `src/datamanager/api/router.py`: FastAPI REST API (port 8686) with API key authentication.
+  - `storage.py`: Handles persistence using Parquet with atomic writes, versioning, and a **SQLite catalog** (`metadata/catalog.db`).
+  - `processor.py`: Contains data processing logic for OHLCV resampling and gap filling.
+- `src/datamanager/api/router.py`: FastAPI REST API (port 8686) with API key authentication, rate limiting, and dashboard stats.
 - `src/datamanager/core/config.py`: Application settings and environment variable management via Pydantic.
 - `src/datamanager/utils/`:
   - `retry.py`: Utility for exponential backoff retries on network operations.
-  - `logger.py`: Centralized logging with dual stdout and file output.
+  - `logger.py`: Structured logging with human-readable console output and JSON file logging.
 
 ## Instructions & Usage
 
