@@ -72,9 +72,14 @@ You can run DataManager out-of-the-box using **Docker**, or natively via uv.
 #### Option A: Using Docker (Recommended)
 Running via Docker ensures you don't have to install local dependencies or worry about OS compatibility.
 
-1. Build and start the interactive container using `docker compose`:
+1. **Interactive CLI Mode:**
 ```bash
-docker compose run --rm datamanager
+docker compose run --rm datamanager_api uv run datamanager -i
+```
+
+2. **REST API Mode:**
+```bash
+docker compose up -d datamanager_api
 ```
 *Note: Any data downloaded using the docker container will be automatically persisted to the `./database` and `./metadata` folders on your host machine.*
 

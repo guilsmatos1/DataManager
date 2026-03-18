@@ -264,7 +264,7 @@ def test_rate_limit_triggers_after_threshold():
     """Unit test: _check_rate_limit raises 429 when the window is full."""
     import time
     from collections import deque
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import MagicMock
 
     from fastapi import HTTPException
 
@@ -289,13 +289,16 @@ def test_rate_limit_triggers_after_threshold():
 # ---------------------------------------------------------------------------
 
 
-def test_search_dukascopy(client, tmp_path):
-    df = pd.DataFrame({"ticker": ["EURUSD"], "alias": ["Euro"], "nome_do_ativo": ["Euro US Dollar"]})
+def test_search_dukascopy(client):
+    from datamanager.api import router as router_module
 
-    with (
-        patch("datamanager.api.router.Path.exists", return_value=True),
-        patch("pandas.read_csv", return_value=df),
-    ):
+    mock_fetcher = MagicMock()
+    mock_fetcher.source_name = "dukascopy"
+    mock_fetcher.search.return_value = pd.DataFrame(
+        {"ticker": ["EURUSD"], "alias": ["Euro"], "nome_do_ativo": ["Euro US Dollar"]}
+    )
+
+    with patch.dict(router_module.manager._fetchers, {"DUKASCOPY": mock_fetcher}):
         r = client.get("/search?source=dukascopy&query=Euro", headers=HEADERS)
         assert r.status_code == 200
         data = r.json()
@@ -304,19 +307,33 @@ def test_search_dukascopy(client, tmp_path):
 
 
 def test_search_openbb(client):
-    mock_res = MagicMock()
-    mock_res.to_df.return_value = pd.DataFrame([{"symbol": "AAPL", "name": "Apple"}])
+    from datamanager.api import router as router_module
 
-    with patch.dict("sys.modules", {"openbb": MagicMock(obb=MagicMock())}):
-        from openbb import obb
+    mock_fetcher = MagicMock()
+    mock_fetcher.source_name = "openbb"
+    mock_fetcher.search.return_value = pd.DataFrame([{"symbol": "AAPL", "name": "Apple"}])
 
-        obb.equity.search.return_value = mock_res
-
+    with patch.dict(router_module.manager._fetchers, {"OPENBB": mock_fetcher}):
         r = client.get("/search?source=openbb&query=Apple", headers=HEADERS)
         assert r.status_code == 200
         data = r.json()
         assert len(data["assets"]) == 1
         assert data["assets"][0]["symbol"] == "AAPL"
+
+
+def test_search_ccxt(client):
+    mock_fetcher = MagicMock()
+    mock_fetcher.source_name = "ccxt"
+    mock_fetcher.search.return_value = pd.DataFrame([{"ticker": "BTC/USDT", "exchange": "binance"}])
+
+    from datamanager.api import router as router_module
+
+    with patch.dict(router_module.manager._fetchers, {"CCXT": mock_fetcher}):
+        r = client.get("/search?source=ccxt&query=BTC", headers=HEADERS)
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["assets"]) == 1
+        assert data["assets"][0]["ticker"] == "BTC/USDT"
 
 
 def test_get_data_file_success(client, sample_df):

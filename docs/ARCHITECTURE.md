@@ -296,9 +296,15 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 #### Features:
 - **Dashboard (`GET /`)**: Overview of instance status and storage statistics.
-- **Rate Limiting**: Rolling window (60 requests per minute per IP).
-- **Data Streaming**: `GET /data/.../stream` returns line-by-line CSV.
-- **Background Tasks**: Long-running operations are offloaded to avoid blocking.
+- **Health Check (`GET /health`)**: Basic connectivity and database count.
+- **Asset Search (`GET /search`)**: Discover available assets via source/query/exchange.
+- **Data Management**: API endpoints for `/download`, `/update`, `/resample`, and `/delete`.
+- **Flexible Retrieval**: 
+  - `GET /data/...`: Download the full Parquet file.
+  - `GET /data/.../stream`: High-performance line-by-line CSV streaming.
+- **Automated Scheduling**: REST interface for managing recurring update tasks (`/schedule`).
+- **Rate Limiting**: Sliding window protection (60 requests per 60 seconds per IP).
+- **Background Tasks**: Long-running operations (download, update, resample) are offloaded to avoid blocking the server.
 
 ---
 

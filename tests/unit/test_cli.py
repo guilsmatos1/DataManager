@@ -44,6 +44,7 @@ def cli(tmp_path):
 def _run(cli_instance, line: str) -> str:
     """Execute a CLI command and capture stdout + logs."""
     import logging
+
     buf = io.StringIO()
     logger = logging.getLogger("DataManager")
     old_level = logger.level
@@ -173,7 +174,16 @@ def test_do_schedule_add(cli):
 
 
 def test_do_schedule_list(cli):
-    cli.scheduler.list_jobs.return_value = [{"job_id": "123", "source": "DUKASCOPY", "asset": "EURUSD", "timeframe": "M1", "trigger": "60min", "next_run": "later"}]
+    cli.scheduler.list_jobs.return_value = [
+        {
+            "job_id": "123",
+            "source": "DUKASCOPY",
+            "asset": "EURUSD",
+            "timeframe": "M1",
+            "trigger": "60min",
+            "next_run": "later",
+        }
+    ]
     out = _run(cli, "schedule list")
     assert "EURUSD" in out
     cli.scheduler.list_jobs.assert_called_once()

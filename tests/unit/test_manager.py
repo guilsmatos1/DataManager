@@ -196,10 +196,10 @@ def test_show_search_summary(manager, mock_fetcher):
 
 
 def test_search_assets_success(manager, mock_fetcher):
-    """Verifies search_assets calls fetcher.search and prints results."""
+    """Verifies search_assets calls fetcher.search and returns results."""
     mock_fetcher.search.return_value = pd.DataFrame({"symbol": ["AAPL"], "name": ["Apple Inc"], "exchange": ["NASDAQ"]})
-    # Testing search for OPENBB source (which our mock_fetcher is mapped to in manager fixture)
-    with patch("builtins.print") as mock_print:
-        manager.search_assets(source="MOCK", query="AAPL")
-        mock_fetcher.search.assert_called_with(query="AAPL", exchange=None)
-        mock_print.assert_any_call("Found 1 results. Displaying the first 20:")
+    # Testing search for MOCK source
+    df = manager.search_assets(source="MOCK", query="AAPL")
+    mock_fetcher.search.assert_called_with(query="AAPL", exchange=None)
+    assert not df.empty
+    assert df.iloc[0]["symbol"] == "AAPL"
