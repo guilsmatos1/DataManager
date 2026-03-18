@@ -13,11 +13,13 @@ The codebase has transitioned from a flat structure to a **standard Python `src/
 |----------|----------|
 | `main.py` | `src/datamanager/main.py` |
 | `cli.py` | `src/datamanager/cli.py` |
+| `client.py` | `src/datamanager/client.py` |
 | `network_server.py` | `src/datamanager/api/router.py` |
 | `core/server.py` | `src/datamanager/services/manager.py` |
 | `data_management/storage.py` | `src/datamanager/db/storage.py` |
 | `data_management/processor.py` | `src/datamanager/db/processor.py` |
-| `fetchers/` | `src/datamanager/fetchers/` |
+| `fetchers/dukascopy_fetcher.py` | `src/datamanager/fetchers/dukascopy.py` |
+| `fetchers/openbb_fetcher.py` | `src/datamanager/fetchers/openbb.py` |
 | `logger.py` | `src/datamanager/utils/logger.py` |
 
 ---
@@ -60,7 +62,7 @@ The `Dockerfile` and `docker-compose.yml` have been updated to utilize `uv` for 
 
 ---
 
-## 6. Test Reorganization
+## 5. Test Reorganization
 
 Tests have been moved and reorganized to support better scaling and shared fixtures.
 
@@ -76,7 +78,7 @@ uv run pytest
 
 ---
 
-## 7. Formatting and Linting
+## 6. Formatting and Linting
 
 The project now strictly follows **Ruff** for both linting and formatting.
 

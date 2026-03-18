@@ -38,7 +38,14 @@ Ensure you have [uv](https://docs.astral.sh/uv/) installed, then install all dep
 uv sync --dev
 ```
 
-### 2. Running DataManager
+### 2. Configuration
+Copy the `.env.example` to `.env` and set your `DATAMANAGER_API_KEY`:
+```bash
+cp .env.example .env
+```
+The REST API requires this key to be present in the `X-API-Key` header. You can also customize `HOST` and `PORT` (default: `8686`).
+
+### 3. Running DataManager
 
 You can run DataManager out-of-the-box using **Docker**, or natively via uv.
 
@@ -73,7 +80,7 @@ uv run datamanager download OPENBB AAPL 2023-01-01 2023-12-31
 uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686 --reload
 ```
 
-### 3. Available Commands
+### 4. Available Commands
 
 - `download <source> <assets> [start_date] [end_date] [-timeframe tf1,tf2,...]`: Downloads data.
   *Example:* `download OPENBB AAPL,MSFT 2023-01-01 2024-01-01`
