@@ -171,6 +171,60 @@ def test_delete_existing(client, sample_df):
     assert r.json()["status"] == "success"
 
 
+def test_update_triggers_background_task(client):
+    r = client.post("/update", json={"source": "test", "asset": "AAPL", "timeframe": "M1"}, headers=HEADERS)
+    assert r.status_code == 200
+    assert "started in background" in r.json()["message"]
+
+
+def test_resample_triggers_background_task(client):
+    r = client.post(
+        "/resample", json={"source": "test", "asset": "AAPL", "target_timeframe": "H1"}, headers=HEADERS
+    )
+    assert r.status_code == 200
+    assert "Resample" in r.json()["message"]
+
+
+# ---------------------------------------------------------------------------
+# Scheduler endpoints
+# ---------------------------------------------------------------------------
+
+
+def test_schedule_job(client):
+    r = client.post(
+        "/schedule",
+        json={"source": "test", "asset": "AAPL", "timeframe": "M1", "interval_minutes": 60},
+        headers=HEADERS,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert "job_id" in data
+    assert data["asset"] == "AAPL"
+
+
+def test_list_scheduled_jobs(client):
+    client.post(
+        "/schedule",
+        json={"source": "test", "asset": "AAPL", "timeframe": "M1", "interval_minutes": 60},
+        headers=HEADERS,
+    )
+    r = client.get("/schedule", headers=HEADERS)
+    assert r.status_code == 200
+    assert len(r.json()["jobs"]) >= 1
+
+
+def test_remove_scheduled_job(client):
+    res = client.post(
+        "/schedule",
+        json={"source": "test", "asset": "AAPL", "timeframe": "M1", "interval_minutes": 60},
+        headers=HEADERS,
+    )
+    job_id = res.json()["job_id"]
+    r = client.delete(f"/schedule/{job_id}", headers=HEADERS)
+    assert r.status_code == 200
+    assert r.json()["status"] == "success"
+
+
 # ---------------------------------------------------------------------------
 # /data stream
 # ---------------------------------------------------------------------------
