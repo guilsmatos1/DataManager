@@ -95,3 +95,22 @@ uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686 --reload
   *Example:* `search --source dukascopy --query bitcoin`
 - `info <source> <asset> <timeframe>`: Shows metadata info for a specific database.
 - `delete <source> <assets> [timeframe]`: Deletes databases. (Use `delete all` for full cleanup).
+- `rebuild`: Rebuilds the `catalog.json` index by scanning the physical files on disk.
+- `quality <source> <assets> [timeframe]`: Performs a data integrity report (checks for gaps, duplicates, and OHLC logic).
+
+### 5. Programmatic Usage (Python Client)
+
+You can also use DataManager programmatically in your own Python scripts using the provided client:
+
+```python
+from datamanager.client import DataManagerClient
+
+client = DataManagerClient(base_url="http://localhost:8686", api_key="YOUR_API_KEY")
+
+# Download data to a Pandas DataFrame
+df = client.get_data("DUKASCOPY", "EURUSD", "H1")
+print(df.head())
+
+# Or save it directly to a CSV file
+client.get_data("DUKASCOPY", "EURUSD", "H1", save_path="eurusd_h1.csv", save_format="csv")
+```

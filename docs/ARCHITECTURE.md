@@ -224,7 +224,9 @@ Fetchers are auto-discovered from the `fetchers/` package — no manual registra
 
 **`download_data(source, asset, start_date, end_date)`**
 - Checks if the M1 database already exists (avoids duplicates).
-- Calls `fetcher.fetch_data()`.
+- Splits the requested date range into **yearly chunks** to minimize memory consumption during long historical downloads.
+- For each chunk, calls `fetcher.fetch_data()`.
+- Progress is tracked via `tqdm` on a per-year basis.
 - Saves via `storage.save_data()` always in timeframe `M1`.
 
 **`update_data(source, asset, timeframe="M1")`**
