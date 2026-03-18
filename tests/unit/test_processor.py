@@ -65,7 +65,13 @@ def test_fill_gaps_ffill():
     """Tests if fill_gaps properly forward-fills prices and zero-fills volume."""
     dates = pd.to_datetime(["2023-01-01 00:00:00", "2023-01-01 00:02:00"])
     df = pd.DataFrame(
-        {"Open": [10.0, 11.0], "High": [10.5, 11.5], "Low": [9.5, 10.5], "Close": [10.2, 11.2], "Volume": [100.0, 200.0]},
+        {
+            "Open": [10.0, 11.0],
+            "High": [10.5, 11.5],
+            "Low": [9.5, 10.5],
+            "Close": [10.2, 11.2],
+            "Volume": [100.0, 200.0],
+        },
         index=dates,
     )
     processor = DataProcessor()
@@ -82,7 +88,13 @@ def test_fill_gaps_drop():
     """Tests if fill_gaps with drop method returns original data."""
     dates = pd.to_datetime(["2023-01-01 00:00:00", "2023-01-01 00:02:00"])
     df = pd.DataFrame(
-        {"Open": [10.0, 11.0], "High": [10.5, 11.5], "Low": [9.5, 10.5], "Close": [10.2, 11.2], "Volume": [100.0, 200.0]},
+        {
+            "Open": [10.0, 11.0],
+            "High": [10.5, 11.5],
+            "Low": [9.5, 10.5],
+            "Close": [10.2, 11.2],
+            "Volume": [100.0, 200.0],
+        },
         index=dates,
     )
     processor = DataProcessor()
@@ -95,7 +107,13 @@ def test_fill_gaps_none():
     """Tests if fill_gaps with none method leaves NaNs."""
     dates = pd.to_datetime(["2023-01-01 00:00:00", "2023-01-01 00:02:00"])
     df = pd.DataFrame(
-        {"Open": [10.0, 11.0], "High": [10.5, 11.5], "Low": [9.5, 10.5], "Close": [10.2, 11.2], "Volume": [100.0, 200.0]},
+        {
+            "Open": [10.0, 11.0],
+            "High": [10.5, 11.5],
+            "Low": [9.5, 10.5],
+            "Close": [10.2, 11.2],
+            "Volume": [100.0, 200.0],
+        },
         index=dates,
     )
     processor = DataProcessor()
