@@ -42,10 +42,20 @@ def cli(tmp_path):
 
 
 def _run(cli_instance, line: str) -> str:
-    """Execute a CLI command and capture stdout."""
+    """Execute a CLI command and capture stdout + logs."""
+    import logging
     buf = io.StringIO()
-    with patch("sys.stdout", buf):
-        cli_instance.onecmd(line)
+    logger = logging.getLogger("DataManager")
+    old_level = logger.level
+    logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler(buf)
+    logger.addHandler(handler)
+    try:
+        with patch("sys.stdout", buf):
+            cli_instance.onecmd(line)
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(old_level)
     return buf.getvalue()
 
 
@@ -136,3 +146,41 @@ def test_do_quit_returns_true(cli):
 def test_do_exit_returns_true(cli):
     result = cli.onecmd("exit")
     assert result is True or result is None
+
+
+def test_do_rebuild_calls_storage(cli):
+    cli.server.storage.rebuild_catalog.return_value = {"count": 10}
+    out = _run(cli, "rebuild")
+    assert "rebuilt successfully" in out
+    cli.server.storage.rebuild_catalog.assert_called_once()
+
+
+def test_do_search_no_args_calls_summary(cli):
+    _run(cli, "search")
+    cli.server.show_search_summary.assert_called_once()
+
+
+def test_do_search_with_query(cli):
+    _run(cli, "search --source dukascopy --query EURUSD")
+    cli.server.search_assets.assert_called_once_with(source="dukascopy", query="EURUSD", exchange=None)
+
+
+def test_do_schedule_add(cli):
+    cli.scheduler.add_job.return_value = {"job_id": "123", "next_run": "later"}
+    out = _run(cli, "schedule add DUKASCOPY EURUSD M1 --interval 60")
+    assert "Job scheduled: 123" in out
+    cli.scheduler.add_job.assert_called_once()
+
+
+def test_do_schedule_list(cli):
+    cli.scheduler.list_jobs.return_value = [{"job_id": "123", "source": "DUKASCOPY", "asset": "EURUSD", "timeframe": "M1", "trigger": "60min", "next_run": "later"}]
+    out = _run(cli, "schedule list")
+    assert "EURUSD" in out
+    cli.scheduler.list_jobs.assert_called_once()
+
+
+def test_do_schedule_remove(cli):
+    cli.scheduler.remove_job.return_value = True
+    out = _run(cli, "schedule remove 123")
+    assert "removed" in out
+    cli.scheduler.remove_job.assert_called_once_with("123")

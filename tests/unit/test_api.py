@@ -1,6 +1,6 @@
 """Tests for the FastAPI REST endpoints (TestClient, no real network)."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -264,7 +264,7 @@ def test_rate_limit_triggers_after_threshold():
     """Unit test: _check_rate_limit raises 429 when the window is full."""
     import time
     from collections import deque
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
 
     from fastapi import HTTPException
 
@@ -282,3 +282,54 @@ def test_rate_limit_triggers_after_threshold():
 
     assert exc_info.value.status_code == 429
     _rate_store.pop(ip, None)
+
+
+# ---------------------------------------------------------------------------
+# Search & Data File
+# ---------------------------------------------------------------------------
+
+
+def test_search_dukascopy(client, tmp_path):
+    df = pd.DataFrame({"ticker": ["EURUSD"], "alias": ["Euro"], "nome_do_ativo": ["Euro US Dollar"]})
+
+    with (
+        patch("datamanager.api.router.Path.exists", return_value=True),
+        patch("pandas.read_csv", return_value=df),
+    ):
+        r = client.get("/search?source=dukascopy&query=Euro", headers=HEADERS)
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["assets"]) == 1
+        assert data["assets"][0]["ticker"] == "EURUSD"
+
+
+def test_search_openbb(client):
+    mock_res = MagicMock()
+    mock_res.to_df.return_value = pd.DataFrame([{"symbol": "AAPL", "name": "Apple"}])
+
+    with patch.dict("sys.modules", {"openbb": MagicMock(obb=MagicMock())}):
+        from openbb import obb
+
+        obb.equity.search.return_value = mock_res
+
+        r = client.get("/search?source=openbb&query=Apple", headers=HEADERS)
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["assets"]) == 1
+        assert data["assets"][0]["symbol"] == "AAPL"
+
+
+def test_get_data_file_success(client, sample_df):
+    from datamanager.api import router as router_module
+
+    router_module.manager.storage.save_data(sample_df, "test", "FILE", "M1")
+
+    r = client.get("/data/test/FILE/M1", headers=HEADERS)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/octet-stream"
+    assert "test_FILE_M1.parquet" in r.headers["content-disposition"]
+
+
+def test_get_data_file_not_found(client):
+    r = client.get("/data/test/MISSING/M1", headers=HEADERS)
+    assert r.status_code == 404
