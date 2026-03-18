@@ -438,10 +438,18 @@ Standard OHLCV resampling rules:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | `GET` | Dashboard and storage statistics |
-| `/list` | `GET` | List all databases (paginated) |
-| `/download` | `POST` | Start a background download task |
-| `/update` | `POST` | Start a background update task |
-| `/data/{s}/{a}/{t}` | `GET` | Download a Parquet file |
-| `/data/.../stream` | `GET` | Stream data as CSV |
-| `/schedule` | `POST` | Create a recurring update job |
+| `/` | `GET` | Dashboard and instance statistics |
+| `/health` | `GET` | Basic instance health check |
+| `/list` | `GET` | List all databases (with pagination) |
+| `/info/{s}/{a}/{t}` | `GET` | Metadata for a specific database |
+| `/search` | `GET` | Search for assets in OpenBB, Dukascopy, or CCXT |
+| `/download` | `POST` | Trigger a background download task |
+| `/update` | `POST` | Trigger a background update task |
+| `/resample` | `POST` | Trigger a background resample task |
+| `/delete` | `POST` | Delete specific or all databases |
+| `/data/{s}/{a}/{t}` | `GET` | Download a Parquet data file |
+| `/data/.../stream` | `GET` | Stream data as CSV (chunked) |
+| `/schedule` | `GET` | List all active scheduled jobs |
+| `/schedule` | `POST` | Create a new recurring update job |
+| `/schedule/{job_id}` | `DELETE` | Remove a scheduled job by its ID |
+

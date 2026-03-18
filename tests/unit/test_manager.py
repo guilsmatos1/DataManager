@@ -61,6 +61,13 @@ def test_download_data_success(manager, mock_fetcher):
     assert info["rows"] > 0
 
 
+def test_download_data_chunking(manager, mock_fetcher):
+    """If range is > 1 year, multiple chunks must be requested."""
+    # From 2020 to 2023 -> 3 chunks
+    manager.download_data("MOCK", "CHUNKY", datetime(2020, 1, 1), datetime(2023, 1, 1))
+    assert mock_fetcher.fetch_data.call_count >= 3
+
+
 def test_download_data_already_exists_raises(manager, sample_m1_df):
     manager.storage.save_data(sample_m1_df, "MOCK", "ASSET", "M1")
     with pytest.raises(Exception, match="already exists"):
@@ -158,3 +165,41 @@ def test_delete_all_timeframes(manager, sample_m1_df):
         manager.storage.load_data("MOCK", "ASSET", "M1")
     with pytest.raises(FileNotFoundError):
         manager.storage.load_data("MOCK", "ASSET", "H1")
+
+
+# ---------------------------------------------------------------------------
+# Global and Search methods
+# ---------------------------------------------------------------------------
+
+
+def test_update_all_databases_orchestration(manager, mock_fetcher, sample_m1_df):
+    """Verifies that update_all_databases calls update_data for M1 and resample for others."""
+    # Setup: one M1 and one H1 database
+    manager.storage.save_data(sample_m1_df, "MOCK", "A1", "M1")
+    manager.storage.save_data(sample_m1_df, "MOCK", "A2", "H1")
+
+    with (
+        patch.object(manager, "update_data") as mock_update,
+        patch.object(manager, "resample_database") as mock_resample,
+    ):
+        manager.update_all_databases()
+        # Should update the M1 one (storage lowers the source name)
+        mock_update.assert_any_call("mock", "A1", "M1")
+        # Should resample the H1 one
+        mock_resample.assert_any_call("mock", "A2", "H1")
+
+
+def test_show_search_summary(manager, mock_fetcher):
+    """Simple smoke test for search summary log."""
+    mock_fetcher.search.return_value = pd.DataFrame({"ticker": ["A", "B"]})
+    manager.show_search_summary()  # Should not raise
+
+
+def test_search_assets_success(manager, mock_fetcher):
+    """Verifies search_assets calls fetcher.search and prints results."""
+    mock_fetcher.search.return_value = pd.DataFrame({"symbol": ["AAPL"], "name": ["Apple Inc"], "exchange": ["NASDAQ"]})
+    # Testing search for OPENBB source (which our mock_fetcher is mapped to in manager fixture)
+    with patch("builtins.print") as mock_print:
+        manager.search_assets(source="MOCK", query="AAPL")
+        mock_fetcher.search.assert_called_with(query="AAPL", exchange=None)
+        mock_print.assert_any_call("Found 1 results. Displaying the first 20:")

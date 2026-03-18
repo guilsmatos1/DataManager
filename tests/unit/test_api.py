@@ -51,8 +51,17 @@ HEADERS = {"X-API-Key": "test-key"}
 
 
 # ---------------------------------------------------------------------------
-# Health check
+# Dashboard & health (no auth required)
 # ---------------------------------------------------------------------------
+
+
+def test_dashboard_no_auth(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "ok"
+    assert "version" in data
+    assert "timestamp" in data
 
 
 def test_health_no_auth(client):
