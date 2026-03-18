@@ -60,9 +60,25 @@ The `Dockerfile` and `docker-compose.yml` have been updated to utilize `uv` for 
 
 ---
 
-## 5. Coding Standards: Ruff
+## 6. Test Reorganization
 
-The project now adopts **Ruff** for linting and formatting, replacing previous heterogeneous tools. Configuration is centralized in `pyproject.toml`.
+Tests have been moved and reorganized to support better scaling and shared fixtures.
+
+- **Old Structure**: `tests/test_processor.py`, `tests/test_storage.py` (root-level)
+- **New Structure**: 
+  - `tests/unit/`: Contains isolated unit tests.
+  - `tests/conftest.py`: Shared pytest fixtures (e.g., temporary storage, sample dataframes).
+
+### Running Tests:
+```bash
+uv run pytest
+```
+
+---
+
+## 7. Formatting and Linting
+
+The project now strictly follows **Ruff** for both linting and formatting.
 
 - **Check**: `uv run ruff check .`
 - **Format**: `uv run ruff format .`
