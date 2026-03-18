@@ -1,7 +1,7 @@
 # DataManager — Codebase Technical Documentation
 
-> **Version:** v1.2.0  
-> **Python:** 3.12  
+> **Version:** v1.2.0
+> **Python:** 3.12
 > **Purpose:** Tool for downloading, storing, and managing OHLCV (Open, High, Low, Close, Volume) data of financial assets, with support for multiple data sources, timeframe resampling, and a network API.
 
 ---
@@ -13,13 +13,13 @@
 3. [Modules and Files](#3-modules-and-files)
    - [main.py](#31-mainpy--entry-point)
    - [cli.py](#32-clipy--command-line-interface)
-   - [core/server.py](#33-coreserverpy--central-controller)
-   - [data_management/storage.py](#34-data_managementstoragepy--persistence-layer)
-   - [data_management/processor.py](#35-data_managementprocessorpy--timeframe-resampling)
+   - [services/manager.py](#33-servicesmanagerpy--central-controller)
+   - [db/storage.py](#34-dbstoragepy--persistence-layer)
+   - [db/processor.py](#35-dbprocessorpy--timeframe-resampling)
    - [fetchers/base.py](#36-fetchersbasepy--abstract-interface)
-   - [fetchers/dukascopy_fetcher.py](#37-fetchersdukascopy_fetcherpy)
-   - [fetchers/openbb_fetcher.py](#38-fetchersopenbb_fetcherpy)
-   - [network_server.py](#39-network_serverpy--fastapi-rest-api)
+   - [fetchers/dukascopy.py](#37-fetchersdukascopypy)
+   - [fetchers/openbb.py](#38-fetchersopenbbpy)
+   - [api/router.py](#39-apirouterpy--fastapi-rest-api)
    - [client.py](#310-clientpy--python-client-for-the-api)
 4. [Data Flow](#4-data-flow)
 5. [Storage System](#5-storage-system)
@@ -36,7 +36,7 @@
 
 ## 1. Architecture Overview
 
-DataManager has **two independent operation modes** that share the same core (`core/server.py`):
+DataManager has **two independent operation modes** that share the same core (`services/manager.py`):
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -44,16 +44,16 @@ DataManager has **two independent operation modes** that share the same core (`c
 │                                                             │
 │  ┌──────────────────┐          ┌──────────────────────────┐ │
 │  │    Local CLI     │          │    REST API (FastAPI)    │ │
-│  │    main.py       │          │    network_server.py     │ │
+│  │    main.py       │          │    api/router.py         │ │
 │  │    cli.py        │          │    client.py             │ │
 │  └────────┬─────────┘          └──────────┬───────────────┘ │
 │           │                               │                  │
 │           └──────────────┬────────────────┘                  │
 │                          ▼                                   │
-│               ┌─────────────────────┐                        │
-│               │    core/server.py   │                        │
-│               │    DataManager      │                        │
-│               └────────┬────────────┘                        │
+│               ┌─────────────────────────┐                   │
+│               │   services/manager.py   │                   │
+│               │       DataManager       │                   │
+│               └────────┬────────────────┘                   │
 │                        │                                     │
 │         ┌──────────────┼──────────────┐                      │
 │         ▼              ▼              ▼                      │
@@ -74,26 +74,48 @@ DataManager has **two independent operation modes** that share the same core (`c
 ```
 DataManager/
 │
-├── main.py                    # Application entry point (CLI)
-├── cli.py                     # Interactive command interface (cmd.Cmd)
-├── network_server.py          # FastAPI HTTP server (API mode)
-├── client.py                  # Python client for consuming the API
-├── requirements.txt           # Python dependencies pinned by version
-├── Dockerfile                 # Application Docker image
+├── pyproject.toml             # Project config: dependencies, build, ruff, pytest
+├── uv.lock                    # Locked dependency versions (managed by uv)
+├── Dockerfile                 # Application Docker image (uses uv)
 ├── docker-compose.yml         # Deployment configuration (API mode)
 ├── .env.example               # Environment variables example
 │
-├── core/
-│   └── server.py              # DataManager: central logic controller
+├── src/
+│   └── datamanager/           # Main package (src layout)
+│       ├── main.py            # Application entry point (CLI)
+│       ├── cli.py             # Interactive command interface (cmd.Cmd)
+│       ├── client.py          # Python client for consuming the API
+│       │
+│       ├── api/
+│       │   └── router.py      # FastAPI HTTP server (API mode, port 8686)
+│       │
+│       ├── core/
+│       │   └── config.py      # Pydantic Settings (env vars / .env loading)
+│       │
+│       ├── db/
+│       │   ├── storage.py     # StorageManager: Parquet read/write + catalog
+│       │   └── processor.py   # DataProcessor: OHLCV resampling
+│       │
+│       ├── fetchers/
+│       │   ├── __init__.py    # Auto-discovery of fetcher classes via pkgutil
+│       │   ├── base.py        # BaseFetcher: abstract interface (ABC)
+│       │   ├── dukascopy.py   # Integration with dukascopy-python
+│       │   └── openbb.py      # Integration with OpenBB (yfinance as backend)
+│       │
+│       ├── schemas/
+│       │   └── __init__.py    # Pydantic request/response models for the API
+│       │
+│       ├── services/
+│       │   └── manager.py     # DataManager: central logic controller
+│       │
+│       └── utils/
+│           └── logger.py      # Dual-output logging (stdout + log.log)
 │
-├── data_management/
-│   ├── storage.py             # StorageManager: Parquet read/write + catalog
-│   └── processor.py           # DataProcessor: OHLCV resampling
-│
-├── fetchers/
-│   ├── base.py                # BaseFetcher: abstract interface (ABC)
-│   ├── dukascopy_fetcher.py   # Integration with dukascopy-python
-│   └── openbb_fetcher.py      # Integration with OpenBB (yfinance as backend)
+├── tests/
+│   ├── conftest.py            # Shared pytest fixtures
+│   └── unit/
+│       ├── test_processor.py
+│       └── test_storage.py
 │
 ├── metadata/
 │   ├── catalog.json           # JSON index of all saved databases
@@ -115,9 +137,9 @@ DataManager/
 **Responsibility:** Parses command-line arguments and decides the execution mode.
 
 **Logic:**
-- `python main.py -i` → Opens the interactive shell (`cli.cmdloop()`)
-- `python main.py download DUKASCOPY EURUSD` → Executes a command directly (`cli.onecmd()`)
-- `python main.py` (no arguments) → Displays argparse help
+- `uv run datamanager -i` → Opens the interactive shell (`cli.cmdloop()`)
+- `uv run datamanager download DUKASCOPY EURUSD` → Executes a command directly (`cli.onecmd()`)
+- `uv run datamanager` (no arguments) → Displays argparse help
 
 ```python
 # Simplified structure:
@@ -142,7 +164,7 @@ else:
 
 **Class:** `DataManagerCLI(cmd.Cmd)`
 
-**Internally Instantiates:** `DataManager` (from `core/server.py`)
+**Internally Instantiates:** `DataManager` (from `services/manager.py`)
 
 #### Available Commands:
 
@@ -184,7 +206,7 @@ update all
 
 ---
 
-### 3.3 `core/server.py` — Central Controller
+### 3.3 `services/manager.py` — Central Controller
 
 **Responsibility:** Orchestrates all business operations, coordinating Fetchers, Storage, and Processor.
 
@@ -194,12 +216,9 @@ update all
 ```python
 self.storage = StorageManager()
 self.processor = DataProcessor()
-self._fetchers = {
-    "DUKASCOPY": DukascopyFetcher(),
-    "OPENBB": OpenBBFetcher()
-}
+self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 ```
-Source mapping is a dictionary; adding a new source requires only inserting a new key→fetcher pair.
+Fetchers are auto-discovered from the `fetchers/` package — no manual registration needed.
 
 #### Main Methods:
 
@@ -238,7 +257,7 @@ Performs 4 checks and reports found errors:
 
 ---
 
-### 3.4 `data_management/storage.py` — Persistence Layer
+### 3.4 `db/storage.py` — Persistence Layer
 
 **Responsibility:** All data read and write operations on disk, and maintenance of the JSON catalog.
 
@@ -307,7 +326,7 @@ Or `{"status": "Not Found"}` if the file doesn't exist.
 
 ---
 
-### 3.5 `data_management/processor.py` — Timeframe Resampling
+### 3.5 `db/processor.py` — Timeframe Resampling
 
 **Responsibility:** Converts OHLCV DataFrames from a lower timeframe to a higher one.
 
@@ -367,7 +386,7 @@ def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd
 
 ---
 
-### 3.7 `fetchers/dukascopy_fetcher.py`
+### 3.7 `fetchers/dukascopy.py`
 
 **Responsibility:** M1 data download via `dukascopy-python` library.
 
@@ -402,7 +421,7 @@ df.sort_index(inplace=True)
 
 ---
 
-### 3.8 `fetchers/openbb_fetcher.py`
+### 3.8 `fetchers/openbb.py`
 
 **Responsibility:** M1 data download via OpenBB (using YFinance as provider).
 
@@ -429,21 +448,21 @@ YFinance limits intraday data (M1) to approximately the last 30 days. For longer
 
 ---
 
-### 3.9 `network_server.py` — REST API (FastAPI)
+### 3.9 `api/router.py` — REST API (FastAPI)
 
 **Responsibility:** Exposes `DataManager` functionalities as an HTTP API protected by API Key.
 
-**Framework:** FastAPI v0.128  
-**Default Port:** `8686`  
+**Framework:** FastAPI v0.128
+**Default Port:** `8686`
 **Global Instance:** `manager = DataManager()` (singleton)
 
 #### Security (3 layers):
 
 1. **API Key Authentication** via `X-API-Key` header
-   - Key read from `DATAMANAGER_API_KEY` env var (fallback: `"YOUR_API_KEY_HERE"`)
+   - Key read from `DATAMANAGER_API_KEY` env var via `core/config.py` (Pydantic Settings)
    - Returns HTTP 403 if key is invalid
 
-2. **Input Validation** via Pydantic with regex patterns
+2. **Input Validation** via Pydantic schemas (`schemas/`)
    - `source`: `^[a-zA-Z0-9_]+$`
    - `asset`: `^[a-zA-Z0-9_,\s\-]+$`
    - `timeframe`: `^[a-zA-Z0-9_]+$`
@@ -469,9 +488,7 @@ YFinance limits intraday data (M1) to approximately the last 30 days. For longer
 
 #### Direct Execution:
 ```bash
-python network_server.py
-# or
-uvicorn network_server:app --host 0.0.0.0 --port 8686
+uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686 --reload
 ```
 
 ---
@@ -666,11 +683,11 @@ The catalog is a JSON list of objects, one per stored database:
 
 ### Authentication
 - Mandatory Header: `X-API-Key: <key>`
-- Configured via `DATAMANAGER_API_KEY` environment variable
+- Configured via `DATAMANAGER_API_KEY` environment variable (read by `core/config.py` via Pydantic Settings)
 - HTTP 403 if key is invalid or missing
 
 ### Injection Protection
-- All input fields are validated with Pydantic regex (e.g., `^[a-zA-Z0-9_]+$`)
+- All input fields are validated with Pydantic regex in `schemas/` (e.g., `^[a-zA-Z0-9_]+$`)
 - URL parameters in `GET /info` and `GET /data` are validated with `re.match()` before use
 
 ### Async Operations
@@ -693,17 +710,19 @@ docker-compose up -d
 - Persistent Volumes: `./database` and `./metadata` (data never lost when recreating container)
 - Auto Restart: `restart: always`
 - Environment Variable: `DATAMANAGER_API_KEY`
-- Default Command: `python network_server.py`
+- Default Command: `uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686`
 
 ### Dockerfile:
 ```dockerfile
 FROM python:3.12-slim
 WORKDIR /app
 RUN apt-get install -y gcc g++   # needed for compiling native dependencies
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-CMD ["python", "main.py", "-i"]  # interactive CLI mode by default in Dockerfile
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY pyproject.toml uv.lock ./
+RUN uv sync --no-dev --frozen
+COPY src/ ./src/
+COPY metadata/ ./metadata/
+CMD ["uv", "run", "datamanager", "-i"]
 ```
 
 ---
@@ -717,12 +736,19 @@ CMD ["python", "main.py", "-i"]  # interactive CLI mode by default in Dockerfile
 | `fastapi` | 0.128.8 | REST API Framework |
 | `uvicorn` | 0.40.0 | ASGI server for FastAPI |
 | `pydantic` | 2.12.5 | API payload validation |
+| `pydantic-settings` | 2.9.0 | Settings management from env vars / .env |
 | `dukascopy-python` | 4.0.1 | Dukascopy data download |
 | `openbb` | 4.7.0 | Financial data platform |
 | `yfinance` | 1.2.0 | Data backend for OpenBB |
 | `colorama` | 0.4.6 | Colored terminal output |
 | `requests` | 2.32.5 | HTTP client (used by `client.py`) |
 | `python-dateutil` | 2.9.0 | Flexible date parsing in CLI |
+
+Dependencies are managed via `pyproject.toml` and locked in `uv.lock`. Install with:
+```bash
+uv sync --dev   # includes dev tools (pytest, ruff)
+uv sync --no-dev  # production only
+```
 
 ---
 
@@ -732,12 +758,12 @@ CMD ["python", "main.py", "-i"]  # interactive CLI mode by default in Dockerfile
 
 ```bash
 # Interactive mode
-python main.py -i
+uv run datamanager -i
 
 # Direct mode (without interactive shell)
-python main.py download DUKASCOPY EURUSD 2020-01-01 2024-01-01
-python main.py list
-python main.py quality DUKASCOPY EURUSD M1
+uv run datamanager download DUKASCOPY EURUSD 2020-01-01 2024-01-01
+uv run datamanager list
+uv run datamanager quality DUKASCOPY EURUSD M1
 ```
 
 ### Inside Interactive Shell:
@@ -794,7 +820,7 @@ exit
 
 ## 13. REST API Reference
 
-**Base URL:** `http://<host>:8686`  
+**Base URL:** `http://<host>:8686`
 **Authentication:** Header `X-API-Key: <your_key>`
 
 ### POST /download
@@ -887,16 +913,12 @@ GET /data/dukascopy/EURUSD/M1
 ## Notes for Contribution / Extension
 
 ### Adding a new data source:
-1. Create `fetchers/my_source_fetcher.py` inheriting from `BaseFetcher`
+1. Create `src/datamanager/fetchers/my_source.py` inheriting from `BaseFetcher`
 2. Implement `source_name` (property) and `fetch_data()` (returning standardized DataFrame)
-3. Register in `_fetchers` dictionary in `core/server.py`:
-   ```python
-   self._fetchers["MY_SOURCE"] = MySourceFetcher()
-   ```
-4. No other changes needed — CLI and API will work automatically.
+3. No other changes needed — the fetcher is **auto-discovered** via `pkgutil`/`importlib` in `fetchers/__init__.py`. CLI and API work automatically.
 
 ### Adding a new timeframe:
-1. Add entry to `TF_MAPPING` dictionary in `data_management/processor.py`:
+1. Add entry to `TF_MAPPING` dictionary in `src/datamanager/db/processor.py`:
    ```python
    'M45': '45min',
    ```
