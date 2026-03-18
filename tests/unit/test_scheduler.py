@@ -1,6 +1,6 @@
-from unittest.mock import MagicMock, patch, PropertyMock
-import pytest
+from unittest.mock import MagicMock, PropertyMock, patch
 
+import pytest
 
 from datamanager.services.scheduler import SchedulerService
 
@@ -25,6 +25,7 @@ def test_start_shutdown(scheduler):
             mock_running.return_value = True
             scheduler.shutdown()
             mock_shutdown.assert_called_once()
+
 
 def test_add_job_interval(scheduler):
     with patch.object(scheduler._scheduler, "add_job") as mock_add:

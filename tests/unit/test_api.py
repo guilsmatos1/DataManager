@@ -178,9 +178,7 @@ def test_update_triggers_background_task(client):
 
 
 def test_resample_triggers_background_task(client):
-    r = client.post(
-        "/resample", json={"source": "test", "asset": "AAPL", "target_timeframe": "H1"}, headers=HEADERS
-    )
+    r = client.post("/resample", json={"source": "test", "asset": "AAPL", "target_timeframe": "H1"}, headers=HEADERS)
     assert r.status_code == 200
     assert "Resample" in r.json()["message"]
 

@@ -59,3 +59,65 @@ def test_missing_columns():
     processor = DataProcessor()
     with pytest.raises(ValueError, match="The DataFrame does not contain valid OHLC columns"):
         processor.resample_ohlc(df, "H1")
+
+
+def test_fill_gaps_ffill():
+    """Tests if fill_gaps properly forward-fills prices and zero-fills volume."""
+    dates = pd.to_datetime(["2023-01-01 00:00:00", "2023-01-01 00:02:00"])
+    df = pd.DataFrame(
+        {"Open": [10.0, 11.0], "High": [10.5, 11.5], "Low": [9.5, 10.5], "Close": [10.2, 11.2], "Volume": [100.0, 200.0]},
+        index=dates,
+    )
+    processor = DataProcessor()
+    df_filled = processor.fill_gaps(df, "M1", method="ffill")
+
+    assert len(df_filled) == 3
+    # Mid-point (00:01:00) should be filled with first row's prices but 0 volume
+    assert df_filled.index[1] == pd.Timestamp("2023-01-01 00:01:00")
+    assert df_filled["Open"].iloc[1] == 10.0
+    assert df_filled["Volume"].iloc[1] == 0.0
+
+
+def test_fill_gaps_drop():
+    """Tests if fill_gaps with drop method returns original data."""
+    dates = pd.to_datetime(["2023-01-01 00:00:00", "2023-01-01 00:02:00"])
+    df = pd.DataFrame(
+        {"Open": [10.0, 11.0], "High": [10.5, 11.5], "Low": [9.5, 10.5], "Close": [10.2, 11.2], "Volume": [100.0, 200.0]},
+        index=dates,
+    )
+    processor = DataProcessor()
+    df_filled = processor.fill_gaps(df, "M1", method="drop")
+
+    assert len(df_filled) == 2
+
+
+def test_fill_gaps_none():
+    """Tests if fill_gaps with none method leaves NaNs."""
+    dates = pd.to_datetime(["2023-01-01 00:00:00", "2023-01-01 00:02:00"])
+    df = pd.DataFrame(
+        {"Open": [10.0, 11.0], "High": [10.5, 11.5], "Low": [9.5, 10.5], "Close": [10.2, 11.2], "Volume": [100.0, 200.0]},
+        index=dates,
+    )
+    processor = DataProcessor()
+    df_filled = processor.fill_gaps(df, "M1", method="none")
+
+    assert len(df_filled) == 3
+    assert np.isnan(df_filled["Open"].iloc[1])
+
+
+def test_fill_gaps_invalid_method():
+    """Tests if invalid method raises ValueError."""
+    dates = pd.to_datetime(["2023-01-01 00:00:00"])
+    df = pd.DataFrame({"Open": [10.0]}, index=dates)
+    processor = DataProcessor()
+    with pytest.raises(ValueError, match="Unknown fill method"):
+        processor.fill_gaps(df, "M1", method="invalid")
+
+
+def test_fill_gaps_invalid_timeframe():
+    """Tests if invalid timeframe raises ValueError."""
+    dates = pd.to_datetime(["2023-01-01 00:00:00"])
+    df = pd.DataFrame({"Open": [10.0]}, index=dates)
+    processor = DataProcessor()
+    with pytest.raises(ValueError, match="Unknown timeframe"):
+        processor.fill_gaps(df, "INVALID")
