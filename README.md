@@ -16,6 +16,9 @@ The main objective of DataManager is to simplify the management of financial dat
 - **Resampling:** Convert `M1` base data into any higher timeframe dynamically. Supported: `M2`, `M5`, `M10`, `M15`, `M30`, `H1`, `H2`, `H3`, `H4`, `H6`, `D1`, `W1`.
 - **Smart Updating:** Update existing databases by fetching only the newly available data (since the last saved date) and appending it.
 - **Asset Search:** Built-in search functionality to explore available tickers and assets from the supported sources.
+- **Scheduled Updates:** Automate recurring data updates using Cron expressions or time intervals (API & CLI).
+- **Network Resiliency:** Automatic retry with exponential backoff for network-related fetch errors.
+- **Concurrency Safety:** Robust file locking mechanism to prevent data corruption during simultaneous access.
 
 ## Architecture
 DataManager follows a modular src layout (`src/datamanager/`). For a complete technical breakdown, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -23,11 +26,13 @@ DataManager follows a modular src layout (`src/datamanager/`). For a complete te
 For version-specific changes (v1.2.0), refer to the [Migration Guide](docs/MIGRATION.md).
 
 - `src/datamanager/main.py` & `src/datamanager/cli.py`: Entry points providing both an interactive shell and a direct terminal command interface.
-- `src/datamanager/services/manager.py` (`DataManager`): The central controller that orchestrates data flow, integrating the fetchers, storage, and processors.
-- `src/datamanager/fetchers/`: Contains the integration logic for various data sources (`openbb.py`, `dukascopy.py`). All fetchers standardize the fetched data into `M1` (1-minute) resolution dataframes.
+- `src/datamanager/services/manager.py` (`DataManager`): The central controller that orchestrates data flow.
+- `src/datamanager/services/scheduler.py` (`SchedulerService`): Manages background automated update tasks using APScheduler.
+- `src/datamanager/fetchers/`: Contains the integration logic for various data sources. All fetchers standardize the data into `M1` resolution dataframes.
 - `src/datamanager/db/`:
-  - `storage.py`: Handles saving, loading, updating, and deleting the local databases using Parquet format. Data is saved under the `database/` directory, while metadata (e.g., `dukas_assets.csv`) is kept in the `metadata/` directory.
-  - `processor.py`: Contains data processing logic, primarily focusing on resampling OHLCV data from lower to higher timeframes.
+  - `storage.py`: Handles persistence using Parquet format with atomic writes and cross-platform file locking.
+  - `processor.py`: Contains data processing logic for OHLCV resampling.
+- `src/datamanager/utils/retry.py`: Utility for exponential backoff retries on network operations.
 - `src/datamanager/api/router.py`: FastAPI REST API (port 8686) with API key authentication.
 
 ## Instructions & Usage
@@ -95,6 +100,11 @@ uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686 --reload
   *Example:* `search --source dukascopy --query bitcoin`
 - `info <source> <asset> <timeframe>`: Shows metadata info for a specific database.
 - `delete <source> <assets> [timeframe]`: Deletes databases. (Use `delete all` for full cleanup).
+- `schedule <subcommand> [args]`: Manages automated update tasks.
+  *Example:* `schedule add DUKASCOPY EURUSD M1 --interval 60`
+  *Example:* `schedule add OPENBB AAPL H1 --cron "0 9 * * 1-5"`
+  *Example:* `schedule list`
+  *Example:* `schedule remove <job_id>`
 - `rebuild`: Rebuilds the `catalog.json` index by scanning the physical files on disk.
 - `quality <source> <assets> [timeframe]`: Performs a data integrity report (checks for gaps, duplicates, and OHLC logic).
 

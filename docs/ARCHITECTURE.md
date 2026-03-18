@@ -14,13 +14,15 @@
    - [main.py](#31-mainpy--entry-point)
    - [cli.py](#32-clipy--command-line-interface)
    - [services/manager.py](#33-servicesmanagerpy--central-controller)
-   - [db/storage.py](#34-dbstoragepy--persistence-layer)
-   - [db/processor.py](#35-dbprocessorpy--timeframe-resampling)
-   - [fetchers/base.py](#36-fetchersbasepy--abstract-interface)
-   - [fetchers/dukascopy.py](#37-fetchersdukascopypy)
-   - [fetchers/openbb.py](#38-fetchersopenbbpy)
-   - [api/router.py](#39-apirouterpy--fastapi-rest-api)
-   - [client.py](#310-clientpy--python-client-for-the-api)
+   - [services/scheduler.py](#34-servicesschedulerpy--background-job-manager)
+   - [db/storage.py](#35-dbstoragepy--persistence-layer)
+   - [db/processor.py](#36-dbprocessorpy--timeframe-resampling)
+   - [fetchers/base.py](#37-fetchersbasepy--abstract-interface)
+   - [fetchers/dukascopy.py](#38-fetchersdukascopypy)
+   - [fetchers/openbb.py](#39-fetchersopenbbpy)
+   - [api/router.py](#310-apirouterpy--fastapi-rest-api)
+   - [client.py](#311-clientpy--python-client-for-the-api)
+   - [utils/retry.py](#312-utilsretrypy--exponential-backoff)
 4. [Data Flow](#4-data-flow)
 5. [Storage System](#5-storage-system)
 6. [Metadata Catalog](#6-metadata-catalog)
@@ -106,10 +108,12 @@ DataManager/
 │       │   └── __init__.py    # Pydantic request/response models for the API
 │       │
 │       ├── services/
-│       │   └── manager.py     # DataManager: central logic controller
+│       │   ├── manager.py     # DataManager: central logic controller
+│       │   └── scheduler.py   # SchedulerService: background job manager
 │       │
 │       └── utils/
-│           └── logger.py      # Dual-output logging (stdout + log.log)
+│           ├── logger.py      # Dual-output logging (stdout + log.log)
+│           └── retry.py       # Exponential backoff retry logic
 │
 ├── tests/
 │   ├── conftest.py            # Shared pytest fixtures
@@ -179,6 +183,7 @@ else:
 | `do_search` | `search` | Searches for available assets in sources (OpenBB or Dukascopy) |
 | `do_resample` | `resample` | Converts M1 to other timeframes |
 | `do_quality` | `quality` | Data integrity report |
+| `do_schedule` | `schedule` | Manages background update jobs |
 | `do_exit` / `do_quit` | `exit` / `quit` | Exits the program |
 
 #### Parsing details per command:
@@ -259,11 +264,29 @@ Performs 4 checks and reports found errors:
 
 ---
 
-### 3.4 `db/storage.py` — Persistence Layer
+### 3.4 `services/scheduler.py` — Background Job Manager
+
+**Responsibility:** Manages recurring data update tasks using APScheduler.
+
+**Class:** `SchedulerService`
+
+#### Key Features:
+- Runs as a daemon background thread.
+- Supports **Cron** expressions (e.g., `"0 */4 * * *"`) and **Intervals** (in minutes).
+- Jobs are stored in-memory; they are not persistent across application restarts.
+- Errors during scheduled tasks are logged but do not crash the scheduler.
+
+---
+
+### 3.5 `db/storage.py` — Persistence Layer
 
 **Responsibility:** All data read and write operations on disk, and maintenance of the JSON catalog.
 
 **Class:** `StorageManager`
+
+#### Concurrency & Safety:
+- **File Locking:** Uses a `.lock` sidecar file and platform-specific locking (`fcntl` for Unix, `msvcrt` for Windows) to ensure that only one process/thread writes to a database or the catalog at a time.
+- **Atomic Writes:** Saves data to a `.tmp.parquet` file first, then performs an atomic `replace` to the final path, preventing file corruption during crashes.
 
 #### Path Structure:
 ```python
@@ -328,7 +351,7 @@ Or `{"status": "Not Found"}` if the file doesn't exist.
 
 ---
 
-### 3.5 `db/processor.py` — Timeframe Resampling
+### 3.6 `db/processor.py` — Timeframe Resampling
 
 **Responsibility:** Converts OHLCV DataFrames from a lower timeframe to a higher one.
 
@@ -359,7 +382,7 @@ TF_MAPPING = {
 
 ---
 
-### 3.6 `fetchers/base.py` — Abstract Interface
+### 3.7 `fetchers/base.py` — Abstract Interface
 
 **Responsibility:** Defines the contract that all fetchers must implement.
 
@@ -388,7 +411,7 @@ def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd
 
 ---
 
-### 3.7 `fetchers/dukascopy.py`
+### 3.8 `fetchers/dukascopy.py`
 
 **Responsibility:** M1 data download via `dukascopy-python` library.
 
@@ -399,6 +422,10 @@ def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd
 - For each chunk, calls `dukascopy_python.fetch()` with `INTERVAL_MIN_1` and `OFFER_SIDE_BID`.
 - Displays **colored progress bar** in terminal (using `colorama`).
 - Individual chunk errors are silenced (weekends return empty, which is expected).
+
+#### Network Resiliency:
+- Uses `with_retry` utility (from `utils/retry.py`) for individual chunk requests.
+- Retries up to 3 times on `OSError` or network-related exceptions with exponential backoff.
 
 #### Ticker Validation:
 - Before downloading, checks if ticker exists in `metadata/dukas_assets.csv`.
@@ -423,7 +450,7 @@ df.sort_index(inplace=True)
 
 ---
 
-### 3.8 `fetchers/openbb.py`
+### 3.9 `fetchers/openbb.py`
 
 **Responsibility:** M1 data download via OpenBB (using YFinance as provider).
 
@@ -440,6 +467,7 @@ kwargs = {
 res = obb.equity.price.historical(**kwargs)
 df = res.to_df()
 ```
+- Calls are protected by `with_retry` to handle transient network issues.
 
 **Important Note:** If `start_date.year <= 2000` (CLI default for full history), dates are omitted from the request so YFinance returns maximum available data.
 
@@ -450,7 +478,7 @@ YFinance limits intraday data (M1) to approximately the last 30 days. For longer
 
 ---
 
-### 3.9 `api/router.py` — REST API (FastAPI)
+### 3.10 `api/router.py` — REST API (FastAPI)
 
 **Responsibility:** Exposes `DataManager` functionalities as an HTTP API protected by API Key.
 
@@ -469,7 +497,9 @@ YFinance limits intraday data (M1) to approximately the last 30 days. For longer
    - `asset`: `^[a-zA-Z0-9_,\s\-]+$`
    - `timeframe`: `^[a-zA-Z0-9_]+$`
 
-3. **Path Traversal Protection** via `re.match()` on URL parameters
+3. **Concurrency Control:**
+   - Background tasks for long operations.
+   - Internal file locking prevents conflicts between concurrent API requests or CLI usage.
 
 #### Endpoints:
 
@@ -479,6 +509,9 @@ YFinance limits intraday data (M1) to approximately the last 30 days. For longer
 | `POST` | `/update` | Updates database (background task) | ✅ |
 | `POST` | `/delete` | Deletes database(s) | ❌ |
 | `POST` | `/resample` | Generates derived timeframe (background task) | ✅ |
+| `POST` | `/schedule` | Adds a background recurring job | ❌ |
+| `GET` | `/schedule` | Lists active background jobs | ❌ |
+| `DELETE`| `/schedule/{id}`| Removes a background job | ❌ |
 | `GET` | `/list` | Lists all databases | ❌ |
 | `GET` | `/info/{source}/{asset}/{timeframe}` | Database metadata | ❌ |
 | `GET` | `/search` | Searches for available assets | ❌ |
@@ -495,7 +528,7 @@ uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686 --reload
 
 ---
 
-### 3.10 `client.py` — Python Client for the API
+### 3.11 `client.py` — Python Client for the API
 
 **Responsibility:** Python wrapper to consume DataManager REST API programmatically.
 
@@ -527,6 +560,18 @@ Uses `requests.Session` to automatically send `X-API-Key` header in all requests
 - No `save_path`: loads Parquet into memory and returns `pd.DataFrame`.
 - With `save_path` and `save_format="parquet"`: saves `.parquet` file directly to disk.
 - With `save_path` and `save_format="csv"`: converts to CSV and saves to disk.
+
+---
+
+### 3.12 `utils/retry.py` — Exponential Backoff
+
+**Responsibility:** Provides a generic retry utility for fragile operations.
+
+**Function:** `with_retry(func, *args, max_attempts=3, base_delay=1.0, exceptions=(Exception,), **kwargs)`
+
+- Implements exponential backoff: `base_delay * 2^attempt`.
+- Default: 1s, 2s, 4s delays.
+- Used by all fetchers for network resiliency.
 
 ---
 
@@ -867,6 +912,45 @@ exit
 ```json
 {"source": "DUKASCOPY", "asset": "EURUSD", "target_timeframe": "H4"}
 ```
+
+### POST /schedule
+```json
+// Schedule by interval:
+{
+  "source": "DUKASCOPY",
+  "asset": "EURUSD",
+  "timeframe": "M1",
+  "interval_minutes": 60
+}
+
+// Schedule by cron:
+{
+  "source": "OPENBB",
+  "asset": "AAPL",
+  "timeframe": "H1",
+  "cron": "0 9 * * 1-5"
+}
+```
+
+### GET /schedule
+```json
+// Response:
+{
+  "jobs": [
+    {
+      "job_id": "...",
+      "source": "DUKASCOPY",
+      "asset": "EURUSD",
+      "timeframe": "M1",
+      "trigger": "every 60min",
+      "next_run": "2026-03-18 14:00:00"
+    }
+  ]
+}
+```
+
+### DELETE /schedule/{job_id}
+Returns success or 404.
 
 ### GET /list
 ```json

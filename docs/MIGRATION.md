@@ -78,9 +78,29 @@ uv run pytest
 
 ---
 
-## 6. Formatting and Linting
+## 7. New Performance & Reliability Features
 
-The project now strictly follows **Ruff** for both linting and formatting.
+Version 1.2.0 introduces several internal improvements to make DataManager more robust for production-like environments.
 
-- **Check**: `uv run ruff check .`
-- **Format**: `uv run ruff format .`
+### Scheduled Updates
+- **SchedulerService**: Integrated background task manager (APScheduler).
+- **CLI Commands**: `schedule add`, `schedule list`, `schedule remove`.
+- **API Endpoints**: `/schedule` (POST, GET, DELETE).
+
+### Network Resiliency
+- **Exponential Backoff**: Fetchers now automatically retry failed network requests (3 attempts with 1s, 2s, 4s delays).
+- **Chunked Progress**: Dukascopy downloads are split into 7-day chunks with individual retry protection.
+
+### Concurrency Safety
+- **File Locking**: Cross-platform sidecar locking (`.lock`) prevents data corruption when multiple processes/threads access the same database or catalog.
+- **Atomic Renames**: Data is saved to a temporary file before being moved to the final destination.
+
+---
+
+## 8. Migration Checklist
+- [ ] Install [uv](https://docs.astral.sh/uv/) (if not present).
+- [ ] Run `uv sync --dev` to synchronize dependencies and dev tools.
+- [ ] Rename your `.env` variables if necessary (refer to `.env.example`).
+- [ ] Update your scripts to use `uv run datamanager` instead of `python main.py`.
+- [ ] If using the REST API, ensure you provide the `X-API-Key` header.
+- [ ] Check if you need to run `uv run datamanager rebuild` to resync your local databases with the new catalog format.
