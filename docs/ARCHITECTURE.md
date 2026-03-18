@@ -15,14 +15,17 @@
    - [cli.py](#32-clipy--command-line-interface)
    - [services/manager.py](#33-servicesmanagerpy--central-controller)
    - [services/scheduler.py](#34-servicesschedulerpy--background-job-manager)
-   - [db/storage.py](#35-dbstoragepy--persistence-layer)
-   - [db/processor.py](#36-dbprocessorpy--timeframe-resampling)
-   - [fetchers/base.py](#37-fetchersbasepy--abstract-interface)
-   - [fetchers/dukascopy.py](#38-fetchersdukascopypy)
-   - [fetchers/openbb.py](#39-fetchersopenbbpy)
-   - [api/router.py](#310-apirouterpy--fastapi-rest-api)
-   - [client.py](#311-clientpy--python-client-for-the-api)
-   - [utils/retry.py](#312-utilsretrypy--exponential-backoff)
+   - [core/config.py](#35-coreconfigpy--centralized-settings)
+   - [db/storage.py](#36-dbstoragepy--persistence-layer)
+   - [db/processor.py](#37-dbprocessorpy--timeframe-resampling)
+   - [fetchers/base.py](#38-fetchersbasepy--abstract-interface)
+   - [fetchers/dukascopy.py](#39-fetchersdukascopypy)
+   - [fetchers/openbb.py](#310-fetchersopenbbpy)
+   - [api/router.py](#311-apirouterpy--fastapi-rest-api)
+   - [schemas/](#312-schemas--data-validation)
+   - [client.py](#313-clientpy--python-client-for-the-api)
+   - [utils/logger.py](#314-utilsloggerpy--centralized-logging)
+   - [utils/retry.py](#315-utilsretrypy--exponential-backoff)
 4. [Data Flow](#4-data-flow)
 5. [Storage System](#5-storage-system)
 6. [Metadata Catalog](#6-metadata-catalog)
@@ -276,9 +279,29 @@ Performs 4 checks and reports found errors:
 - Jobs are stored in-memory; they are not persistent across application restarts.
 - Errors during scheduled tasks are logged but do not crash the scheduler.
 
+#### Main Methods:
+
+- **`add_job(source, asset, timeframe="M1", cron=None, interval_minutes=None)`**: Adds a new recurring task. Returns a unique `job_id`.
+- **`remove_job(job_id)`**: Stops and removes a job by its ID.
+- **`list_jobs()`**: Returns metadata (source, asset, trigger, next_run) for all active jobs.
+- **`start()` / `shutdown()`**: Controls the underlying APScheduler lifecycle.
+
 ---
 
-### 3.5 `db/storage.py` — Persistence Layer
+### 3.5 `core/config.py` — Centralized Settings
+
+**Responsibility:** Manages application configuration using **Pydantic Settings**.
+
+**Class:** `Settings`
+
+- Loads configuration from environment variables and an optional `.env` file.
+- **`api_key`**: Used for REST API authentication (`DATAMANAGER_API_KEY`).
+- **`host` / `port`**: Default server configuration (`HOST`, `PORT`).
+- Provides a singleton instance `settings` used throughout the application.
+
+---
+
+### 3.6 `db/storage.py` — Persistence Layer
 
 **Responsibility:** All data read and write operations on disk, and maintenance of the JSON catalog.
 
@@ -382,7 +405,7 @@ TF_MAPPING = {
 
 ---
 
-### 3.7 `fetchers/base.py` — Abstract Interface
+### 3.8 `fetchers/base.py` — Abstract Interface
 
 **Responsibility:** Defines the contract that all fetchers must implement.
 
@@ -411,7 +434,7 @@ def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd
 
 ---
 
-### 3.8 `fetchers/dukascopy.py`
+### 3.9 `fetchers/dukascopy.py`
 
 **Responsibility:** M1 data download via `dukascopy-python` library.
 
@@ -450,7 +473,7 @@ df.sort_index(inplace=True)
 
 ---
 
-### 3.9 `fetchers/openbb.py`
+### 3.10 `fetchers/openbb.py`
 
 **Responsibility:** M1 data download via OpenBB (using YFinance as provider).
 
@@ -478,12 +501,12 @@ YFinance limits intraday data (M1) to approximately the last 30 days. For longer
 
 ---
 
-### 3.10 `api/router.py` — REST API (FastAPI)
+### 3.11 `api/router.py` — REST API (FastAPI)
 
 **Responsibility:** Exposes `DataManager` functionalities as an HTTP API protected by API Key.
 
 **Framework:** FastAPI v0.128
-**Default Port:** `8686`
+**Default Port:** `settings.port` (from `core/config.py`)
 **Global Instance:** `manager = DataManager()` (singleton)
 
 #### Security (3 layers):
@@ -528,7 +551,18 @@ uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686 --reload
 
 ---
 
-### 3.11 `client.py` — Python Client for the API
+### 3.12 `schemas/` — Data Validation
+
+**Responsibility:** Defines Pydantic models for request validation and response standardization across the API.
+
+**Key Models:**
+- `DownloadRequest` / `UpdateRequest` / `ResampleRequest`: Enforce strict regex patterns on source and asset names to prevent path traversal.
+- `DatabaseInfo`: Standardizes the metadata returned for each asset.
+- `ScheduleRequest`: Validates Cron expressions and interval parameters for the scheduler.
+
+---
+
+### 3.13 `client.py` — Python Client for the API
 
 **Responsibility:** Python wrapper to consume DataManager REST API programmatically.
 
@@ -563,15 +597,26 @@ Uses `requests.Session` to automatically send `X-API-Key` header in all requests
 
 ---
 
-### 3.12 `utils/retry.py` — Exponential Backoff
+### 3.14 `utils/logger.py` — Centralized Logging
 
-**Responsibility:** Provides a generic retry utility for fragile operations.
+**Responsibility:** Provides a unified logging configuration for the entire system.
+
+**Features:**
+- **Dual Output:** Simultaneously logs to standard output and a `log.log` file.
+- **UTF-8 Support:** Ensures special characters are correctly preserved in file logs.
+- **Idempotency:** Prevents duplicate handlers when initialized multiple times in the same process.
+
+---
+
+### 3.15 `utils/retry.py` — Exponential Backoff
+
+**Responsibility:** Provides a generic retry utility for fragile operations (especially network requests).
 
 **Function:** `with_retry(func, *args, max_attempts=3, base_delay=1.0, exceptions=(Exception,), **kwargs)`
 
 - Implements exponential backoff: `base_delay * 2^attempt`.
-- Default: 1s, 2s, 4s delays.
-- Used by all fetchers for network resiliency.
+- Default behavior: retries up to 3 times with 1s, 2s, and 4s delays.
+- Used by all fetchers to handle transient network issues.
 
 ---
 

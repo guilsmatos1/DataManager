@@ -32,8 +32,11 @@ For version-specific changes (v1.2.0), refer to the [Migration Guide](docs/MIGRA
 - `src/datamanager/db/`:
   - `storage.py`: Handles persistence using Parquet format with atomic writes and cross-platform file locking.
   - `processor.py`: Contains data processing logic for OHLCV resampling.
-- `src/datamanager/utils/retry.py`: Utility for exponential backoff retries on network operations.
 - `src/datamanager/api/router.py`: FastAPI REST API (port 8686) with API key authentication.
+- `src/datamanager/core/config.py`: Application settings and environment variable management via Pydantic.
+- `src/datamanager/utils/`:
+  - `retry.py`: Utility for exponential backoff retries on network operations.
+  - `logger.py`: Centralized logging with dual stdout and file output.
 
 ## Instructions & Usage
 
