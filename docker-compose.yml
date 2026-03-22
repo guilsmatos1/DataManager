@@ -1,14 +1,26 @@
 services:
   datamanager_api:
-    image: ghcr.io/guilsmatos1/datamanager:latest # Pulling from Github Registry
+    image: ghcr.io/guilsmatos1/datamanager:latest
     container_name: datamanager-server
-    environment:
-      - DATAMANAGER_API_KEY=${DATAMANAGER_API_KEY:-YOUR_API_KEY_HERE} # API Key, define in environment
-    restart: always # Always restart and start with the system
+    restart: always
     ports:
-      - "8686:8686" # Server port (left) mapped to container port (right)
+      - "8686:8686"
+    environment:
+      - DATAMANAGER_API_KEY=${DATAMANAGER_API_KEY:-YOUR_API_KEY_HERE}
+      - DATAMANAGER_HOST=0.0.0.0
+      - DATAMANAGER_PORT=8686
     volumes:
       - ./database:/app/database
       - ./metadata:/app/metadata
-    # Default command to start the API
+    # O comando padrão já está no Dockerfile, mas garantimos aqui para o CasaOS
     command: ["uv", "run", "uvicorn", "datamanager.api.router:app", "--host", "0.0.0.0", "--port", "8686"]
+
+x-casaos:
+  author: guilsmatos1
+  icon: https://raw.githubusercontent.com/guilsmatos1/DataManager/main/docs/icon.png
+  screenshot: []
+  tagline: Centralized financial data management (OHLCV)
+  title: DataManager
+  scheme: http
+  index: /
+  port_map: "8686"
