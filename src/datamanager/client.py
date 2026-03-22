@@ -1,12 +1,15 @@
-import requests
-import pandas as pd
-from typing import Optional, List, Dict, Any, Union
 from io import BytesIO
+from typing import Any, Dict, List, Union
+
+import pandas as pd
+import requests
+
 
 class DataManagerClient:
     """
     Python client to connect to DataManager Network API protected with API Key.
     """
+
     def __init__(self, base_url: str = "http://127.0.0.1:8686", api_key: str = "YOUR_API_KEY_HERE"):
         self.base_url = base_url.rstrip("/")
         # Uses a Session to automatically load the custom header
@@ -19,17 +22,23 @@ class DataManagerClient:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.HTTPError as e:
+            error_detail = None
             try:
-                error_detail = response.json().get('detail', str(e))
-                raise RuntimeError(f"API Error: {error_detail}")
+                error_detail = response.json().get("detail")
             except Exception:
-                raise RuntimeError(f"API Error: {response.text or str(e)}")
-            
+                pass
+
+            if error_detail:
+                raise RuntimeError(f"API Error: {error_detail}")
+            raise RuntimeError(f"API Error: {response.text or str(e)}")
+
     def download(self, source: str, asset: str, start_date: str = None, end_date: str = None) -> dict:
         """Sends a command to download/save assets on the server."""
         payload = {"source": source, "asset": asset}
-        if start_date: payload["start_date"] = start_date
-        if end_date: payload["end_date"] = end_date
+        if start_date:
+            payload["start_date"] = start_date
+        if end_date:
+            payload["end_date"] = end_date
         res = self.session.post(f"{self.base_url}/download", json=payload)
         return self._handle_response(res)
 
@@ -42,7 +51,8 @@ class DataManagerClient:
     def delete(self, source: str, asset: str, timeframe: str = None) -> dict:
         """Physically deletes a database or entire asset from the server."""
         payload = {"source": source, "asset": asset}
-        if timeframe: payload["timeframe"] = timeframe
+        if timeframe:
+            payload["timeframe"] = timeframe
         res = self.session.post(f"{self.base_url}/delete", json=payload)
         return self._handle_response(res)
 
@@ -50,6 +60,15 @@ class DataManagerClient:
         """Regenerates or creates a timeframe from the original M1 database."""
         payload = {"source": source, "asset": asset, "target_timeframe": target_timeframe}
         res = self.session.post(f"{self.base_url}/resample", json=payload)
+        return self._handle_response(res)
+
+    def rebuild(self) -> dict:
+        """Rebuilds the server-side SQLite catalog by scanning the database directory.
+
+        Use this if the catalog drifts out of sync with the physical files
+        (e.g., after manual file operations or a crash during write).
+        """
+        res = self.session.post(f"{self.base_url}/rebuild")
         return self._handle_response(res)
 
     def list_databases(self) -> List[dict]:
@@ -66,9 +85,11 @@ class DataManagerClient:
     def search(self, source: str = "openbb", query: str = None, exchange: str = None) -> pd.DataFrame:
         """String-based search in the chosen source, returning a pandas DataFrame."""
         params = {"source": source}
-        if query: params["query"] = query
-        if exchange: params["exchange"] = exchange
-        
+        if query:
+            params["query"] = query
+        if exchange:
+            params["exchange"] = exchange
+
         res = self.session.get(f"{self.base_url}/search", params=params)
         data = self._handle_response(res)
         assets = data.get("assets", [])
@@ -79,27 +100,34 @@ class DataManagerClient:
         Converts the DataFrame's DatetimeIndex from naive (UTC) to the target timezone.
         The stored data is always in UTC but without timezone info (naive).
         This method localizes to UTC first, then converts to the desired tz.
-        
+
         Args:
             df: DataFrame with naive DatetimeIndex (assumed UTC).
             timezone: IANA timezone string (e.g. 'America/Sao_Paulo', 'US/Eastern', 'Europe/London').
-        
+
         Returns:
             DataFrame with timezone-aware DatetimeIndex converted to the target timezone.
         """
-        import pytz
         if df.index.tz is None:
             df.index = df.index.tz_localize("UTC")
         df.index = df.index.tz_convert(timezone)
         return df
 
-    def get_data(self, source: str, asset: str, timeframe: str, save_path: str = None, save_format: str = "parquet", timezone: str = None) -> Union[pd.DataFrame, str]:
+    def get_data(
+        self,
+        source: str,
+        asset: str,
+        timeframe: str,
+        save_path: str = None,
+        save_format: str = "parquet",
+        timezone: str = None,
+    ) -> Union[pd.DataFrame, str]:
         """
         Downloads the `.parquet` file from the server.
         If save_path is provided, saves to disk and returns the path.
         You can define 'save_format' as 'parquet' or 'csv'.
         Otherwise, loads directly into the client's local memory as a DataFrame.
-        
+
         Args:
             timezone: Optional IANA timezone string to convert the index.
                       Examples: 'America/Sao_Paulo', 'US/Eastern', 'Europe/London', 'Asia/Tokyo'.
@@ -107,23 +135,23 @@ class DataManagerClient:
         """
         res = self.session.get(f"{self.base_url}/data/{source}/{asset}/{timeframe}")
         res.raise_for_status()
-        
+
         if save_path:
             save_format = save_format.lower()
             if save_format == "csv":
                 file_obj = BytesIO(res.content)
-                df = pd.read_parquet(file_obj, engine='fastparquet')
+                df = pd.read_parquet(file_obj, engine="fastparquet")
                 if timezone:
                     df = self._apply_timezone(df, timezone)
                 df.to_csv(save_path)
             elif save_format == "parquet":
                 if timezone:
                     file_obj = BytesIO(res.content)
-                    df = pd.read_parquet(file_obj, engine='fastparquet')
+                    df = pd.read_parquet(file_obj, engine="fastparquet")
                     df = self._apply_timezone(df, timezone)
-                    df.to_parquet(save_path, engine='fastparquet')
+                    df.to_parquet(save_path, engine="fastparquet")
                 else:
-                    with open(save_path, 'wb') as f:
+                    with open(save_path, "wb") as f:
                         f.write(res.content)
             else:
                 raise ValueError("Format not supported. Choose 'parquet' or 'csv'.")
@@ -131,29 +159,33 @@ class DataManagerClient:
         else:
             # Loads the binary into memory for pandas to natively read the parquet
             file_obj = BytesIO(res.content)
-            df = pd.read_parquet(file_obj, engine='fastparquet')
+            df = pd.read_parquet(file_obj, engine="fastparquet")
             if timezone:
                 df = self._apply_timezone(df, timezone)
             return df
 
+
 if __name__ == "__main__":
     # Simple Example Script
     print("Testing DataManager Client...")
-    
+
     # Initializes the client passing default host and key (optional if matches __init__ default)
     client = DataManagerClient("http://127.0.0.1:8686", api_key="YOUR_API_KEY_HERE")
-    
+
     try:
-        from datetime import datetime, timedelta
         import time
+        from datetime import datetime, timedelta
 
         target_source = "DUKASCOPY"
         target_asset = "USATECH"
         target_tf = "H1"
 
-        print(f"\n1. Listing databases on the server...")
+        print("\n1. Listing databases on the server...")
         dbs = client.list_databases()
-        exists = any(db['source'].upper() == target_source and db['asset'] == target_asset and db['timeframe'] == target_tf for db in dbs)
+        exists = any(  # noqa: E501
+            db["source"].upper() == target_source and db["asset"] == target_asset and db["timeframe"] == target_tf
+            for db in dbs
+        )
 
         if exists:
             print(f" -> The database {target_asset} ({target_tf}) already exists on the server.")
@@ -172,7 +204,7 @@ if __name__ == "__main__":
             asset=target_asset,
             timeframe=target_tf,
             save_path="usatech_resultado.csv",
-            save_format="csv"
+            save_format="csv",
         )
         print(f" -> Success! File saved at: {csv_path}")
 

@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -f /tmp/claude-code-modified"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "touch /tmp/claude-code-modified"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ ! -f /tmp/claude-code-modified ] || ! git diff --name-only HEAD 2>/dev/null | grep -qE '\\.(py|toml|cfg)$'; then exit 0; fi; uv run ruff check --fix . 2>&1; uv run ruff format . 2>&1; if ! uv run ruff check . > /tmp/ruff-errors.log 2>&1; then echo '=== LINT ERRORS: fix the issues below and I will re-run the pipeline ==='; cat /tmp/ruff-errors.log; rm -f /tmp/claude-code-modified; exit 2; fi; rm -f /tmp/claude-code-modified",
+            "timeout": 60,
+            "statusMessage": "Running lint pipeline...",
+            "asyncRewake": true
+          }
+        ]
+      }
+    ]
+  }
+}

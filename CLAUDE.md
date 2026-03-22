@@ -102,6 +102,24 @@ The fetcher is auto-discovered via `pkgutil`/`importlib` in `src/datamanager/fet
 
 Mapping to pandas resample strings is defined in `DataProcessor.TF_MAPPING`.
 
+## Gemini Pipeline
+
+Ao finalizar uma implementação, avalie se houve **nova feature** (novo método público, nova rota, nova classe, novo comportamento observável). Refatorações, correções de bug, ajustes de config e formatação **não** disparam o pipeline.
+
+Se houver nova feature, execute os dois passos abaixo **em sequência**:
+
+### 1. Gemini Tests
+
+```bash
+gemini -p "Voce e um Engenheiro de QA senior do projeto DataManager (Python, uv, src/datamanager/). Crie ou atualize testes unitarios em tests/unit/ para cobrir a seguinte nova feature: <descreva a feature>. Use pytest e unittest.mock, siga os padroes de tests/unit/ (fixtures, mocks, tmp_path). Execute 'uv run pytest tests/ -v' para verificar que todos os testes passam. Se algum teste falhar, corrija-o. Apos escrever os testes, pare imediatamente." --yolo
+```
+
+### 2. Gemini Docs
+
+```bash
+gemini -p "Voce e um Engenheiro de Documentacao senior do projeto DataManager (Python, uv, src/datamanager/). DIFF: $(git diff HEAD -- src/ 2>/dev/null | head -300). Leia apenas README.md e docs/ para entender o que ja esta documentado — NAO leia arquivos em src/ nem em tests/. Atualize README.md e/ou docs/ refletindo as mudancas tecnicas — documente comportamento e arquitetura, nunca codigo linha por linha. Em seguida execute 'git add' em todos os arquivos modificados neste pipeline (docs/** + README.md + tests/**) e faca um unico 'git commit' com prefixo 'chore:' e rodape 'Pipeline-by: Gemini CLI'. Se nao houver mudancas pendentes, responda apenas SKIP. Apos o commit, pare imediatamente." --yolo
+```
+
 ## Ruff Workflow
 
 Always run Ruff after implementing or editing Python files.

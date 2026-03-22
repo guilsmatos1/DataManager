@@ -1,17 +1,19 @@
 from abc import ABC, abstractmethod
-import pandas as pd
 from datetime import datetime
+
+import pandas as pd
+
 
 class BaseFetcher(ABC):
     """
     Base interface for all Data Fetchers
     """
-    
+
     @property
     @abstractmethod
     def source_name(self) -> str:
         pass
-        
+
     @abstractmethod
     def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
         """

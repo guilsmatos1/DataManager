@@ -1,149 +1,199 @@
 # DataManager
 
 ## Overview
-**DataManager** is a centralized tool designed to fetch, manage, store, update, and resample financial OHLCV (Open, High, Low, Close, Volume) data. By providing an interactive Command-Line Interface (CLI) as well as a single-command mode, it offers a streamlined way to maintain local databases of financial assets.
+**DataManager** is a centralized tool to fetch, store, update, and resample financial OHLCV (Open, High, Low, Close, Volume) data. It provides an interactive CLI, a single-command mode, and a REST API for programmatic access.
 
-Currently, it supports the following data sources:
-- **OpenBB**: Stocks, ETFs, indices (via yfinance).
-- **Dukascopy**: Forex, commodities, indices, cryptos.
-- **CCXT**: Extensive crypto support across multiple exchanges (e.g., `binance:BTC/USDT`).
+**Supported data sources:**
+- **OpenBB** — Stocks, ETFs, indices (via yfinance)
+- **Dukascopy** — Forex, commodities, indices
+- **CCXT** — Crypto across multiple exchanges (e.g. `binance:BTC/USDT`) — optional extra
 
-## Purpose and Objectives
-The main objective of DataManager is to simplify the management of financial data. Instead of repeatedly fetching data from APIs when running tests or analyses, DataManager downloads the data locally (by default at a 1-Minute `M1` timeframe) and provides tools to reliably update it or resample it into larger timeframes (e.g., `H1`, `D1`).
-
-### Key Features
-- **Data Fetching:** Download historical OHLCV data from OpenBB, Dukascopy, and CCXT.
-- **Local Storage:** Store asset data efficiently in Parquet format with atomic writes and cross-platform file locking.
-- **Resampling:** Convert `M1` base data into any higher timeframe dynamically. Supported: `M2`, `M5`, `M10`, `M15`, `M30`, `H1`, `H2`, `H3`, `H4`, `H6`, `D1`, `W1`.
-- **Smart Updating:** Update existing databases by fetching only the newly available data and appending it.
-- **Data Versioning:** Automatic timestamped backups (up to 5 versions) for every saved asset/timeframe.
-- **Gap Interpolation:** Built-in logic to fill missing candles via forward-filling prices and zero-filling volume.
-- **Asset Search:** Built-in search functionality to explore available tickers and assets from the supported sources.
-- **Scheduled Updates:** Automate recurring data updates using Cron expressions or time intervals (API & CLI).
-- **REST API Modernization:** 
-  - **Dashboard & Stats:** Overview of total rows, sources, and storage usage.
-  - **Data Streaming:** High-performance CSV streaming for large datasets.
-  - **Rate Limiting:** Sliding window protection (60 req/min).
-  - **Pagination:** Support for `skip` and `limit` in asset listings.
-- **Network Resiliency:** Automatic retry with exponential backoff for network-related fetch errors.
-- **Concurrency Safety:** Robust SQLite-backed catalog with WAL mode for safe multi-process access.
+## Key Features
+- **M1-First principle:** All data is fetched at 1-minute resolution. Higher timeframes are always derived via resampling — never fetched directly.
+- **Smart updating:** `update` always refreshes the M1 base first and then rebuilds any requested higher timeframe from it, guaranteeing consistency.
+- **Parquet storage** with atomic writes, cross-platform file locking, and automatic versioned backups (up to 5 per asset/timeframe).
+- **SQLite catalog** (`metadata/catalog.db`, WAL mode) for fast, concurrent-safe metadata reads.
+- **Scheduler** — cron or interval-based recurring updates, persisted to disk and restored on restart.
+- **REST API** — FastAPI on port 8686, API key auth, rate limiting, pagination, and data streaming.
+- **Python client** — `DataManagerClient` for direct integration with backtesting scripts.
 
 ## Architecture
-DataManager follows a modular src layout (`src/datamanager/`). For a complete technical breakdown, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-For version-specific changes (v1.2.0), refer to the [Migration Guide](docs/MIGRATION.md).
+```
+src/datamanager/
+├── main.py              # Entry point (CLI / direct command)
+├── cli.py               # Interactive shell (cmd.Cmd)
+├── client.py            # Python SDK for the REST API
+├── api/router.py        # FastAPI REST API
+├── services/
+│   ├── manager.py       # Central orchestrator (DataManager class)
+│   └── scheduler.py     # APScheduler background jobs (persistent)
+├── db/
+│   ├── storage.py       # Parquet I/O + SQLite catalog
+│   └── processor.py     # OHLCV resampling + gap filling
+├── fetchers/            # One module per source (base, openbb, dukascopy, ccxt)
+├── core/config.py       # Settings via pydantic-settings (.env)
+└── utils/               # logger.py, retry.py
 
-- `src/datamanager/main.py` & `src/datamanager/cli.py`: Entry points providing both an interactive shell and a direct terminal command interface.
-- `src/datamanager/services/manager.py` (`DataManager`): The central controller that orchestrates data flow.
-- `src/datamanager/services/scheduler.py` (`SchedulerService`): Manages background automated update tasks using APScheduler.
-- `src/datamanager/fetchers/`: Contains the integration logic for various data sources. All fetchers standardize the data into `M1` resolution dataframes.
-- `src/datamanager/db/`:
-  - `storage.py`: Handles persistence using Parquet with atomic writes, versioning, and a **SQLite catalog** (`metadata/catalog.db`).
-  - `processor.py`: Contains data processing logic for OHLCV resampling and gap filling.
-- `src/datamanager/api/router.py`: FastAPI REST API (port 8686) with API key authentication, rate limiting, and dashboard stats.
-- `src/datamanager/core/config.py`: Application settings and environment variable management via Pydantic.
-- `src/datamanager/utils/`:
-  - `retry.py`: Utility for exponential backoff retries on network operations.
-  - `logger.py`: Structured logging with human-readable console output and JSON file logging.
+metadata/
+├── catalog.db           # SQLite catalog (source of truth)
+└── dukas_assets.csv     # Dukascopy asset list for validation
 
-## Instructions & Usage
+database/
+└── {source}/{ASSET}/{TF}/data.parquet
+```
 
-### 1. Installation
-Ensure you have [uv](https://docs.astral.sh/uv/) installed, then install dependencies:
+## Installation
+
+Requires [uv](https://docs.astral.sh/uv/) and Python ≥ 3.12.
+
 ```bash
-# Standard installation
+# Standard
 uv sync --dev
 
-# Installation with crypto support (CCXT)
+# With crypto support (CCXT)
 uv sync --dev --extra crypto
 ```
 
-### 2. Configuration
-Copy the `.env.example` to `.env` and set your `DATAMANAGER_API_KEY`:
+## Configuration
+
 ```bash
 cp .env.example .env
 ```
-The REST API requires this key to be present in the `X-API-Key` header. You can also customize `HOST` and `PORT` (default: `8686`).
 
-### 3. Running DataManager
+Set `DATAMANAGER_API_KEY` in `.env`. The REST API requires this key in the `X-API-Key` header. You can also set `DATAMANAGER_HOST` and `DATAMANAGER_PORT` (default: `0.0.0.0:8686`).
 
-You can run DataManager out-of-the-box using **Docker**, or natively via uv.
+> **Warning:** If `DATAMANAGER_API_KEY` is not set, the API logs a warning at startup and accepts any request — never expose it publicly without a key.
 
-#### Option A: Using Docker (Recommended)
-Running via Docker ensures you don't have to install local dependencies or worry about OS compatibility.
+## Running
 
-1. **Interactive CLI Mode:**
+### Docker (recommended for server mode)
 ```bash
-docker compose run --rm datamanager_api uv run datamanager -i
+# Interactive CLI
+docker compose run --rm datamanager uv run datamanager -i
+
+# REST API (background)
+docker compose up -d
 ```
 
-2. **REST API Mode:**
-```bash
-docker compose up -d datamanager_api
-```
-*Note: Any data downloaded using the docker container will be automatically persisted to the `./database` and `./metadata` folders on your host machine.*
+### Native
 
-#### Option B: Running Natively
-You can run DataManager in **Interactive Mode** or **Direct Command Mode**.
-
-**Interactive Mode:**
-Start the continuous interactive shell:
 ```bash
+# Interactive CLI shell
 uv run datamanager -i
-```
-Inside the interactive prompt, you can use commands like `help`, `list`, or `search`. To exit, type `exit`.
 
-**Direct Command Mode:**
-Execute a specific command directly from your terminal without opening the interactive shell:
-```bash
-uv run datamanager search --query Apple
-uv run datamanager download OPENBB AAPL 2023-01-01 2023-12-31
-```
+# Single command (no shell)
+uv run datamanager download OPENBB AAPL 2023-01-01 2024-01-01
 
-**REST API Mode:**
-```bash
+# REST API
 uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686 --reload
 ```
 
-### 4. Available Commands
+## CLI Commands
 
-- `download <source> <assets> [start_date] [end_date] [-timeframe tf1,tf2,...]`: Downloads data.
-  *Example:* `download OPENBB AAPL,MSFT 2023-01-01 2024-01-01`
-  *Example:* `download DUKASCOPY EURUSD,GBPUSD -timeframe M15,H1`
-  *Example:* `download CCXT binance:BTC/USDT,eth:ETH/USDT`
-- `update <source> <assets> [timeframe]`: Updates an existing database with new data.
-  *Example:* `update OPENBB AAPL M1`
-  *(Note: `update all` automatically updates all `M1` bases and reconstructs higher timeframes).*
-- `resample <source> <assets> <new_timeframe>`: Converts an existing `M1` base to a different timeframe.
-  *Example:* `resample OPENBB AAPL H1`
-- `list`: Lists all locally saved databases along with technical details (rows, dimensions, size).
-- `search [--source] [--query] [--exchange]`: Searches for supported assets.
-  *Example:* `search --source dukascopy --query bitcoin`
-- `info <source> <asset> <timeframe>`: Shows metadata info for a specific database.
-- `delete <source> <assets> [timeframe]`: Deletes databases. (Use `delete all` for full cleanup).
-- `schedule <subcommand> [args]`: Manages automated update tasks.
-  *Example:* `schedule add DUKASCOPY EURUSD M1 --interval 60`
-  *Example:* `schedule add OPENBB AAPL H1 --cron "0 9 * * 1-5"`
-  *Example:* `schedule list`
-  *Example:* `schedule remove <job_id>`
-- `rebuild`: Rebuilds the `catalog.db` index by scanning the physical files on disk.
-- `quality <source> <assets> [timeframe]`: Performs a data integrity report (checks for gaps, duplicates, and OHLC logic).
+| Command | Description |
+|---|---|
+| `download <source> <assets> [start] [end] [-timeframe tf1,tf2]` | Download M1 data (and optionally resample) |
+| `update <source> <assets> [timeframe]` | Update M1, then rebuild the requested TF |
+| `update all` | Update all M1 databases and reconstruct all higher TFs |
+| `resample <source> <assets> <timeframes>` | Rebuild a TF from existing M1 |
+| `list` | List all saved databases |
+| `info <source> <asset> <timeframe>` | Show metadata for a specific database |
+| `search [--source] [--query] [--exchange]` | Search available assets |
+| `quality <source> <assets> [timeframe]` | Data integrity report (gaps, duplicates, OHLC) |
+| `delete <source> <assets> [timeframe]` | Delete one database (or `delete all`) |
+| `schedule add/list/remove` | Manage persistent scheduled updates |
+| `rebuild` | Resync `catalog.db` with files on disk |
 
-### 5. Programmatic Usage (Python Client)
+### Examples
 
-You can also use DataManager programmatically in your own Python scripts using the provided client:
+```bash
+# Download multi-asset, full history, with resampling
+download DUKASCOPY EURUSD,GBPUSD -timeframe M15,H1
+
+# Update M1 and rebuild H1 in one command
+update DUKASCOPY EURUSD H1
+
+# Schedule EURUSD to update every hour
+schedule add DUKASCOPY EURUSD M1 --interval 60
+
+# Data quality report
+quality DUKASCOPY EURUSD M1
+```
+
+## REST API
+
+All endpoints (except `/` and `/health`) require the `X-API-Key` header.
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/` | Dashboard stats (no auth) |
+| `GET` | `/health` | Health check (no auth) |
+| `POST` | `/download` | Download asset (background) |
+| `POST` | `/update` | Update asset (background) |
+| `POST` | `/resample` | Resample asset (background) |
+| `POST` | `/rebuild` | Rebuild catalog from disk |
+| `GET` | `/list` | List databases (paginated) |
+| `GET` | `/info/{source}/{asset}/{tf}` | Database metadata |
+| `GET` | `/search` | Search assets |
+| `POST` | `/delete` | Delete database(s) |
+| `GET` | `/data/{source}/{asset}/{tf}` | Download Parquet file |
+| `GET` | `/data/{source}/{asset}/{tf}/stream` | Stream as CSV |
+| `POST` | `/schedule` | Add scheduled job |
+| `GET` | `/schedule` | List scheduled jobs |
+| `DELETE` | `/schedule/{job_id}` | Remove scheduled job |
+
+## Python Client
 
 ```python
 from datamanager.client import DataManagerClient
 
-# Connect to the API (requires DATAMANAGER_API_KEY in .env)
-client = DataManagerClient(base_url="http://localhost:8686", api_key="YOUR_API_KEY")
+client = DataManagerClient(base_url="http://localhost:8686", api_key="YOUR_KEY")
 
-# Download data directly into a Pandas DataFrame
-# Optional: use 'timezone' parameter for automatic conversion (e.g., "America/New_York", "UTC")
+# Load into DataFrame (with optional timezone conversion)
 df = client.get_data("DUKASCOPY", "EURUSD", "H1", timezone="America/Sao_Paulo")
-print(df.head())
 
-# Or save it directly to a CSV file
+# Save as CSV
 client.get_data("DUKASCOPY", "EURUSD", "H1", save_path="eurusd_h1.csv", save_format="csv")
+
+# Trigger a server-side download
+client.download("DUKASCOPY", "EURUSD", start_date="2020-01-01", end_date="2026-01-01")
+
+# Update and rebuild H1
+client.update("DUKASCOPY", "EURUSD", timeframe="H1")
+```
+
+## Development
+
+```bash
+# Run unit tests (fast, no external deps)
+uv run pytest
+
+# Run integration tests (requires network / OpenBB)
+uv run pytest tests/integration/
+
+# Lint
+uv run ruff check .
+
+# Fix + format
+uv run ruff check --fix . && uv run ruff format .
+```
+
+> **Tests:** Unit tests live in `tests/unit/` and run in under 10 seconds with no external services.
+> Integration tests (`tests/integration/`) require OpenBB/network access and are excluded from the default run.
+
+## Data Layout
+
+```
+database/
+  {source}/
+    {ASSET}/
+      M1/data.parquet       ← source of truth
+      H1/data.parquet       ← derived via resample
+      .versions/M1/         ← automatic backups (up to 5)
+
+metadata/
+  catalog.db                ← SQLite (WAL), fast catalog reads
+  scheduler_jobs.json       ← persisted scheduler jobs
+  dukas_assets.csv          ← Dukascopy asset validation list
 ```

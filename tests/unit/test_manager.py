@@ -93,8 +93,26 @@ def test_update_data_success(manager, mock_fetcher, sample_m1_df):
 
 
 def test_update_data_not_found_returns_without_raising(manager):
-    # Should log and return, not raise
+    # M1 does not exist — should log and return, not raise
     manager.update_data("MOCK", "NONEXISTENT", "M1")
+
+
+def test_update_data_higher_tf_requires_m1(manager):
+    """If M1 doesn't exist, updating H1 should fail gracefully (not raise)."""
+    manager.update_data("MOCK", "NONEXISTENT", "H1")  # no M1 — should return early
+
+
+def test_update_data_higher_tf_updates_m1_and_resamples(manager, mock_fetcher, sample_m1_df):
+    """Updating H1 must append to M1 first, then rebuild H1 from full M1."""
+    manager.storage.save_data(sample_m1_df, "MOCK", "ASSET", "M1")
+
+    with patch.object(manager, "resample_database") as mock_resample:
+        manager.update_data("MOCK", "ASSET", "H1")
+
+    # Fetcher should have been called (to get new M1 bars)
+    mock_fetcher.fetch_data.assert_called()
+    # resample_database must be called to rebuild H1 from updated M1
+    mock_resample.assert_called_once_with("MOCK", "ASSET", "H1")
 
 
 def test_update_data_already_up_to_date(manager, mock_fetcher):

@@ -11,4 +11,4 @@ services:
       - ./database:/app/database
       - ./metadata:/app/metadata
     # Default command to start the API
-    command: [ "python", "network_server.py" ]
+    command: ["uv", "run", "uvicorn", "datamanager.api.router:app", "--host", "0.0.0.0", "--port", "8686"]

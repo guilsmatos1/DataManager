@@ -8,7 +8,7 @@ from datamanager.services.scheduler import SchedulerService
 @pytest.fixture
 def scheduler(tmp_path):
     manager = MagicMock()
-    service = SchedulerService(manager)
+    service = SchedulerService(manager, persist_path=tmp_path / "scheduler_jobs.json")
     yield service
     service.shutdown()
 
@@ -37,6 +37,8 @@ def test_add_job_interval(scheduler):
 
         assert job_meta["source"] == "MOCK"
         assert job_meta["trigger"] == "every 60min"
+        assert job_meta["interval_minutes"] == 60
+        assert job_meta["cron"] is None
         mock_add.assert_called_once()
 
 
@@ -49,6 +51,8 @@ def test_add_job_cron(scheduler):
         job_meta = scheduler.add_job("MOCK", "EURUSD", cron="0 * * * *")
 
         assert job_meta["trigger"] == "0 * * * *"
+        assert job_meta["cron"] == "0 * * * *"
+        assert job_meta["interval_minutes"] is None
         mock_add.assert_called_once()
 
 
