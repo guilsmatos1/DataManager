@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
-from tradingmonitor.metrics.calculator import (
+from trademachine.tradingmonitor.metrics.calculator import (
     calculate_concurrency,
     calculate_correlation_matrix,
     calculate_portfolio_metrics,
@@ -37,7 +37,9 @@ class TestCalculatorExtended:
         df2 = mock_deals_df.copy()
         df2["profit"] = [5.0, 10.0, -2.0]
 
-        with patch("tradingmonitor.metrics.calculator.get_strategy_deals") as mock_get_deals:
+        with patch(
+            "trademachine.tradingmonitor.metrics.calculator.get_strategy_deals"
+        ) as mock_get_deals:
             mock_get_deals.side_effect = [df1, df2]
             result = calculate_correlation_matrix(["s1", "s2"], period="daily")
             assert "matrix" in result
@@ -45,7 +47,9 @@ class TestCalculatorExtended:
             assert result["data_points"] == 3
 
     def test_calculate_correlation_matrix_not_enough_data(self):
-        with patch("tradingmonitor.metrics.calculator.get_strategy_deals") as mock_get_deals:
+        with patch(
+            "trademachine.tradingmonitor.metrics.calculator.get_strategy_deals"
+        ) as mock_get_deals:
             mock_get_deals.return_value = pd.DataFrame()
             result = calculate_correlation_matrix(["s1", "s2"])
             assert "error" in result
@@ -61,7 +65,9 @@ class TestCalculatorExtended:
         df2 = pd.DataFrame(index=idx2)
         df2["dummy"] = 1
 
-        with patch("tradingmonitor.metrics.calculator.get_strategy_deals") as mock_get_deals:
+        with patch(
+            "trademachine.tradingmonitor.metrics.calculator.get_strategy_deals"
+        ) as mock_get_deals:
             # We must return non-empty DataFrames for both strategies
             mock_get_deals.side_effect = [df1, df2]
 
@@ -72,9 +78,11 @@ class TestCalculatorExtended:
             assert result["same_hour"][0][1] == 50.0
 
     def test_calculate_portfolio_metrics_basic(self, mock_deals_df, mock_equity_df):
-        with patch("tradingmonitor.metrics.calculator.get_strategy_deals") as mock_get_deals:
+        with patch(
+            "trademachine.tradingmonitor.metrics.calculator.get_strategy_deals"
+        ) as mock_get_deals:
             with patch(
-                "tradingmonitor.metrics.calculator.get_strategy_equity_curve"
+                "trademachine.tradingmonitor.metrics.calculator.get_strategy_equity_curve"
             ) as mock_get_equity:
                 mock_get_deals.side_effect = [mock_deals_df, mock_deals_df]
                 mock_get_equity.side_effect = [mock_equity_df, mock_equity_df]
@@ -85,7 +93,9 @@ class TestCalculatorExtended:
                 assert "Sharpe Ratio" in result
 
     def test_calculate_portfolio_metrics_no_data(self):
-        with patch("tradingmonitor.metrics.calculator.get_strategy_deals") as mock_get_deals:
+        with patch(
+            "trademachine.tradingmonitor.metrics.calculator.get_strategy_deals"
+        ) as mock_get_deals:
             mock_get_deals.return_value = pd.DataFrame()
             result = calculate_portfolio_metrics(["s1", "s2"])
             assert "error" in result

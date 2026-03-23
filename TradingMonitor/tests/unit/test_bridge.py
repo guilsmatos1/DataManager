@@ -9,8 +9,8 @@ import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
-import tradingmonitor.dashboard.bridge as bridge_module
-from tradingmonitor.dashboard.bridge import init_bridge, push_event
+import trademachine.trading_monitor_dashboard.bridge as bridge_module
+from trademachine.trading_monitor_dashboard.bridge import init_bridge, push_event
 
 
 @pytest.fixture(autouse=True)
@@ -79,14 +79,19 @@ class TestPushEvent:
         captured = []
         fake_loop = MagicMock(spec=asyncio.AbstractEventLoop)
         # Capture the payload passed to put_nowait
-        fake_loop.call_soon_threadsafe.side_effect = lambda fn, event: captured.append(event)
+        fake_loop.call_soon_threadsafe.side_effect = lambda fn, event: captured.append(
+            event
+        )
         fake_queue = MagicMock(spec=asyncio.Queue)
         init_bridge(fake_queue, fake_loop)
         # Act
         push_event("ACCOUNT", {"login": 99, "balance": 5000.0})
         # Assert
         assert len(captured) == 1
-        assert captured[0] == {"topic": "ACCOUNT", "data": {"login": 99, "balance": 5000.0}}
+        assert captured[0] == {
+            "topic": "ACCOUNT",
+            "data": {"login": 99, "balance": 5000.0},
+        }
 
     def test_push_exception_in_call_soon_threadsafe_is_swallowed(self):
         # Bridge must never propagate errors to the ingestion thread

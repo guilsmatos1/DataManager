@@ -12,25 +12,30 @@ import os
 # Set required env vars before any app module is imported (Settings is module-level).
 os.environ["API_KEY"] = "test-api-key-pytest"
 os.environ["DATABASE_URL"] = (
-    "postgresql://postgres:password@localhost:5433/tradingmonitor_test"
+    "postgresql://postgres:password@localhost:5433/trademachine.tradingmonitor_test"
 )
 
 # Protection: never run tests against the main database
 _db_url = os.environ.get("DATABASE_URL", "")
-if "tradingmonitor_test" not in _db_url and ":memory:" not in _db_url:
+if "trademachine.tradingmonitor_test" not in _db_url and ":memory:" not in _db_url:
     raise RuntimeError(
         f"CRITICAL: Tests are attempting to run against a potentially production database: {_db_url}. "
-        "Please set DATABASE_URL to a test database (e.g. containing 'tradingmonitor_test') "
+        "Please set DATABASE_URL to a test database (e.g. containing 'trademachine.tradingmonitor_test') "
         "or use the default pytest configuration."
     )
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime  # noqa: E402
 
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from tradingmonitor.db.models import Account, Base, Deal, DealType, Strategy
+import pytest  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+from trademachine.tradingmonitor.db.models import (  # noqa: E402
+    Account,
+    Base,
+    Deal,
+    DealType,
+    Strategy,
+)
 
 
 # ── SQLite compat: JSONB → JSON ───────────────────────────────────────────────
@@ -98,7 +103,7 @@ _patch_sqlite_composite_pk()
 @pytest.fixture(autouse=True)
 def clear_ingestion_caches():
     """Clear tcp_server in-memory caches before/after each test to prevent cross-test pollution."""
-    import tradingmonitor.ingestion.tcp_server as _tcp
+    import trademachine.tradingmonitor.ingestion.tcp_server as _tcp
 
     _tcp.EXISTING_STRATEGIES.clear()
     _tcp.EXISTING_ACCOUNTS.clear()
@@ -250,7 +255,7 @@ def pg_engine():
 
     url = os.environ.get(
         "DATABASE_URL",
-        "postgresql://postgres:password@localhost:5432/tradingmonitor_test",
+        "postgresql://postgres:password@localhost:5432/trademachine.tradingmonitor_test",
     )
     engine = create_engine(url, pool_pre_ping=True)
     try:

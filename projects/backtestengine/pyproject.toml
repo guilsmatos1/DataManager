@@ -1,0 +1,18 @@
+[project]
+name = "backtestengine-project"
+version = "0.1.0"
+description = "BacktestEngine build project"
+dependencies = [
+    "nautilus_trader",
+    "pandas",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+]
+
+[tool.polylith.projects]
+"trademachine/backtestengine" = "components"
+"trademachine/backtest_engine_cli" = "bases"
+
+[tool.uv.sources]
+trademachine = { path = "../../components/trademachine" }
+trademachine_bases = { path = "../../bases/trademachine" }

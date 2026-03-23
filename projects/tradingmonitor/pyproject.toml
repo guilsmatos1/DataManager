@@ -1,0 +1,31 @@
+[project]
+name = "tradingmonitor-project"
+version = "0.1.0"
+description = "TradingMonitor build project"
+dependencies = [
+    "typer",
+    "pandas>=2.2.0",
+    "numpy>=1.26.4",
+    "quantstats",
+    "SQLAlchemy",
+    "psycopg2-binary",
+    "alembic",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]",
+    "jinja2",
+    "lxml>=6.0.2",
+    "beautifulsoup4>=4.14.3",
+    "python-multipart>=0.0.22",
+]
+
+[tool.polylith.projects]
+"trademachine/tradingmonitor" = "components"
+"trademachine/trading_monitor_dashboard" = "bases"
+"trademachine/trading_monitor_cli" = "bases"
+"trademachine/trading_monitor_ingestion" = "bases"
+
+[tool.uv.sources]
+trademachine = { path = "../../components/trademachine" }
+trademachine_bases = { path = "../../bases/trademachine" }

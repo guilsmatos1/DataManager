@@ -1,3 +1,1 @@
-from trademachine.portifoliomaster import core
-
-__all__ = ["core"]
+"""PortifolioMaster - MT5 Portfolio Optimization Tool."""

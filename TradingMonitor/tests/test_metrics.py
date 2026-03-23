@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 import pandas as pd
-from tradingmonitor.metrics.calculator import calculate_metrics_from_df
+from trademachine.tradingmonitor.metrics.calculator import calculate_metrics_from_df
 
 
 def test_calculate_metrics_basic():

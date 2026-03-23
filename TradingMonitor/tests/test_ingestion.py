@@ -1,8 +1,11 @@
 from unittest.mock import MagicMock
 
-from tradingmonitor.db.models import Account, Strategy
-from tradingmonitor.ingestion.schemas import AccountSchema, DealSchema
-from tradingmonitor.ingestion.tcp_server import process_account, process_deal
+from trademachine.tradingmonitor.db.models import Account, Strategy
+from trademachine.tradingmonitor.ingestion.schemas import AccountSchema, DealSchema
+from trademachine.tradingmonitor.ingestion.tcp_server import (
+    process_account,
+    process_deal,
+)
 
 
 def test_process_deal_logic():

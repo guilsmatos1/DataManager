@@ -14,11 +14,15 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
-from tradingmonitor.dashboard.app import create_app
-from tradingmonitor.db.database import get_db
-from tradingmonitor.db.models import Deal, DealType, Strategy
-from tradingmonitor.ingestion.schemas import DealSchema, EquitySchema
-from tradingmonitor.ingestion.tcp_server import EXISTING_STRATEGIES, process_deal, process_equity
+from trademachine.trading_monitor_dashboard.app import create_app
+from trademachine.tradingmonitor.db.database import get_db
+from trademachine.tradingmonitor.db.models import Deal, DealType, Strategy
+from trademachine.tradingmonitor.ingestion.schemas import DealSchema, EquitySchema
+from trademachine.tradingmonitor.ingestion.tcp_server import (
+    EXISTING_STRATEGIES,
+    process_deal,
+    process_equity,
+)
 
 pytestmark = pytest.mark.integration  # run with: pytest -m integration
 
@@ -40,7 +44,7 @@ def e2e_client(pg_engine):
             session.close()
 
     app.dependency_overrides[get_db] = _override_db
-    from tradingmonitor.config import settings
+    from trademachine.tradingmonitor.config import settings
 
     with TestClient(
         app, raise_server_exceptions=True, headers={"X-API-Key": settings.api_key}
@@ -126,7 +130,9 @@ class TestDealIngestionFlow:
         initial_count = pg_session.execute(
             __import__("sqlalchemy").text("SELECT COUNT(*) FROM equity_curve")
         ).scalar()
-        data = EquitySchema(time=1_700_000_000, magic=0, balance=50000.0, equity=50000.0)
+        data = EquitySchema(
+            time=1_700_000_000, magic=0, balance=50000.0, equity=50000.0
+        )
         # Act
         process_equity(pg_session, data)
         pg_session.commit()

@@ -12,11 +12,17 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
-from tradingmonitor.config import settings
-from tradingmonitor.dashboard.app import create_app
-from tradingmonitor.db.database import get_db
-from tradingmonitor.db.models import Account, Base, Deal, DealType, Portfolio, Strategy
+from trademachine.trading_monitor_dashboard.app import create_app
+from trademachine.tradingmonitor.config import settings
+from trademachine.tradingmonitor.db.database import get_db
+from trademachine.tradingmonitor.db.models import (
+    Account,
+    Base,
+    Deal,
+    DealType,
+    Portfolio,
+    Strategy,
+)
 
 # ── Shared SQLite engine (module-scoped for performance) ──────────────────────
 

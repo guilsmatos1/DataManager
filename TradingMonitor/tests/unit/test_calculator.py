@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import pytest
-from tradingmonitor.metrics.calculator import calculate_metrics_from_df
+from trademachine.tradingmonitor.metrics.calculator import calculate_metrics_from_df
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ def _make_deals(rows: list[dict]) -> pd.DataFrame:
     """Build a deals DataFrame with a UTC DatetimeIndex."""
     base_ts = datetime(2024, 1, 1, tzinfo=UTC)
     records = []
-    for i, row in enumerate(rows):
+    for _i, row in enumerate(rows):
         records.append(
             {
                 "type": row.get("type", "BUY"),
@@ -103,7 +103,9 @@ class TestCoreMetrics:
 
     def test_net_profit_includes_commission_and_swap(self):
         # Arrange — profit=100, commission=-3, swap=-1 → net=96
-        deals = _make_deals([{"type": "BUY", "profit": 100.0, "commission": -3.0, "swap": -1.0}])
+        deals = _make_deals(
+            [{"type": "BUY", "profit": 100.0, "commission": -3.0, "swap": -1.0}]
+        )
         # Act
         result = calculate_metrics_from_df(deals, pd.DataFrame())
         # Assert — net profit = profit + commission + swap

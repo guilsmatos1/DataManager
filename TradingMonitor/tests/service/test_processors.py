@@ -15,10 +15,14 @@ behaviour.
 from unittest.mock import MagicMock, patch
 
 import pytest
-import tradingmonitor.ingestion.tcp_server as server_module
-from tradingmonitor.db.models import Account, Strategy
-from tradingmonitor.ingestion.schemas import AccountSchema, DealSchema, EquitySchema
-from tradingmonitor.ingestion.tcp_server import (
+import trademachine.tradingmonitor.ingestion.tcp_server as server_module
+from trademachine.tradingmonitor.db.models import Account, Strategy
+from trademachine.tradingmonitor.ingestion.schemas import (
+    AccountSchema,
+    DealSchema,
+    EquitySchema,
+)
+from trademachine.tradingmonitor.ingestion.tcp_server import (
     EXISTING_ACCOUNTS,
     EXISTING_STRATEGIES,
     EXISTING_SYMBOLS,
@@ -113,7 +117,9 @@ class TestProcessDeal:
         # Arrange
         db = _mock_db()
         data = _deal_schema()
-        EXISTING_SYMBOLS.add(data.symbol)  # Skip symbol insertion to isolate deal execute
+        EXISTING_SYMBOLS.add(
+            data.symbol
+        )  # Skip symbol insertion to isolate deal execute
         # Act
         process_deal(db, data)
         # Assert — INSERT statement executed
@@ -155,7 +161,9 @@ class TestProcessAccount:
     def test_unknown_account_triggers_ensure_account_exists(self):
         # Arrange — no existing account
         db = _mock_db()
-        data = AccountSchema(login=456, broker="NewBroker", balance=5000.0, free_margin=4000.0)
+        data = AccountSchema(
+            login=456, broker="NewBroker", balance=5000.0, free_margin=4000.0
+        )
         # Act
         with patch.object(server_module, "ensure_account_exists") as mock_ensure:
             process_account(db, data)

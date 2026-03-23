@@ -4,10 +4,10 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func
-from tradingmonitor.config import settings
-from tradingmonitor.dashboard.app import create_app
-from tradingmonitor.db.database import get_db
-from tradingmonitor.db.models import Deal, DealType, Portfolio, Strategy
+from trademachine.trading_monitor_dashboard.app import create_app
+from trademachine.tradingmonitor.config import settings
+from trademachine.tradingmonitor.db.database import get_db
+from trademachine.tradingmonitor.db.models import Deal, DealType, Portfolio, Strategy
 
 
 @pytest.fixture()
@@ -15,7 +15,9 @@ def client(db_session):
     app = create_app(with_ingestion=False)
     app.dependency_overrides[get_db] = lambda: db_session
     # Don't use with statement to avoid lifespan issues in tests
-    return TestClient(app, raise_server_exceptions=True, headers={"X-API-Key": settings.api_key})
+    return TestClient(
+        app, raise_server_exceptions=True, headers={"X-API-Key": settings.api_key}
+    )
 
 
 class TestRoutesExtended:
@@ -23,7 +25,9 @@ class TestRoutesExtended:
         db_session.add(Strategy(id="s1", name="Test Strat"))
         db_session.flush()
 
-        with patch("tradingmonitor.metrics.calculator.calculate_metrics") as mock_calc:
+        with patch(
+            "trademachine.tradingmonitor.metrics.calculator.calculate_metrics"
+        ) as mock_calc:
             mock_calc.return_value = {"Total Trades": 10, "Net Profit": 500.0}
             response = client.get("/api/strategies/s1/metrics")
             assert response.status_code == 200
@@ -36,9 +40,13 @@ class TestRoutesExtended:
         # We don't need to mock _q because we can just let it run on the db_session
         # but we need to avoid the 'isodow' error.
         # So we patch 'extract' to return something SQLite likes.
-        with patch("tradingmonitor.dashboard.routes.extract") as mock_extract:
+        with patch(
+            "trademachine.trading_monitor_dashboard.routes.extract"
+        ) as mock_extract:
             mock_extract.side_effect = lambda field, col: (
-                func.strftime("%H", col) if field == "hour" else func.strftime("%w", col)
+                func.strftime("%H", col)
+                if field == "hour"
+                else func.strftime("%w", col)
             )
             response = client.get("/api/strategies/s1/trade-stats")
             assert response.status_code == 200
@@ -88,7 +96,9 @@ class TestRoutesExtended:
         db_session.add(s1)
         db_session.flush()
 
-        response = client.patch(f"/api/portfolios/{p.id}", json={"strategy_ids": ["s1"]})
+        response = client.patch(
+            f"/api/portfolios/{p.id}", json={"strategy_ids": ["s1"]}
+        )
         assert response.status_code == 200
         assert "s1" in response.json()["strategy_ids"]
 
@@ -99,7 +109,9 @@ class TestRoutesExtended:
         db_session.add(p)
         db_session.flush()
 
-        with patch("tradingmonitor.metrics.calculator.calculate_portfolio_metrics") as mock_calc:
+        with patch(
+            "trademachine.tradingmonitor.metrics.calculator.calculate_portfolio_metrics"
+        ) as mock_calc:
             mock_calc.return_value = {"Net Profit": 1000.0}
             response = client.get(f"/api/portfolios/{p.id}/metrics")
             assert response.status_code == 200
@@ -113,7 +125,9 @@ class TestRoutesExtended:
         db_session.add(p)
         db_session.flush()
 
-        with patch("tradingmonitor.metrics.calculator.calculate_correlation_matrix") as mock_calc:
+        with patch(
+            "trademachine.tradingmonitor.metrics.calculator.calculate_correlation_matrix"
+        ) as mock_calc:
             mock_calc.return_value = {"matrix": [[1, 0.5], [0.5, 1]]}
             response = client.get(f"/api/portfolios/{p.id}/correlation")
             assert response.status_code == 200

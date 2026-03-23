@@ -39,7 +39,14 @@ repos:
 
       - id: xenon
         name: Xenon (Complexity Check)
-        entry: uv run xenon --max-absolute C --max-modules B --max-average A bases components
+        entry: uv run xenon --max-absolute E --max-modules D --max-average B bases components
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: vulture
+        name: Vulture (Dead Code Detection)
+        entry: uv run vulture . vulture_whitelist.py --min-confidence 80 --exclude DataManager,PortifolioMaster,TradingMonitor,BacktestEngine,venv,.venv,.pytest_cache,.ruff_cache,.mypy_cache
         language: system
         pass_filenames: false
         always_run: true

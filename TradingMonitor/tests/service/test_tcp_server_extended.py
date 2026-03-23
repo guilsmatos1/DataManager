@@ -12,10 +12,14 @@ Covers cases not already handled by test_processors.py:
 from unittest.mock import MagicMock, patch
 
 import pytest
-import tradingmonitor.ingestion.tcp_server as server_module
-from tradingmonitor.db.models import Account, Strategy
-from tradingmonitor.ingestion.schemas import AccountSchema, DealSchema, EquitySchema
-from tradingmonitor.ingestion.tcp_server import (
+import trademachine.tradingmonitor.ingestion.tcp_server as server_module
+from trademachine.tradingmonitor.db.models import Account, Strategy
+from trademachine.tradingmonitor.ingestion.schemas import (
+    AccountSchema,
+    DealSchema,
+    EquitySchema,
+)
+from trademachine.tradingmonitor.ingestion.tcp_server import (
     EXISTING_ACCOUNTS,
     EXISTING_STRATEGIES,
     EXISTING_SYMBOLS,
@@ -196,7 +200,9 @@ class TestProcessAccountExtended:
     def test_existing_account_does_not_call_ensure_account_exists(self):
         """If account row already exists, ensure_account_exists must NOT be called."""
         db = _mock_db()
-        db.query.return_value.filter.return_value.first.return_value = MagicMock(spec=Account)
+        db.query.return_value.filter.return_value.first.return_value = MagicMock(
+            spec=Account
+        )
         with patch.object(server_module, "ensure_account_exists") as mock_ensure:
             process_account(db, _account_schema())
         mock_ensure.assert_not_called()
@@ -212,7 +218,9 @@ class TestProcessAccountExtended:
     def test_no_commit_inside_process_account(self):
         """process_account must NOT call db.commit(); the caller (handle_client) owns it."""
         db = _mock_db()
-        db.query.return_value.filter.return_value.first.return_value = MagicMock(spec=Account)
+        db.query.return_value.filter.return_value.first.return_value = MagicMock(
+            spec=Account
+        )
         process_account(db, _account_schema())
         db.commit.assert_not_called()
 

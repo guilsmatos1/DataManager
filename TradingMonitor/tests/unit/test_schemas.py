@@ -7,7 +7,7 @@ Each test exercises a specific validation rule or default value.
 
 import pytest
 from pydantic import ValidationError
-from tradingmonitor.ingestion.schemas import (
+from trademachine.tradingmonitor.ingestion.schemas import (
     AccountSchema,
     BacktestEndSchema,
     BacktestStartSchema,
@@ -89,7 +89,9 @@ class TestDealSchema:
         assert deal.time == 4_102_444_800
 
     def test_commission_and_swap_have_zero_defaults(self):
-        data = {k: v for k, v in self._valid().items() if k not in ("commission", "swap")}
+        data = {
+            k: v for k, v in self._valid().items() if k not in ("commission", "swap")
+        }
         deal = DealSchema(**data)
         assert deal.commission == 0.0
         assert deal.swap == 0.0
@@ -121,7 +123,9 @@ class TestDealSchema:
 
 class TestEquitySchema:
     def test_valid_equity_parses_correctly(self):
-        equity = EquitySchema(time=_VALID_TS, magic=100, balance=10000.0, equity=10050.0)
+        equity = EquitySchema(
+            time=_VALID_TS, magic=100, balance=10000.0, equity=10050.0
+        )
         assert equity.balance == 10000.0
         assert equity.equity == 10050.0
 
@@ -145,7 +149,9 @@ class TestEquitySchema:
 
 class TestAccountSchema:
     def test_valid_account_parses_correctly(self):
-        acc = AccountSchema(login=123456, broker="XPTO", balance=10000.0, free_margin=8000.0)
+        acc = AccountSchema(
+            login=123456, broker="XPTO", balance=10000.0, free_margin=8000.0
+        )
         assert acc.login == 123456
         assert acc.deposits == 0.0  # default
         assert acc.withdrawals == 0.0  # default
