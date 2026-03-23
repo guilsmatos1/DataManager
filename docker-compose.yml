@@ -33,5 +33,5 @@ services:
     volumes:
       - ./database:/app/database
       - ./metadata:/app/metadata
-    # Executamos o uvicorn via 'uv run' para que o uv encontre o ambiente correto automaticamente
-    command: ["uv", "run", "uvicorn", "datamanager.api.router:app", "--host", "0.0.0.0", "--port", "8686"]
+    # Executamos o uvicorn via caminho absoluto do 'uv' para máxima compatibilidade
+    command: ["/usr/local/bin/uv", "run", "uvicorn", "datamanager.api.router:app", "--host", "0.0.0.0", "--port", "8686"]
