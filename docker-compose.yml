@@ -28,7 +28,9 @@ services:
       - DATAMANAGER_API_KEY=${DATAMANAGER_API_KEY:-ISp*23I*a9A#JS}
       - DATAMANAGER_HOST=0.0.0.0
       - DATAMANAGER_PORT=8686
+      - PYTHONPATH=/app/src
     volumes:
       - ./database:/app/database
       - ./metadata:/app/metadata
-    command: ["/bin/uv", "run", "uvicorn", "datamanager.api.router:app", "--host", "0.0.0.0", "--port", "8686"]
+    # Executamos o uvicorn diretamente usando o python do ambiente virtual (.venv)
+    command: ["/app/.venv/bin/python", "-m", "uvicorn", "datamanager.api.router:app", "--host", "0.0.0.0", "--port", "8686"]
