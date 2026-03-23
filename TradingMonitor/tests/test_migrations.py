@@ -84,11 +84,8 @@ def test_migrations_run_successfully():
         with admin_engine.connect() as conn:
             # We need to terminate connections to the test DB before dropping
             conn.execute(
-                __import__("sqlalchemy").text(f"""
-                SELECT pg_terminate_backend(pg_stat_activity.pid)
-                FROM pg_stat_activity
-                WHERE pg_stat_activity.datname = '{test_db_name}'
-                  AND pid <> pg_backend_pid();
-            """)
+                __import__("sqlalchemy").text(
+                    f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{test_db_name}' AND pid <> pg_backend_pid();"  # noqa: S608
+                )
             )
-            conn.execute(__import__("sqlalchemy").text(f"DROP DATABASE {test_db_name}"))
+            conn.execute(__import__("sqlalchemy").text(f"DROP DATABASE {test_db_name}"))  # noqa: S608

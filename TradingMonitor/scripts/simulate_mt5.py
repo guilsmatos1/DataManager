@@ -8,7 +8,7 @@ from tradingmonitor.config import settings
 
 def run_mt5_simulator():
     address = (
-        settings.server_host if settings.server_host != "0.0.0.0" else "127.0.0.1",
+        settings.server_host if settings.server_host != "0.0.0.0" else "127.0.0.1",  # noqa: S104
         settings.server_port,
     )  # noqa: S104
     print(f"Simulador MT5 conectando em {address[0]}:{address[1]}...")

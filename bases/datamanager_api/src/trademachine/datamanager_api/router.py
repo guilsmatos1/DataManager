@@ -304,8 +304,7 @@ def stream_data(
         buf = io.StringIO()
         df.to_csv(buf)
         buf.seek(0)
-        for line in buf:
-            yield line
+        yield from buf
 
     filename = f"{source}_{asset}_{timeframe}.csv"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}

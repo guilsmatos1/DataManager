@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     )
 
     api_key: str = ""
-    host: str = "0.0.0.0"
+    host: str = "0.0.0.0"  # noqa: S104
     port: int = 8686
 
     @property

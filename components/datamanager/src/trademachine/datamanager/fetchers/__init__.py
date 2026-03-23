@@ -15,7 +15,7 @@ def get_all_fetchers():
     pkg_dir = str(Path(__file__).parent)
 
     # Iterate over all modules in the package
-    for loader, module_name, is_pkg in pkgutil.iter_modules([pkg_dir]):
+    for _loader, module_name, _is_pkg in pkgutil.iter_modules([pkg_dir]):
         if module_name in ["base"]:
             continue
 
@@ -25,7 +25,7 @@ def get_all_fetchers():
             module = importlib.import_module(f".{module_name}", package=__package__)
 
             # Find all classes in the module that inherit from BaseFetcher
-            for name, obj in inspect.getmembers(module):
+            for _name, obj in inspect.getmembers(module):
                 if (
                     inspect.isclass(obj)
                     and issubclass(obj, BaseFetcher)
