@@ -31,4 +31,4 @@ services:
     volumes:
       - ./database:/app/database
       - ./metadata:/app/metadata
-    command: ["uv", "run", "uvicorn", "datamanager.api.router:app", "--host", "0.0.0.0", "--port", "8686"]
+    command: ["/bin/uv", "run", "uvicorn", "datamanager.api.router:app", "--host", "0.0.0.0", "--port", "8686"]
