@@ -17,30 +17,37 @@ members = [
 dev = [
     "ruff",
     "pytest",
+    "import-linter>=2.11",
+    "deptry>=0.25.1",
+    "pre-commit>=4.5.1",
 ]
 
 [tool.ruff]
 target-version = "py312"
-line-length = 100
+line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "B", "UP", "S", "PLR"]
-ignore = [
-    "E501",    # line too long (handled by formatter)
-    "S101",    # Use of assert detected (standard in tests)
-    "S108",    # Probable insecure usage of temporary file or directory
-    "S603",    # subprocess call: check for execution of untrusted input
-    "PLR2004", # Magic value used in comparison
-    "PLR0912", # Too many branches
-    "PLR0913", # Too many arguments
-    "PLR0915", # Too many statements
-]
+select = ["E", "F", "I", "W", "B", "UP", "S"]
+ignore = ["E501", "S101", "S108", "S603"]
 
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
+[tool.polylith]
+namespace = "trademachine"
+
+[tool.polylith.structure]
+theme = "dark"
+
+[tool.polylith.resources]
+bases = "bases"
+components = "components"
+
+[tool.uv.sources]
+trademachine = { workspace = true }
+
+[tool.deptry]
+exclude = ["DataManager", "PortifolioMaster", "TradingMonitor", "BacktestEngine", "venv", ".venv", "tests", ".*_cache"]
 
 [tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
 testpaths = [
     "DataManager/tests",
     "PortifolioMaster/tests",
@@ -55,9 +62,9 @@ pythonpath = [
 
 [tool.mypy]
 python_version = "3.12"
+plugins = ["pydantic.mypy"]
 warn_return_any = true
 warn_unused_ignores = true
 check_untyped_defs = true
 no_implicit_optional = true
 ignore_missing_imports = true
-

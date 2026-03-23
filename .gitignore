@@ -34,5 +34,7 @@ htmlcov/
 **/reports-sqx/
 **/metadata/*.csv
 **/metadata/*.tmp.json
+**/metadata/scheduler_jobs.json
+*.parquet
 **/database/
 **/catalog/data/

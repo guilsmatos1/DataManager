@@ -16,9 +16,8 @@ def test_migrations_run_successfully():
     """
     # 1. Setup temporary database URL
     base_url = os.environ.get("DATABASE_URL")
-    if not base_url:
-        # Fallback only if env is not set (usually conftest.py sets it)
-        base_url = "postgresql://postgres:password@localhost:5433/tradingmonitor"
+    if not base_url or ":memory:" in base_url or "sqlite" in base_url:
+        pytest.skip("Skipping migration test for sqlite / no real DB")
 
     # Split the URL to get the base without the DB name
     if "/" in base_url.split("://")[1]:
@@ -34,7 +33,9 @@ def test_migrations_run_successfully():
     admin_engine = create_engine(f"{root_url}/postgres", isolation_level="AUTOCOMMIT")
     with admin_engine.connect() as conn:
         # Drop if exists (clean start)
-        conn.execute(__import__("sqlalchemy").text(f"DROP DATABASE IF EXISTS {test_db_name}"))
+        conn.execute(
+            __import__("sqlalchemy").text(f"DROP DATABASE IF EXISTS {test_db_name}")
+        )
         conn.execute(__import__("sqlalchemy").text(f"CREATE DATABASE {test_db_name}"))
 
     try:
@@ -42,13 +43,19 @@ def test_migrations_run_successfully():
         engine = create_engine(test_db_url)
         with engine.connect() as conn:
             conn.execute(
-                __import__("sqlalchemy").text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;")
+                __import__("sqlalchemy").text(
+                    "CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;"
+                )
             )
             conn.commit()
 
         # 4. Configure Alembic to use the test database
-        alembic_cfg = Config("alembic.ini")
+        alembic_ini_path = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
+        alembic_cfg = Config(alembic_ini_path)
         alembic_cfg.set_main_option("sqlalchemy.url", test_db_url)
+        # Also need to point script_location to correct path
+        script_loc = os.path.join(os.path.dirname(__file__), "..", "alembic")
+        alembic_cfg.set_main_option("script_location", script_loc)
 
         # 5. Run 'alembic upgrade head'
         # This will fail if any migration is broken
@@ -61,14 +68,16 @@ def test_migrations_run_successfully():
                 __import__("sqlalchemy").text("SELECT COUNT(*) FROM alembic_version")
             )
             count = result.scalar()
-            assert count == 1, "Alembic version table should have exactly one record after upgrade"
+            assert count == 1, (
+                "Alembic version table should have exactly one record after upgrade"
+            )
 
             # Also verify one of our core tables exists
-            check_table_sql = (
-                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'deals')"
-            )
+            check_table_sql = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'deals')"
             result = conn.execute(__import__("sqlalchemy").text(check_table_sql))
-            assert result.scalar() is True, "Table 'deals' should exist after migrations"
+            assert result.scalar() is True, (
+                "Table 'deals' should exist after migrations"
+            )
 
     finally:
         # 6. Cleanup: Drop the test database

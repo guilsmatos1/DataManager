@@ -1,0 +1,5 @@
+[tool.polylith]
+namespace = "trademachine"
+
+[tool.polylith.structure]
+theme = "dark"

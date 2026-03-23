@@ -1,0 +1,45 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=2000']
+      - id: check-ast
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.9
+    hooks:
+      - id: ruff
+        args: [ --fix ]
+      - id: ruff-format
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.0
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: polylith-check
+        name: Polylith Check
+        entry: uv tool run --from polylith-cli poly check
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: import-linter
+        name: Import Linter
+        entry: bash -c "export PYTHONPATH=$PYTHONPATH:components/datamanager/src:bases/datamanager_api/src:bases/datamanager_cli/src && uv run lint-imports"
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: deptry
+        name: Deptry
+        entry: uv run deptry .
+        language: system
+        pass_filenames: false
+        always_run: true

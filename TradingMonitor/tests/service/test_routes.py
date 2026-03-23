@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
 from tradingmonitor.config import settings
 from tradingmonitor.dashboard.app import create_app
 from tradingmonitor.db.database import get_db
@@ -26,7 +27,24 @@ def _engine():
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
     )
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            if (
+                column.primary_key
+                and getattr(column, "autoincrement", False) is True
+                and len(table.primary_key.columns) > 1
+            ):
+                column.autoincrement = False
+                column.info["was_autoincrement"] = True
+
     Base.metadata.create_all(bind=engine)
+
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            if column.info.get("was_autoincrement"):
+                column.autoincrement = True
+                del column.info["was_autoincrement"]
+
     yield engine
     Base.metadata.drop_all(bind=engine)
 
@@ -54,7 +72,9 @@ def client(session):
     app.dependency_overrides[get_db] = lambda: session
     # Without the 'with' context manager, the app lifespan (broadcaster)
     # is NOT triggered, avoiding potential deadlocks in tests.
-    return TestClient(app, raise_server_exceptions=True, headers={"X-API-Key": settings.api_key})
+    return TestClient(
+        app, raise_server_exceptions=True, headers={"X-API-Key": settings.api_key}
+    )
 
 
 # ── GET /api/accounts ─────────────────────────────────────────────────────────

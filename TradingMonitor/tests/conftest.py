@@ -11,7 +11,9 @@ import os
 
 # Set required env vars before any app module is imported (Settings is module-level).
 os.environ["API_KEY"] = "test-api-key-pytest"
-os.environ["DATABASE_URL"] = "postgresql://postgres:password@localhost:5433/tradingmonitor_test"
+os.environ["DATABASE_URL"] = (
+    "postgresql://postgres:password@localhost:5433/tradingmonitor_test"
+)
 
 # Protection: never run tests against the main database
 _db_url = os.environ.get("DATABASE_URL", "")
@@ -27,6 +29,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
 from tradingmonitor.db.models import Account, Base, Deal, DealType, Strategy
 
 
@@ -118,7 +121,24 @@ def sqlite_engine():
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
     )
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            if (
+                column.primary_key
+                and getattr(column, "autoincrement", False) is True
+                and len(table.primary_key.columns) > 1
+            ):
+                column.autoincrement = False
+                column.info["was_autoincrement"] = True
+
     Base.metadata.create_all(bind=engine)
+
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            if column.info.get("was_autoincrement"):
+                column.autoincrement = True
+                del column.info["was_autoincrement"]
+
     yield engine
     Base.metadata.drop_all(bind=engine)
 
@@ -158,7 +178,9 @@ def seed_strategy(db_session):
         live: bool = False,
         real_account: bool = False,
     ):
-        s = Strategy(id=id, name=name, symbol=symbol, live=live, real_account=real_account)
+        s = Strategy(
+            id=id, name=name, symbol=symbol, live=live, real_account=real_account
+        )
         db_session.add(s)
         db_session.flush()
         return s
