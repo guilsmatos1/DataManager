@@ -1,0 +1,8 @@
+# This file is no longer used.
+# Dependencies are managed via pyproject.toml and locked in uv.lock.
+#
+# Install all dependencies (including dev tools):
+#   uv sync --dev
+#
+# Install production dependencies only:
+#   uv sync --no-dev

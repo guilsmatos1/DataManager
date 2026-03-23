@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="api-key" content="{{ api_key }}">
+    <title>{% block title %}TradingMonitor{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script>
+        (function() {
+            const t = localStorage.getItem("tm-theme") || "dark";
+            document.documentElement.setAttribute("data-theme", t);
+        })();
+    </script>
+    <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+    <script src="https://unpkg.com/htmx-ext-ws@2.0.1/ws.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <a class="nav-brand" href="/">TradingMonitor</a>
+        <div class="nav-links">
+            <a href="/">Overview</a>
+            <a href="/real">Real</a>
+        </div>
+        <div class="nav-status">
+            <div class="nav-links">
+                <a href="/settings">Configurações</a>
+            </div>
+            <button id="theme-toggle" class="btn-theme" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+            <span id="ws-status" class="badge badge-inactive">Offline</span>
+        </div>
+    </nav>
+
+    <div hx-ext="ws" ws-connect="/ws" id="ws-container">
+        <div id="ws-events" style="display:none"></div>
+    </div>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="/static/dashboard.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

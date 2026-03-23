@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Real Accounts — TradingMonitor{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Real Accounts</h1>
+    <span id="real-status-badge" class="badge"></span>
+</div>
+
+<!-- Summary Cards -->
+<div class="summary-cards" id="real-summary" style="display:none">
+    <div class="summary-card">
+        <span class="summary-num" id="sum-strategies">—</span>
+        <span class="summary-label">Strategies</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="sum-net-profit">—</span>
+        <span class="summary-label">Total Net Profit</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="sum-floating">—</span>
+        <span class="summary-label">Open P&amp;L (Floating)</span>
+    </div>
+</div>
+
+<!-- Aggregated Equity Curve -->
+<div class="card" id="equity-card" style="display:none">
+    <div class="section-header">
+        <h2>Aggregated Equity Curve</h2>
+        <span class="badge badge-neutral" id="equity-badge"></span>
+    </div>
+    <div class="chart-box" style="height:260px">
+        <canvas id="equity-chart"></canvas>
+    </div>
+</div>
+
+<!-- Strategies Table -->
+<div class="card" id="strategies-card" style="display:none">
+    <div class="section-header">
+        <h2>Strategies</h2>
+        <span id="badge-real-strategies" class="badge badge-neutral">0</span>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Symbol</th>
+                    <th>Net Profit</th>
+                    <th>Max Drawdown</th>
+                    <th>Ret/DD</th>
+                    <th>Balance</th>
+                    <th>Equity</th>
+                    <th>Open P&amp;L</th>
+                </tr>
+            </thead>
+            <tbody id="real-strategies-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="real-empty" class="card" style="display:none">
+    <p class="empty-state">No real-account strategies found. Mark a strategy as "Real Account" to see it here.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadReal() {
+    let data;
+    try {
+        const res = await apiFetch("/api/real");
+        data = await res.json();
+    } catch(e) {
+        document.getElementById("real-status-badge").textContent = "Error";
+        document.getElementById("real-status-badge").className = "badge badge-inactive";
+        return;
+    }
+
+    if (!data.strategies || data.strategies.length === 0) {
+        document.getElementById("real-empty").style.display = "block";
+        return;
+    }
+
+    const totals = data.totals;
+    const npCls = totals.net_profit >= 0 ? "profit-positive" : "profit-negative";
+    const flCls = totals.floating_pnl >= 0 ? "profit-positive" : "profit-negative";
+
+    document.getElementById("sum-strategies").textContent = data.strategies.length;
+    document.getElementById("sum-net-profit").textContent = fmt(totals.net_profit);
+    document.getElementById("sum-net-profit").className = "summary-num " + npCls;
+    document.getElementById("sum-floating").textContent = fmt(totals.floating_pnl);
+    document.getElementById("sum-floating").className = "summary-num " + flCls;
+    document.getElementById("real-summary").style.display = "";
+    document.getElementById("real-status-badge").textContent = "Live";
+    document.getElementById("real-status-badge").className = "badge badge-live";
+
+    // Strategies table
+    const tbody = document.getElementById("real-strategies-body");
+    data.strategies.forEach(s => {
+        const np = s.net_profit;
+        const npC = np >= 0 ? "profit-positive" : "profit-negative";
+        const fl = s.floating_pnl;
+        const flC = fl > 0 ? "profit-positive" : fl < 0 ? "profit-negative" : "";
+        const rd = s.ret_dd;
+        const rdC = rd == null ? "" : rd >= 0 ? "profit-positive" : "profit-negative";
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td><a href="/strategy/${s.id}" style="color:var(--accent)">${s.id}</a></td>
+            <td>${s.name || "—"}</td>
+            <td><span class="badge badge-neutral">${s.symbol || "—"}</span></td>
+            <td class="${npC}" style="font-variant-numeric:tabular-nums;font-weight:600">${fmt(np)}</td>
+            <td style="font-variant-numeric:tabular-nums">${s.max_drawdown_pct != null ? s.max_drawdown_pct.toFixed(2) + "%" : "—"}</td>
+            <td class="${rdC}" style="font-variant-numeric:tabular-nums">${rd != null ? rd.toFixed(3) : "—"}</td>
+            <td style="font-variant-numeric:tabular-nums">${s.balance != null ? fmt(s.balance) : "—"}</td>
+            <td style="font-variant-numeric:tabular-nums">${s.equity != null ? fmt(s.equity) : "—"}</td>
+            <td class="${flC}" style="font-variant-numeric:tabular-nums;font-weight:600">${fl !== 0 ? fmt(fl) : "—"}</td>`;
+        tbody.appendChild(tr);
+    });
+    document.getElementById("badge-real-strategies").textContent = data.strategies.length;
+    document.getElementById("strategies-card").style.display = "";
+
+    // Aggregated equity chart
+    buildEquityChart(data.strategies);
+}
+
+function buildEquityChart(strategies) {
+    // Merge all equity points across strategies: sum equity at each timestamp
+    const tsMap = {};
+    for (const s of strategies) {
+        for (const pt of s.equity_curve) {
+            if (!tsMap[pt.ts]) tsMap[pt.ts] = 0;
+            tsMap[pt.ts] += pt.equity;
+        }
+    }
+    const sortedTs = Object.keys(tsMap).sort();
+    if (sortedTs.length < 2) return;
+
+    const labels = sortedTs.map(ts => ts.slice(0, 10));
+    const values = sortedTs.map(ts => tsMap[ts]);
+
+    const ctx = document.getElementById("equity-chart").getContext("2d");
+    new Chart(ctx, {
+        type: "line",
+        data: {
+            labels,
+            datasets: [{
+                label: "Aggregated Equity",
+                data: values,
+                borderColor: "#10b981",
+                backgroundColor: "rgba(16,185,129,0.08)",
+                borderWidth: 1.5,
+                pointRadius: 0,
+                tension: 0.3,
+                fill: true,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => fmt(ctx.parsed.y),
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { maxTicksLimit: 10, color: "var(--text-muted)", font: { size: 11 } },
+                    grid: { color: "rgba(255,255,255,0.04)" }
+                },
+                y: {
+                    ticks: { color: "var(--text-muted)", font: { size: 11 }, callback: v => fmt(v) },
+                    grid: { color: "rgba(255,255,255,0.04)" }
+                }
+            }
+        }
+    });
+
+    document.getElementById("equity-badge").textContent = `${sortedTs.length} points`;
+    document.getElementById("equity-card").style.display = "";
+}
+
+loadReal();
+</script>
+{% endblock %}

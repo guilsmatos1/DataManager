@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradingmonitor"
+version = "0.1.0"
+description = "MT5 Trading Metrics CLI Framework"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Guilherme Matos" }
+]
+dependencies = [
+    "typer",
+    "pandas>=2.2.0",
+    "numpy>=1.26.4",
+    "quantstats",
+    "SQLAlchemy",
+    "psycopg2-binary",
+    "alembic",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]",
+    "jinja2",
+    "lxml>=6.0.2",
+    "beautifulsoup4>=4.14.3",
+    "python-multipart>=0.0.22",
+]
+
+[project.scripts]
+tradingmonitor = "tradingmonitor.cli.main:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.0.0",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "httpx>=0.27.0",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[[tool.mypy.overrides]]
+module = [
+    "pandas.*",
+    "quantstats.*",
+    "sqlalchemy.*",
+    "alembic.*",
+    "psycopg2.*",
+    "typer.*",
+    "uvicorn.*",
+    "jinja2.*",
+]
+ignore_missing_imports = true

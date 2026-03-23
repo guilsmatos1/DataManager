@@ -1,0 +1,16 @@
+{
+  "_comment": "Copy this file to config.json and adjust values as needed.",
+  "min_assets": 5,
+  "max_assets": 5,
+  "top_n": 10,
+  "max_corr": 0.3,
+  "corr_period": "D",
+  "rank_by": "RetDD",
+  "num_workers": 0,
+  "print_results": false,
+  "generate_report": false,
+  "corr_filter_batch_size": 10000,
+  "matrix_algebra_batch_size": 1000,
+  "log_path": "log.log",
+  "cache_path": "cache.parquet"
+}

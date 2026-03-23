@@ -1,0 +1,6 @@
+[project]
+name = "backtestengine"
+version = "0.1.0"
+description = "BacktestEngine"
+requires-python = ">=3.11"
+dependencies = []

@@ -1,0 +1,16 @@
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0  # Use a versão mais atual
+    hooks:
+      - id: trailing-whitespace      # Remove espaços em branco extras
+      - id: end-of-file-fixer        # Garante que o arquivo termine com uma linha vazia
+      - id: check-yaml               # Valida a sintaxe de arquivos YAML
+      - id: check-added-large-files  # Impede o commit de arquivos gigantes (>500kb)
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.0
+    hooks:
+      - id: ruff        # Roda o Linter (substitui Flake8, isort, etc)
+        args: [ --fix ] # Tenta consertar erros automaticamente
+      - id: ruff-format # Roda o Formatador (substitui o Black)

@@ -1,0 +1,15 @@
+# Core processing and performance
+polars
+numpy
+pandas
+
+# MT5 HTML Parsing
+beautifulsoup4
+lxml
+
+# Visualization and CLI feedback
+plotly
+tqdm
+
+# Caching and persistence
+pyarrow

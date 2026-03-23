@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+
+{% block title %}Configurações - TradingMonitor{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Configurações</h1>
+</div>
+
+<div style="display:flex; flex-direction:column; gap:1.5rem; max-width:700px;">
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Integração Telegram</h2>
+    </div>
+    <div class="card-body">
+        <form id="telegram-form" onsubmit="saveSettings(event)">
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label for="bot_token" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Bot Token</label>
+                <input type="password" id="bot_token" name="bot_token" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+            </div>
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label for="chat_id" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Chat ID</label>
+                <input type="text" id="chat_id" name="chat_id" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: -100123456789">
+            </div>
+            <div id="settings-status" style="margin-bottom: 1rem; font-size: 0.85rem; display: none;"></div>
+            <button type="submit" class="btn btn-primary" id="save-btn" style="background: var(--accent); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500;">Salvar Configurações</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Mapeamento CSV (Arquivo → Magic Number)</h2>
+    </div>
+    <div class="card-body">
+        <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;">
+            Opcional. Carregue um CSV com colunas <code>arquivo</code> e <code>MagicNumber</code> para vincular
+            relatórios HTML que não possuem Magic Number embutido, ou para sobrescrever o valor encontrado no HTML.
+        </p>
+        <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+            <label class="btn btn-ghost btn-sm" style="cursor:pointer;">
+                Selecionar CSV
+                <input type="file" id="csv-mapping-input" accept=".csv,.txt" style="display:none" onchange="csvMappingLoad(this)">
+            </label>
+            <span id="csv-mapping-status" style="font-size:0.85rem; color:var(--text-muted);"></span>
+            <button class="btn btn-sm" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25);"
+                    onclick="csvMappingClear()" id="csv-mapping-clear" style="display:none">Limpar</button>
+        </div>
+        <div id="csv-mapping-preview" style="margin-top:0.75rem; display:none;">
+            <table class="data-table" style="width:100%; max-width:500px;">
+                <thead><tr><th>Arquivo</th><th>Magic Number</th></tr></thead>
+                <tbody id="csv-mapping-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Importar Backtests MT5</h2>
+    </div>
+    <div class="card-body">
+        <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;">
+            Selecione um ou mais relatórios HTML exportados pelo MetaTrader 5 (Relatório → Exportar como HTML).
+            A estratégia correspondente ao Magic Number deve estar cadastrada.
+        </p>
+
+        <div id="bt-drop-zone"
+             style="border: 2px dashed var(--border); border-radius: var(--radius); padding: 2rem 1rem;
+                    text-align:center; cursor:pointer; color:var(--text-muted); margin-bottom:1rem;
+                    transition: border-color 0.2s, background 0.2s;"
+             onclick="document.getElementById('bt-file-input').click()"
+             ondragover="btDragOver(event)" ondragleave="btDragLeave(event)" ondrop="btDrop(event)">
+            <div style="font-size:2rem; margin-bottom:0.5rem;">📂</div>
+            <div>Arraste arquivos HTML aqui ou <strong>clique para selecionar</strong></div>
+            <div style="font-size:0.8rem; margin-top:0.4rem;">Múltiplos arquivos suportados</div>
+        </div>
+        <input type="file" id="bt-file-input" accept=".html,.htm" multiple style="display:none"
+               onchange="btFilesSelected(this.files)">
+
+        <div id="bt-file-list" style="margin-bottom:1rem;"></div>
+
+        <div style="display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem;">
+            <button class="btn btn-primary btn-sm" id="bt-upload-btn" onclick="btUpload()" disabled>
+                Importar
+            </button>
+            <span id="bt-upload-status" style="font-size:0.85rem; color:var(--text-muted);"></span>
+        </div>
+
+        <div id="bt-progress-wrap" style="display:none; margin-bottom:1rem;">
+            <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted); margin-bottom:0.35rem;">
+                <span id="bt-progress-label">Processando…</span>
+                <span id="bt-progress-pct">0%</span>
+            </div>
+            <div style="background:var(--border); border-radius:4px; height:6px; overflow:hidden;">
+                <div id="bt-progress-bar"
+                     style="height:100%; width:0%; background:var(--accent); border-radius:4px; transition:width 0.25s ease;"></div>
+            </div>
+        </div>
+
+        <div id="bt-results" style="margin-top:1.25rem; display:none;">
+            <h3 style="font-size:0.9rem; font-weight:600; margin-bottom:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em;">Resultado</h3>
+            <table class="data-table" style="width:100%">
+                <thead><tr>
+                    <th>Arquivo</th>
+                    <th>Status</th>
+                    <th>Backtest ID</th>
+                    <th>Transações</th>
+                    <th>Detalhe</th>
+                </tr></thead>
+                <tbody id="bt-results-body"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const API_KEY = document.querySelector('meta[name="api-key"]').content;
+
+    // ── Telegram Settings ────────────────────────────────────────────────────
+
+    async function loadSettings() {
+        try {
+            const response = await fetch('/api/settings/telegram', {
+                headers: { 'X-API-Key': API_KEY }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                document.getElementById('bot_token').value = data.bot_token || '';
+                document.getElementById('chat_id').value = data.chat_id || '';
+            }
+        } catch (error) {
+            console.error('Error loading settings:', error);
+        }
+    }
+
+    async function saveSettings(event) {
+        event.preventDefault();
+        const saveBtn = document.getElementById('save-btn');
+        const statusDiv = document.getElementById('settings-status');
+
+        saveBtn.disabled = true;
+        saveBtn.innerText = 'Salvando...';
+        statusDiv.style.display = 'none';
+
+        const payload = {
+            bot_token: document.getElementById('bot_token').value,
+            chat_id: document.getElementById('chat_id').value
+        };
+
+        try {
+            const response = await fetch('/api/settings/telegram', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': API_KEY
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                statusDiv.innerText = 'Configurações salvas com sucesso!';
+                statusDiv.style.color = 'var(--green)';
+                statusDiv.style.display = 'block';
+            } else {
+                throw new Error('Falha ao salvar');
+            }
+        } catch (error) {
+            statusDiv.innerText = 'Erro ao salvar configurações.';
+            statusDiv.style.color = 'var(--red)';
+            statusDiv.style.display = 'block';
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.innerText = 'Salvar Configurações';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadSettings);
+
+    // ── CSV Mapping ──────────────────────────────────────────────────────────
+
+    let _magicMapping = {}; // { filename: magicNumber }
+
+    function csvMappingLoad(input) {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const lines = e.target.result.split(/\r?\n/).filter(l => l.trim());
+            if (!lines.length) return;
+            // detect separator from first line
+            const firstLine = lines[0];
+            const sep = firstLine.includes(';') ? ';' : ',';
+            // detect if first line is a header (contains non-numeric text in col 1)
+            const firstCols = firstLine.split(sep).map(c => c.trim().toLowerCase());
+            const hasHeader = firstCols.includes('arquivo') || firstCols.includes('magicnumber');
+            // determine column indices
+            let iArq = 0, iMag = 1; // default: col 0 = arquivo, col 1 = magic
+            let startLine = 0;
+            if (hasHeader) {
+                iArq = firstCols.indexOf('arquivo') !== -1 ? firstCols.indexOf('arquivo') : 0;
+                iMag = firstCols.indexOf('magicnumber') !== -1 ? firstCols.indexOf('magicnumber') : 1;
+                startLine = 1;
+            }
+            _magicMapping = {};
+            const tbody = document.getElementById('csv-mapping-tbody');
+            tbody.innerHTML = '';
+            for (let i = startLine; i < lines.length; i++) {
+                const parts = lines[i].split(sep);
+                const arq = parts[iArq]?.trim();
+                const mag = parts[iMag]?.trim();
+                if (arq && mag) {
+                    // store with .html extension always, so lookup works regardless of input format
+                    const key = arq.toLowerCase().endsWith('.html') ? arq : arq + '.html';
+                    _magicMapping[key] = mag;
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td style="font-size:0.82rem">${key}</td><td style="font-size:0.82rem">${mag}</td>`;
+                    tbody.appendChild(tr);
+                }
+            }
+            const count = Object.keys(_magicMapping).length;
+            document.getElementById('csv-mapping-status').textContent = `✅ ${count} mapeamento(s) carregado(s)`;
+            document.getElementById('csv-mapping-preview').style.display = count ? 'block' : 'none';
+            document.getElementById('csv-mapping-clear').style.display = 'inline-flex';
+        };
+        reader.readAsText(file);
+    }
+
+    function csvMappingClear() {
+        _magicMapping = {};
+        document.getElementById('csv-mapping-status').textContent = '';
+        document.getElementById('csv-mapping-preview').style.display = 'none';
+        document.getElementById('csv-mapping-clear').style.display = 'none';
+        document.getElementById('csv-mapping-input').value = '';
+        document.getElementById('csv-mapping-tbody').innerHTML = '';
+    }
+
+    // ── Backtest Upload ──────────────────────────────────────────────────────
+
+    let _btFiles = [];
+
+    function btDragOver(e) {
+        e.preventDefault();
+        const z = document.getElementById('bt-drop-zone');
+        z.style.borderColor = 'var(--accent)';
+        z.style.background = 'rgba(59,130,246,0.05)';
+    }
+    function btDragLeave(e) {
+        const z = document.getElementById('bt-drop-zone');
+        z.style.borderColor = 'var(--border)';
+        z.style.background = '';
+    }
+    function btDrop(e) {
+        e.preventDefault();
+        btDragLeave(e);
+        btFilesSelected(e.dataTransfer.files);
+    }
+    function btFilesSelected(fileList) {
+        const existing = new Set(_btFiles.map(f => f.name));
+        for (const f of fileList) {
+            if (!existing.has(f.name)) _btFiles.push(f);
+        }
+        btRenderFileList();
+    }
+    function btRemoveFile(name) {
+        _btFiles = _btFiles.filter(f => f.name !== name);
+        btRenderFileList();
+    }
+    function btRenderFileList() {
+        const el = document.getElementById('bt-file-list');
+        const btn = document.getElementById('bt-upload-btn');
+        if (!_btFiles.length) { el.innerHTML = ''; btn.disabled = true; return; }
+        el.innerHTML = `<div style="display:flex; flex-direction:column; gap:0.3rem;">` +
+            _btFiles.map(f =>
+                `<div style="display:flex; align-items:center; gap:0.5rem; font-size:0.85rem; color:var(--text-muted);">
+                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${f.name}</span>
+                    <span style="font-size:0.75rem;">(${(f.size/1024).toFixed(0)} KB)</span>
+                    <button onclick="btRemoveFile('${f.name}')" style="background:none; border:none; color:var(--red); cursor:pointer; font-size:0.9rem; padding:0 0.25rem;">✕</button>
+                </div>`
+            ).join('') + '</div>';
+        btn.disabled = false;
+    }
+
+    const STATUS_COLORS = { ok: 'var(--green)', skipped: 'var(--text-muted)', error: 'var(--red)' };
+    const STATUS_LABELS = { ok: 'Importado', skipped: 'Duplicado', error: 'Erro' };
+
+    function btSetProgress(current, total, filename) {
+        const pct = total ? Math.round((current / total) * 100) : 0;
+        document.getElementById('bt-progress-bar').style.width = pct + '%';
+        document.getElementById('bt-progress-pct').textContent = pct + '%';
+        document.getElementById('bt-progress-label').textContent =
+            filename ? `Arquivo ${current} de ${total}: ${filename}` : `Concluído — ${total} arquivo(s)`;
+    }
+
+    function btAppendResult(r) {
+        const tbody = document.getElementById('bt-results-body');
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${r.filename}">${r.filename}</td>
+            <td><span style="color:${STATUS_COLORS[r.status] || 'var(--text)'}; font-weight:600;">${STATUS_LABELS[r.status] || r.status}</span></td>
+            <td>${r.backtest_id != null ? `<a href="/strategy/${r.backtest_id}" style="color:var(--accent);">#${r.backtest_id}</a>` : '—'}</td>
+            <td>${r.deals_imported || '—'}</td>
+            <td style="color:var(--text-muted); font-size:0.82rem;">${r.error || ''}</td>`;
+        tbody.appendChild(row);
+        document.getElementById('bt-results').style.display = 'block';
+    }
+
+    async function btUpload() {
+        if (!_btFiles.length) return;
+        const btn = document.getElementById('bt-upload-btn');
+        const status = document.getElementById('bt-upload-status');
+        const progressWrap = document.getElementById('bt-progress-wrap');
+        const total = _btFiles.length;
+
+        btn.disabled = true;
+        status.textContent = '';
+        document.getElementById('bt-results').style.display = 'none';
+        document.getElementById('bt-results-body').innerHTML = '';
+        progressWrap.style.display = 'block';
+        btSetProgress(0, total, _btFiles[0]?.name);
+
+        let okCount = 0, errCount = 0;
+
+        for (let i = 0; i < _btFiles.length; i++) {
+            const file = _btFiles[i];
+            btSetProgress(i + 1, total, file.name);
+
+            const form = new FormData();
+            form.append('files', file);
+            const lookupName = file.name.toLowerCase().endsWith('.html') ? file.name : file.name + '.html';
+            const override = _magicMapping[lookupName];
+            if (override) form.append('magic_number_override', override);
+
+            let results;
+            try {
+                const res = await fetch('/api/backtests/upload-html', {
+                    method: 'POST',
+                    headers: { 'X-API-Key': API_KEY },
+                    body: form,
+                });
+                results = await res.json();
+            } catch (e) {
+                results = [{ filename: file.name, status: 'error', backtest_id: null, deals_imported: 0, error: e.message }];
+            }
+
+            for (const r of results) {
+                btAppendResult(r);
+                if (r.status === 'ok') okCount++;
+                else if (r.status === 'error') errCount++;
+            }
+        }
+
+        btSetProgress(total, total, null);
+        status.textContent = `${okCount} importado(s), ${errCount} erro(s).`;
+        btn.disabled = false;
+
+        _btFiles = [];
+        btRenderFileList();
+        document.getElementById('bt-file-input').value = '';
+    }
+</script>
+{% endblock %}
