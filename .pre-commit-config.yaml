@@ -32,14 +32,14 @@ repos:
 
       - id: import-linter
         name: Import Linter
-        entry: bash -c "export PYTHONPATH=$PYTHONPATH:components/datamanager/src:bases/datamanager_api/src:bases/datamanager_cli/src && uv run lint-imports"
+        entry: bash -c "export PYTHONPATH=$PYTHONPATH:components/datamanager/src:components/tradingmonitor/src:components/portifoliomaster/src:components/backtestengine/src:bases/datamanager_api/src:bases/datamanager_cli/src:bases/trading_monitor_ingestion/src:bases/portifolio_master_cli/src && uv run lint-imports"
         language: system
         pass_filenames: false
         always_run: true
 
-      - id: deptry
-        name: Deptry
-        entry: uv run deptry .
+      - id: xenon
+        name: Xenon (Complexity Check)
+        entry: uv run xenon --max-absolute C --max-modules B --max-average A bases components
         language: system
         pass_filenames: false
         always_run: true

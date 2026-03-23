@@ -244,9 +244,6 @@ src/portifoliomaster/
 # Testes
 uv run pytest tests/ -v
 
-# Lint e formatação
-uv run ruff check --fix . && uv run ruff format .
-
 # Type checking (mypy intermediário — sem strict)
 uv run mypy src/portifoliomaster/
 ```

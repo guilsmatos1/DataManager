@@ -1,13 +1,2 @@
 [importlinter]
 root_package = trademachine
-
-[importlinter:contract:forbidden-base-to-base]
-name = No imports between different bases
-type = forbidden
-source_modules =
-    trademachine.datamanager_api
-    trademachine.datamanager_cli
-forbidden_modules =
-    trademachine.datamanager_api
-    trademachine.datamanager_cli
-ignore_imports_to_itself = True

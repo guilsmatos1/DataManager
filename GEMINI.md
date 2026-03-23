@@ -41,28 +41,82 @@ Este workspace utiliza [uv](https://docs.astral.sh/uv/) e [polylith-cli](https:/
 uv sync --dev
 ```
 
-### Verificação Arquitetural (Polylith & Imports)
-Sempre rode estas verificações antes de commitar para garantir que não há violações de arquitetura (imports cruzados inválidos ou dependências faltando):
+### Verificação Arquitetural e de Qualidade
+Sempre rode estas verificações antes de commitar para garantir que não há violações de arquitetura ou degradação da qualidade:
 
 ```bash
 uv tool run --from polylith-cli poly info   # Visão geral do workspace
 uv tool run --from polylith-cli poly check  # Valida integridade e imports (Polylith)
 uv run lint-imports                         # Valida contratos de camadas e proibição de bases
-uv run deptry .                             # Valida dependências não utilizadas, faltantes ou transitivas
+uv run deptry .                             # Valida dependências não utilizadas/faltantes
+uv run radon cc . -a                        # Relatório de Complexidade Ciclomática (Radon)
+uv run radon mi .                           # Relatório de Índice de Manutenibilidade (Radon)
+uv run xenon --max-absolute B .             # Bloqueio por alta complexidade (Xenon)
 uv tool run --from polylith-cli poly libs   # Valida consistência de bibliotecas
 ```
 
 ### Testes e Qualidade
+Sempre execute as validações antes de qualquer alteração significativa.
+
+**1. Linting e Formatação (Ruff):**
 ```bash
-# Executar todos os testes
-uv run pytest
+uv run ruff check .   # Verifica erros e estilo
+uv run ruff format .  # Formata o código automaticamente
+```
 
-# Linting e Formatação
-uv run ruff check .
-uv run ruff format .
+**2. Checagem de Tipos (Mypy):**
+```bash
+uv run mypy .         # Valida a integridade dos tipos (Pydantic plugin ativo)
+```
 
-# Type Checking
-uv run mypy .
+**3. Testes de Mutação (Mutmut):**
+> Valida a eficácia dos seus testes. Se o teste não "matar" a mutação, o teste é fraco.
+```bash
+uv run mutmut run      # Executa as mutações
+uv run mutmut results  # Mostra o sumário dos sobreviventes
+```
+
+**4. Testes Automatizados (Pytest):**
+```bash
+uv run pytest          # Executa a suíte de testes
+```
+
+---
+
+## Limpeza e Manutenção
+Para manter o código limpo e livre de artefatos desnecessários:
+
+**1. Correções Automáticas (Ruff):**
+> Aplica correções automáticas (imports não usados, sintaxe obsoleta).
+```bash
+uv run ruff check --fix .
+```
+
+**2. Análise de Código Morto (Vulture):**
+> Encontra funções, classes e variáveis que nunca são utilizadas.
+```bash
+uv run vulture . --min-confidence 80
+```
+
+**3. Limpeza de Dependências (Deptry):**
+> Identifica dependências instaladas mas não utilizadas no código.
+```bash
+uv run deptry .
+```
+
+**4. Sincronização Polylith:**
+> Sincroniza o `catalog.json` e a estrutura do Polylith.
+```bash
+uv tool run --from polylith-cli poly check
+```
+
+**5. Limpeza de Cache e Artefatos:**
+> Remove caches de ferramentas e arquivos compilados.
+```bash
+find . -type d -name "__pycache__" -exec rm -rf {} +
+find . -type d -name ".pytest_cache" -exec rm -rf {} +
+find . -type d -name ".ruff_cache" -exec rm -rf {} +
+find . -type d -name ".mypy_cache" -exec rm -rf {} +
 ```
 
 ---

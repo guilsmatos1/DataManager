@@ -20,6 +20,10 @@ dev = [
     "import-linter>=2.11",
     "deptry>=0.25.1",
     "pre-commit>=4.5.1",
+    "radon>=6.0.1",
+    "xenon>=0.9.3",
+    "mutmut>=3.5.0",
+    "vulture>=2.15",
 ]
 
 [tool.ruff]
@@ -45,6 +49,12 @@ trademachine = { workspace = true }
 
 [tool.deptry]
 exclude = ["DataManager", "PortifolioMaster", "TradingMonitor", "BacktestEngine", "venv", ".venv", "tests", ".*_cache"]
+
+[tool.mutmut]
+paths_to_mutate = "components/"
+runner = "python -m pytest"
+tests_dir = "tests/"
+dict_synonyms = ["Struct"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib"
