@@ -59,12 +59,16 @@ class CcxtFetcher(BaseFetcher):
     # BaseFetcher interface
     # ------------------------------------------------------------------
 
-    def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+    def fetch_data(
+        self, asset: str, start_date: datetime, end_date: datetime
+    ) -> pd.DataFrame:
         exchange_id, symbol = self._parse_asset(asset)
         exchange = self._get_exchange(exchange_id)
 
         if not exchange.has.get("fetchOHLCV"):
-            raise ValueError(f"Exchange '{exchange_id}' does not support OHLCV fetching")
+            raise ValueError(
+                f"Exchange '{exchange_id}' does not support OHLCV fetching"
+            )
 
         # Convert to millisecond timestamps
         since_ms = int(start_date.replace(tzinfo=UTC).timestamp() * 1000)
@@ -75,7 +79,11 @@ class CcxtFetcher(BaseFetcher):
 
         # Estimate total candles for progress bar (approximate)
         total_minutes = max(1, int((end_ms - since_ms) / 60_000))
-        pbar = tqdm(total=total_minutes, desc=f"[ccxt/{exchange_id}] {symbol} M1", unit=" candles")
+        pbar = tqdm(
+            total=total_minutes,
+            desc=f"[ccxt/{exchange_id}] {symbol} M1",
+            unit=" candles",
+        )
 
         try:
             while current_ms < end_ms:
@@ -102,10 +110,16 @@ class CcxtFetcher(BaseFetcher):
             pbar.close()
 
         if not all_rows:
-            raise ValueError(f"No data returned for {symbol} on {exchange_id} between {start_date} and {end_date}")
+            raise ValueError(
+                f"No data returned for {symbol} on {exchange_id} between {start_date} and {end_date}"
+            )
 
-        df = pd.DataFrame(all_rows, columns=["datetime", "Open", "High", "Low", "Close", "Volume"])
-        df["datetime"] = pd.to_datetime(df["datetime"], unit="ms", utc=True).dt.tz_convert(None)
+        df = pd.DataFrame(
+            all_rows, columns=["datetime", "Open", "High", "Low", "Close", "Volume"]
+        )
+        df["datetime"] = pd.to_datetime(
+            df["datetime"], unit="ms", utc=True
+        ).dt.tz_convert(None)
         df.set_index("datetime", inplace=True)
         df.sort_index(inplace=True)
         df = df[~df.index.duplicated(keep="last")]
@@ -117,7 +131,12 @@ class CcxtFetcher(BaseFetcher):
         exchange = self._get_exchange(exchange_id)
         markets = exchange.load_markets()
         rows = [
-            {"ticker": sym, "base": m.get("base", ""), "quote": m.get("quote", ""), "exchange": exchange_id}
+            {
+                "ticker": sym,
+                "base": m.get("base", ""),
+                "quote": m.get("quote", ""),
+                "exchange": exchange_id,
+            }
             for sym, m in markets.items()
         ]
         df = pd.DataFrame(rows)

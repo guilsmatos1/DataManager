@@ -23,7 +23,9 @@ class DukascopyFetcher(BaseFetcher):
     def source_name(self) -> str:
         return "Dukascopy"
 
-    def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+    def fetch_data(
+        self, asset: str, start_date: datetime, end_date: datetime
+    ) -> pd.DataFrame:
         asset_upper = asset.upper()
 
         from pathlib import Path
@@ -37,7 +39,8 @@ class DukascopyFetcher(BaseFetcher):
 
             # Check if it exists in the ticker or exact alias
             match = df_assets[
-                (df_assets["ticker"].str.upper() == asset_upper) | (df_assets["alias"].str.upper() == asset_upper)
+                (df_assets["ticker"].str.upper() == asset_upper)
+                | (df_assets["alias"].str.upper() == asset_upper)
             ]
 
             if not match.empty:
@@ -58,9 +61,13 @@ class DukascopyFetcher(BaseFetcher):
 
         # We will use 7-day chunks to balance request speed and progress bar feedback
         chunk_size = 7
-        total_chunks = (total_days // chunk_size) + (1 if total_days % chunk_size != 0 else 0)
+        total_chunks = (total_days // chunk_size) + (
+            1 if total_days % chunk_size != 0 else 0
+        )
 
-        for i in tqdm(range(total_chunks), desc=f"Fetching {asset_clean} (Dukascopy)", leave=False):
+        for i in tqdm(
+            range(total_chunks), desc=f"Fetching {asset_clean} (Dukascopy)", leave=False
+        ):
             chunk_start = start_date + timedelta(days=i * chunk_size)
             chunk_end = min(chunk_start + timedelta(days=chunk_size), end_date)
 
@@ -80,7 +87,9 @@ class DukascopyFetcher(BaseFetcher):
                     dfs.append(df_chunk)
             except Exception as e:
                 # Weekends/holidays may return no data — log at DEBUG for diagnostics
-                logger.debug(f"[Dukascopy] Chunk {chunk_start.date()}–{chunk_end.date()} skipped: {e}")
+                logger.debug(
+                    f"[Dukascopy] Chunk {chunk_start.date()}–{chunk_end.date()} skipped: {e}"
+                )
 
         if not dfs:
             # Return empty instead of raising error to handle gaps in chunked download

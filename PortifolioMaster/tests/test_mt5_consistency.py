@@ -132,7 +132,9 @@ def test_en_report_tipo_values():
     deals_df = parser.deals_by_expert[expert_name]
 
     tipos = set(deals_df["Tipo"].unique())
-    assert tipos.issubset({"buy", "sell", "balance"}), f"Unexpected Tipo values: {tipos}"
+    assert tipos.issubset({"buy", "sell", "balance"}), (
+        f"Unexpected Tipo values: {tipos}"
+    )
 
 
 def test_en_report_direcao_values():
@@ -145,7 +147,9 @@ def test_en_report_direcao_values():
     deals_df = parser.deals_by_expert[expert_name]
 
     direcoes = set(deals_df["Direção"].unique())
-    assert direcoes.issubset({"in", "out", "in/out", ""}), f"Unexpected Direção values: {direcoes}"
+    assert direcoes.issubset({"in", "out", "in/out", ""}), (
+        f"Unexpected Direção values: {direcoes}"
+    )
 
 
 def test_en_report_metrics_are_valid():

@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 import pytest
+
 from portifoliomaster.services.metrics import calculate_metrics_from_deals
 from portifoliomaster.utils.mt5_parser import MT5ReportParser
 
@@ -118,7 +119,9 @@ def test_top_portfolio_metrics_are_internally_consistent(tmp_path):
     )
 
     portfolios = _load_portfolios(output_dir)
-    assert portfolios, f"No output created.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    assert portfolios, (
+        f"No output created.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
 
     top = portfolios[0]["metrics"]
     assert top["Maximum_Drawdown"] >= 0.0, "Negative MaxDD"

@@ -10,7 +10,11 @@ class DataManagerClient:
     Python client to connect to DataManager Network API protected with API Key.
     """
 
-    def __init__(self, base_url: str = "http://127.0.0.1:8686", api_key: str = "YOUR_API_KEY_HERE"):
+    def __init__(
+        self,
+        base_url: str = "http://127.0.0.1:8686",
+        api_key: str = "YOUR_API_KEY_HERE",
+    ):
         self.base_url = base_url.rstrip("/")
         # Uses a Session to automatically load the custom header
         self.session = requests.Session()
@@ -32,7 +36,9 @@ class DataManagerClient:
                 raise RuntimeError(f"API Error: {error_detail}")
             raise RuntimeError(f"API Error: {response.text or str(e)}")
 
-    def download(self, source: str, asset: str, start_date: str = None, end_date: str = None) -> dict:
+    def download(
+        self, source: str, asset: str, start_date: str = None, end_date: str = None
+    ) -> dict:
         """Sends a command to download/save assets on the server."""
         payload = {"source": source, "asset": asset}
         if start_date:
@@ -58,7 +64,11 @@ class DataManagerClient:
 
     def resample(self, source: str, asset: str, target_timeframe: str) -> dict:
         """Regenerates or creates a timeframe from the original M1 database."""
-        payload = {"source": source, "asset": asset, "target_timeframe": target_timeframe}
+        payload = {
+            "source": source,
+            "asset": asset,
+            "target_timeframe": target_timeframe,
+        }
         res = self.session.post(f"{self.base_url}/resample", json=payload)
         return self._handle_response(res)
 
@@ -82,7 +92,9 @@ class DataManagerClient:
         res = self.session.get(f"{self.base_url}/info/{source}/{asset}/{timeframe}")
         return self._handle_response(res)
 
-    def search(self, source: str = "openbb", query: str = None, exchange: str = None) -> pd.DataFrame:
+    def search(
+        self, source: str = "openbb", query: str = None, exchange: str = None
+    ) -> pd.DataFrame:
         """String-based search in the chosen source, returning a pandas DataFrame."""
         params = {"source": source}
         if query:
@@ -183,17 +195,25 @@ if __name__ == "__main__":
         print("\n1. Listing databases on the server...")
         dbs = client.list_databases()
         exists = any(  # noqa: E501
-            db["source"].upper() == target_source and db["asset"] == target_asset and db["timeframe"] == target_tf
+            db["source"].upper() == target_source
+            and db["asset"] == target_asset
+            and db["timeframe"] == target_tf
             for db in dbs
         )
 
         if exists:
-            print(f" -> The database {target_asset} ({target_tf}) already exists on the server.")
+            print(
+                f" -> The database {target_asset} ({target_tf}) already exists on the server."
+            )
         else:
-            print(f" -> The database {target_asset} ({target_tf}) was NOT found. Requesting download...")
+            print(
+                f" -> The database {target_asset} ({target_tf}) was NOT found. Requesting download..."
+            )
             start = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
             end = datetime.now().strftime("%Y-%m-%d")
-            res = client.download(target_source, target_asset, start_date=start, end_date=end)
+            res = client.download(
+                target_source, target_asset, start_date=start, end_date=end
+            )
             print(f" -> Server response: {res}")
             print(" -> Waiting a few seconds for initial processing (async)...")
             time.sleep(5)

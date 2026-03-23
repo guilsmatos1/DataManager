@@ -39,7 +39,9 @@ def _run_optimization(output_dir, top_n=5, rank="RetDD", min_a=2, max_a=2, corr=
         "--output",
         output_dir,
     ]
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT, env=env)
+    return subprocess.run(
+        cmd, capture_output=True, text=True, cwd=PROJECT_ROOT, env=env
+    )
 
 
 def _load_rank_json(output_dir):
@@ -93,7 +95,9 @@ def test_optimization_top_n_respected():
     try:
         _run_optimization(output_dir, top_n=top_n)
         portfolios = _load_rank_json(output_dir)
-        assert len(portfolios) <= top_n, f"Got {len(portfolios)} results, expected at most {top_n}"
+        assert len(portfolios) <= top_n, (
+            f"Got {len(portfolios)} results, expected at most {top_n}"
+        )
     finally:
         if os.path.exists(output_dir):
             shutil.rmtree(output_dir)

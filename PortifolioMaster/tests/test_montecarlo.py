@@ -4,6 +4,7 @@ Tests for Monte Carlo Simulation Module.
 
 import numpy as np
 import pytest
+
 from portifoliomaster.services.montecarlo import MonteCarloResult, run_montecarlo
 
 
@@ -30,8 +31,12 @@ def test_run_montecarlo_determinism():
     res1 = run_montecarlo(returns, n_iterations=10, seed=123)
     res2 = run_montecarlo(returns, n_iterations=10, seed=123)
 
-    np.testing.assert_array_almost_equal(res1.max_dd_distribution, res2.max_dd_distribution)
-    np.testing.assert_array_almost_equal(res1.simulated_equities, res2.simulated_equities)
+    np.testing.assert_array_almost_equal(
+        res1.max_dd_distribution, res2.max_dd_distribution
+    )
+    np.testing.assert_array_almost_equal(
+        res1.simulated_equities, res2.simulated_equities
+    )
 
 
 def test_run_montecarlo_empty_returns():

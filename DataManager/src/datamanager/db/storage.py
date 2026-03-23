@@ -107,7 +107,13 @@ class StorageManager:
         return asset_dir / f"data{self.format}"
 
     def _versions_dir(self, source: str, asset: str, timeframe: str) -> Path:
-        return self.base_dir / ".versions" / source.lower() / asset.upper() / timeframe.upper()
+        return (
+            self.base_dir
+            / ".versions"
+            / source.lower()
+            / asset.upper()
+            / timeframe.upper()
+        )
 
     # ------------------------------------------------------------------
     # Catalog operations
@@ -151,7 +157,9 @@ class StorageManager:
                     if not time_path.is_dir():
                         continue
                     if (time_path / f"data{self.format}").exists():
-                        info = self.get_database_info(source_path.name, asset_path.name, time_path.name)
+                        info = self.get_database_info(
+                            source_path.name, asset_path.name, time_path.name
+                        )
                         if info.get("status") != "Not Found":
                             entries.append(info)
 
@@ -177,7 +185,9 @@ class StorageManager:
     def list_databases(self) -> list:
         """Return all catalog entries (fast SQLite read, no disk scan)."""
         with self._get_conn() as conn:
-            rows = conn.execute("SELECT * FROM catalog ORDER BY source, asset, timeframe").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM catalog ORDER BY source, asset, timeframe"
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def get_stats(self) -> dict:
@@ -201,7 +211,14 @@ class StorageManager:
     # Data versioning
     # ------------------------------------------------------------------
 
-    def _backup_version(self, file_path: Path, source: str, asset: str, timeframe: str, max_versions: int = 5):
+    def _backup_version(
+        self,
+        file_path: Path,
+        source: str,
+        asset: str,
+        timeframe: str,
+        max_versions: int = 5,
+    ):
         """Create a timestamped backup before overwriting. Best-effort (never raises)."""
         try:
             vdir = self._versions_dir(source, asset, timeframe)
@@ -222,7 +239,9 @@ class StorageManager:
             return []
         return sorted(p.stem for p in vdir.glob("*.parquet"))
 
-    def restore_version(self, source: str, asset: str, timeframe: str, version_ts: str = None) -> bool:
+    def restore_version(
+        self, source: str, asset: str, timeframe: str, version_ts: str = None
+    ) -> bool:
         """Restore a specific version (or latest if version_ts is None)."""
         vdir = self._versions_dir(source, asset, timeframe)
         if not vdir.exists():
@@ -288,7 +307,9 @@ class StorageManager:
         """Load data from a Parquet file."""
         file_path = self._get_path(source, asset, timeframe)
         if not file_path.exists():
-            raise FileNotFoundError(f"Database not found: {source} -> {asset} ({timeframe})")
+            raise FileNotFoundError(
+                f"Database not found: {source} -> {asset} ({timeframe})"
+            )
         if self.format == ".parquet":
             return pd.read_parquet(file_path, engine="fastparquet")
         return pd.read_csv(file_path, index_col=0, parse_dates=True)

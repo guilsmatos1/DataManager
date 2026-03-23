@@ -81,11 +81,18 @@ def test_setup_logger_updates_existing_console_handler_level(tmp_path):
         setup_logger(log_path=str(tmp_path / "first.log"), quiet=False)
         configured = setup_logger(log_path=str(tmp_path / "first.log"), quiet=True)
         console_handler = next(
-            handler for handler in configured.handlers if handler.get_name() == CONSOLE_HANDLER_NAME
+            handler
+            for handler in configured.handlers
+            if handler.get_name() == CONSOLE_HANDLER_NAME
         )
 
         assert console_handler.level == logging.WARNING
-        assert len([h for h in configured.handlers if h.get_name() == CONSOLE_HANDLER_NAME]) == 1
+        assert (
+            len(
+                [h for h in configured.handlers if h.get_name() == CONSOLE_HANDLER_NAME]
+            )
+            == 1
+        )
     finally:
         for handler in logger.handlers:
             handler.close()

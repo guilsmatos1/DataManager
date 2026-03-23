@@ -15,7 +15,9 @@ class BaseFetcher(ABC):
         pass
 
     @abstractmethod
-    def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+    def fetch_data(
+        self, asset: str, start_date: datetime, end_date: datetime
+    ) -> pd.DataFrame:
         """
         Downloads M1 data for the asset in the specified time range.
         Expects to return a pandas DataFrame with:

@@ -27,7 +27,10 @@ from decimal import Decimal
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.backtest.models import FillModel
-from nautilus_trader.backtest.modules import FXRolloverInterestConfig, FXRolloverInterestModule
+from nautilus_trader.backtest.modules import (
+    FXRolloverInterestConfig,
+    FXRolloverInterestModule,
+)
 from nautilus_trader.config import LoggingConfig, RiskEngineConfig
 from nautilus_trader.examples.strategies.ema_cross import EMACross, EMACrossConfig
 from nautilus_trader.model import BarType, Money, Venue

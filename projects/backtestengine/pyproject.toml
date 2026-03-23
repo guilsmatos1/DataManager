@@ -3,8 +3,8 @@ name = "backtestengine-project"
 version = "0.1.0"
 description = "BacktestEngine build project"
 dependencies = [
-    "nautilus_trader",
-    "pandas",
+    "nautilus_trader>=1.224.0",
+    "pandas>=2.2.3,<3.0.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
 ]

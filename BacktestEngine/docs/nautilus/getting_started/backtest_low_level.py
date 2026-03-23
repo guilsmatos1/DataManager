@@ -35,7 +35,10 @@ from decimal import Decimal
 from nautilus_trader.backtest.config import BacktestEngineConfig
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.examples.algorithms.twap import TWAPExecAlgorithm
-from nautilus_trader.examples.strategies.ema_cross_twap import EMACrossTWAP, EMACrossTWAPConfig
+from nautilus_trader.examples.strategies.ema_cross_twap import (
+    EMACrossTWAP,
+    EMACrossTWAPConfig,
+)
 from nautilus_trader.model import BarType, Money, TraderId, Venue
 from nautilus_trader.model.currencies import ETH, USDT
 from nautilus_trader.model.enums import AccountType, OmsType

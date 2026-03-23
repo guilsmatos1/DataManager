@@ -15,7 +15,9 @@ class OpenBBFetcher(BaseFetcher):
     def source_name(self) -> str:
         return "OpenBB"
 
-    def fetch_data(self, asset: str, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+    def fetch_data(
+        self, asset: str, start_date: datetime, end_date: datetime
+    ) -> pd.DataFrame:
         # Obb equity price history method (using yfinance provider as default for M1)
         # Note that in openbb V4 the syntax is struct: obb.equity.price.historical()
 

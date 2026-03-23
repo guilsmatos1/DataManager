@@ -48,14 +48,18 @@ def _check_rate_limit(request: Request):
     while window and window[0] <= now - _RATE_WINDOW:
         window.popleft()
     if len(window) >= _RATE_LIMIT:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+        raise HTTPException(
+            status_code=429, detail="Rate limit exceeded. Try again later."
+        )
     window.append(now)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not settings.is_api_key_configured:
-        logger.warning("⚠  DATAMANAGER_API_KEY is not set — the API is running UNPROTECTED!")
+        logger.warning(
+            "⚠  DATAMANAGER_API_KEY is not set — the API is running UNPROTECTED!"
+        )
     scheduler.start()
     yield
     scheduler.shutdown()
@@ -69,14 +73,22 @@ app = FastAPI(title="DataManager Network API", version=__version__, lifespan=lif
 def dashboard():
     """Summary stats for the DataManager instance."""
     stats = manager.storage.get_stats()
-    return {"status": "ok", "version": __version__, **stats, "timestamp": datetime.now().isoformat()}
+    return {
+        "status": "ok",
+        "version": __version__,
+        **stats,
+        "timestamp": datetime.now().isoformat(),
+    }
 
 
 @app.get("/health")
 def health_check():
     dbs = manager.storage.list_databases()
-    return {"status": "ok", "databases_count": len(dbs), "timestamp": datetime.now().isoformat()}
-
+    return {
+        "status": "ok",
+        "databases_count": len(dbs),
+        "timestamp": datetime.now().isoformat(),
+    }
 
 
 # --- SECURITY: 1. Authentication via API Key ---
@@ -102,7 +114,10 @@ def rebuild_catalog(api_key: str = Depends(get_api_key)):
     """
     try:
         result = manager.storage.rebuild_catalog()
-        return {"status": "success", "message": f"Catalog rebuilt ({result['count']} databases indexed)"}
+        return {
+            "status": "success",
+            "message": f"Catalog rebuilt ({result['count']} databases indexed)",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Rebuild failed: {e}")
 
@@ -116,8 +131,14 @@ def download_data(
     _rl=Depends(_check_rate_limit),
 ):
     try:
-        start_dt = datetime.fromisoformat(req.start_date) if req.start_date else datetime(2000, 1, 1)
-        end_dt = datetime.fromisoformat(req.end_date) if req.end_date else datetime.now()
+        start_dt = (
+            datetime.fromisoformat(req.start_date)
+            if req.start_date
+            else datetime(2000, 1, 1)
+        )
+        end_dt = (
+            datetime.fromisoformat(req.end_date) if req.end_date else datetime.now()
+        )
 
         assets = [a.strip() for a in req.asset.split(",") if a.strip()]
 
@@ -131,8 +152,13 @@ def download_data(
                 )
 
         for asset in assets:
-            background_tasks.add_task(manager.download_data, req.source, asset, start_dt, end_dt)
-        return {"status": "success", "message": f"Download of {req.asset} via {req.source} started in background"}
+            background_tasks.add_task(
+                manager.download_data, req.source, asset, start_dt, end_dt
+            )
+        return {
+            "status": "success",
+            "message": f"Download of {req.asset} via {req.source} started in background",
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -140,11 +166,17 @@ def download_data(
 
 
 @app.post("/update", response_model=TaskResponse)
-def update_data(req: UpdateRequest, background_tasks: BackgroundTasks, api_key: str = Depends(get_api_key)):
+def update_data(
+    req: UpdateRequest,
+    background_tasks: BackgroundTasks,
+    api_key: str = Depends(get_api_key),
+):
     try:
         assets = [a.strip() for a in req.asset.split(",") if a.strip()]
         for asset in assets:
-            background_tasks.add_task(manager.update_data, req.source, asset, req.timeframe)
+            background_tasks.add_task(
+                manager.update_data, req.source, asset, req.timeframe
+            )
         return {
             "status": "success",
             "message": f"Update of {req.asset} via {req.source} ({req.timeframe}) started in background",
@@ -164,7 +196,10 @@ def delete_data(req: DeleteRequest, api_key: str = Depends(get_api_key)):
         for asset in assets:
             manager.delete_database(req.source, asset, req.timeframe)
         target = req.timeframe if req.timeframe else "all timeframes"
-        return {"status": "success", "message": f"Deleted {req.asset} from {req.source} ({target})"}
+        return {
+            "status": "success",
+            "message": f"Deleted {req.asset} from {req.source} ({target})",
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -185,7 +220,9 @@ def list_databases(
 
 
 @app.get("/info/{source}/{asset}/{timeframe}", response_model=DatabaseInfo)
-def get_info(source: str, asset: str, timeframe: str, api_key: str = Depends(get_api_key)):
+def get_info(
+    source: str, asset: str, timeframe: str, api_key: str = Depends(get_api_key)
+):
     if not all(re.match(r"^[a-zA-Z0-9_.\-]+$", p) for p in [source, asset, timeframe]):
         raise HTTPException(status_code=400, detail="Invalid path parameters in URLs")
 
@@ -196,7 +233,12 @@ def get_info(source: str, asset: str, timeframe: str, api_key: str = Depends(get
 
 
 @app.get("/search", response_model=SearchResponse)
-def search_assets(source: str = "openbb", query: str = None, exchange: str = None, api_key: str = Depends(get_api_key)):
+def search_assets(
+    source: str = "openbb",
+    query: str = None,
+    exchange: str = None,
+    api_key: str = Depends(get_api_key),
+):
     try:
         df = manager.search_assets(source=source, query=query, exchange=exchange)
         if df.empty:
@@ -211,9 +253,15 @@ def search_assets(source: str = "openbb", query: str = None, exchange: str = Non
 
 
 @app.post("/resample", response_model=TaskResponse)
-def resample_data(req: ResampleRequest, background_tasks: BackgroundTasks, api_key: str = Depends(get_api_key)):
+def resample_data(
+    req: ResampleRequest,
+    background_tasks: BackgroundTasks,
+    api_key: str = Depends(get_api_key),
+):
     try:
-        background_tasks.add_task(manager.resample_database, req.source, req.asset, req.target_timeframe)
+        background_tasks.add_task(
+            manager.resample_database, req.source, req.asset, req.target_timeframe
+        )
         return {
             "status": "success",
             "message": f"Resample of {req.asset} to {req.target_timeframe} started in background",
@@ -223,7 +271,9 @@ def resample_data(req: ResampleRequest, background_tasks: BackgroundTasks, api_k
 
 
 @app.get("/data/{source}/{asset}/{timeframe}")
-def get_data_file(source: str, asset: str, timeframe: str, api_key: str = Depends(get_api_key)):
+def get_data_file(
+    source: str, asset: str, timeframe: str, api_key: str = Depends(get_api_key)
+):
     if not all(re.match(r"^[a-zA-Z0-9_\-]+$", p) for p in [source, asset, timeframe]):
         raise HTTPException(status_code=400, detail="Invalid path parameters")
 
@@ -232,12 +282,16 @@ def get_data_file(source: str, asset: str, timeframe: str, api_key: str = Depend
         raise HTTPException(status_code=404, detail="Data file not found")
 
     return FileResponse(
-        path=file_path, media_type="application/octet-stream", filename=f"{source}_{asset}_{timeframe}.parquet"
+        path=file_path,
+        media_type="application/octet-stream",
+        filename=f"{source}_{asset}_{timeframe}.parquet",
     )
 
 
 @app.get("/data/{source}/{asset}/{timeframe}/stream")
-def stream_data(source: str, asset: str, timeframe: str, api_key: str = Depends(get_api_key)):
+def stream_data(
+    source: str, asset: str, timeframe: str, api_key: str = Depends(get_api_key)
+):
     """Stream data as CSV (chunked, line by line). Suitable for large datasets."""
     if not all(re.match(r"^[a-zA-Z0-9_\-]+$", p) for p in [source, asset, timeframe]):
         raise HTTPException(status_code=400, detail="Invalid path parameters")
@@ -251,8 +305,7 @@ def stream_data(source: str, asset: str, timeframe: str, api_key: str = Depends(
         buf = io.StringIO()
         df.to_csv(buf)
         buf.seek(0)
-        for line in buf:
-            yield line
+        yield from buf
 
     filename = f"{source}_{asset}_{timeframe}.csv"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
@@ -273,7 +326,9 @@ def create_schedule(req: ScheduleRequest, api_key: str = Depends(get_api_key)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid schedule configuration: {e}")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid schedule configuration: {e}"
+        )
 
 
 @app.get("/schedule", response_model=ScheduleListResponse)

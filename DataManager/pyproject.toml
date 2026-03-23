@@ -14,7 +14,7 @@ dependencies = [
     "fastparquet>=2025.12.0",
     "openbb>=4.7.0",
     "openbb-yfinance>=1.6.0",
-    "pandas>=3.0.1",
+    "pandas>=2.2.3,<3.0.0",
     "python-dateutil>=2.9.0",
     "requests>=2.32.0",
     "tqdm>=4.66.0",
@@ -45,4 +45,3 @@ required-environments = [
     "sys_platform == 'linux' and platform_machine == 'aarch64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'"
 ]
-

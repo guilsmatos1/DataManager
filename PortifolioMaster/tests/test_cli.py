@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
+
 from portifoliomaster.api.cli import PortifolioCLI
 from portifoliomaster.core.exceptions import ValidationError
 
@@ -123,7 +124,9 @@ def test_apply_date_filter_start_only(loaded_cli):
     min_date = long_df["Horário"].min()
     mid_date = str(min_date)[:10]  # YYYY-MM-DD
 
-    filtered = loaded_cli._apply_date_filter(long_df, date_initial=mid_date, date_final=None)
+    filtered = loaded_cli._apply_date_filter(
+        long_df, date_initial=mid_date, date_final=None
+    )
     assert len(filtered) <= len(long_df)
     assert not filtered.is_empty()
 
@@ -133,7 +136,9 @@ def test_apply_date_filter_end_only(loaded_cli):
     max_date = long_df["Horário"].max()
     mid_date = str(max_date)[:10]
 
-    filtered = loaded_cli._apply_date_filter(long_df, date_initial=None, date_final=mid_date)
+    filtered = loaded_cli._apply_date_filter(
+        long_df, date_initial=None, date_final=mid_date
+    )
     assert not filtered.is_empty()
 
 
@@ -142,14 +147,18 @@ def test_apply_date_filter_full_range_keeps_all(loaded_cli):
     min_date = str(long_df["Horário"].min())[:10]
     max_date = str(long_df["Horário"].max())[:10]
 
-    filtered = loaded_cli._apply_date_filter(long_df, date_initial=min_date, date_final=max_date)
+    filtered = loaded_cli._apply_date_filter(
+        long_df, date_initial=min_date, date_final=max_date
+    )
     assert len(filtered) == len(long_df)
 
 
 def test_apply_date_filter_impossible_range_raises(loaded_cli):
     long_df = loaded_cli.portfolio_manager.get_all_trades_long()
     with pytest.raises(ValidationError, match="No trades found"):
-        loaded_cli._apply_date_filter(long_df, date_initial="2050-01-01", date_final="2050-12-31")
+        loaded_cli._apply_date_filter(
+            long_df, date_initial="2050-01-01", date_final="2050-12-31"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +180,9 @@ def test_apply_strategy_filter_unknown_names_warns_but_uses_valid(loaded_cli):
     long_df = loaded_cli.portfolio_manager.get_all_trades_long()
     valid = loaded_cli.loaded_expert_names[0]
 
-    filtered = loaded_cli._apply_strategy_filter(long_df, [valid, "NONEXISTENT"], min_assets=1)
+    filtered = loaded_cli._apply_strategy_filter(
+        long_df, [valid, "NONEXISTENT"], min_assets=1
+    )
     assert not filtered.is_empty()
 
 
@@ -237,7 +248,9 @@ def test_save_best_portfolio_trades_parquet(loaded_cli, sample_portfolio, tmp_pa
     assert len(df) > 0
 
 
-def test_save_best_portfolio_trades_default_extension(loaded_cli, sample_portfolio, tmp_path):
+def test_save_best_portfolio_trades_default_extension(
+    loaded_cli, sample_portfolio, tmp_path
+):
     """Unknown extension defaults to CSV with .csv appended."""
     out_file = str(tmp_path / "trades")
     loaded_cli._save_best_portfolio_trades([sample_portfolio], out_file)
@@ -375,7 +388,9 @@ def test_save_output_dir_creates_all_files(loaded_cli, tmp_path):
     """_save_output_dir creates rank.json, portfolios/rank_01.parquet and report.html."""
     name = loaded_cli.loaded_expert_names[0]
     mock_engine = MagicMock()
-    mock_engine.best_portfolios = [{"Combo": (name,), "Net_Profit": 100.0, "RetDD": 2.0}]
+    mock_engine.best_portfolios = [
+        {"Combo": (name,), "Net_Profit": 100.0, "RetDD": 2.0}
+    ]
 
     out_dir = str(tmp_path / "run_test")
     kwargs = {
@@ -388,7 +403,8 @@ def test_save_output_dir_creates_all_files(loaded_cli, tmp_path):
 
     # Mocking generate_portfolio_report_html to avoid webbrowser open
     with patch(
-        "portifoliomaster.api.cli.generate_portfolio_report_html", return_value="report.html"
+        "portifoliomaster.api.cli.generate_portfolio_report_html",
+        return_value="report.html",
     ):
         final_dir = loaded_cli._save_output_dir(mock_engine, kwargs)
 
@@ -411,7 +427,8 @@ def test_save_output_dir_auto_timestamp(loaded_cli, tmp_path):
         os.chdir(str(tmp_path))
         kwargs = {"output_dir": None}
         with patch(
-            "portifoliomaster.api.cli.generate_portfolio_report_html", return_value="report.html"
+            "portifoliomaster.api.cli.generate_portfolio_report_html",
+            return_value="report.html",
         ):
             final_dir = loaded_cli._save_output_dir(mock_engine, kwargs)
         assert os.path.basename(final_dir).startswith("run_")
@@ -428,7 +445,8 @@ def test_run_optimization_output_dir_flag(loaded_cli, tmp_path):
     """run_optimization triggers _save_output_dir when output_dir is passed."""
     out_dir = str(tmp_path / "full_run")
     with patch(
-        "portifoliomaster.api.cli.generate_portfolio_report_html", return_value="report.html"
+        "portifoliomaster.api.cli.generate_portfolio_report_html",
+        return_value="report.html",
     ):
         loaded_cli.run_optimization(
             min_assets=1,
@@ -445,7 +463,9 @@ def test_run_optimization_output_dir_flag(loaded_cli, tmp_path):
 
 def test_run_optimization_report_flag(loaded_cli, tmp_path):
     """run_optimization triggers report generation."""
-    with patch("portifoliomaster.api.cli.generate_portfolio_report_html") as mock_report:
+    with patch(
+        "portifoliomaster.api.cli.generate_portfolio_report_html"
+    ) as mock_report:
         mock_report.return_value = "report.html"
         loaded_cli.run_optimization(
             min_assets=1,
@@ -461,7 +481,9 @@ def test_run_optimization_report_flag(loaded_cli, tmp_path):
 
 def test_run_optimization_unexpected_error(loaded_cli, caplog):
     """run_optimization handles unexpected crashes gracefully."""
-    with patch("portifoliomaster.api.cli.BruteForceEngine", side_effect=Exception("BOOM")):
+    with patch(
+        "portifoliomaster.api.cli.BruteForceEngine", side_effect=Exception("BOOM")
+    ):
         loaded_cli.run_optimization(
             min_assets=1,
             max_assets=1,

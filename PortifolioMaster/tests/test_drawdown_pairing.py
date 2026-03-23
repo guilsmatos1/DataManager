@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
+
 from portifoliomaster.api.cli import PortifolioCLI
 
 
@@ -195,9 +196,9 @@ def test_drawdown_pairing_apply_no_change_when_already_at_target(tmp_path, capsy
     out = capsys.readouterr().out
 
     assert "No changes applied" in out
-    assert cli.portfolio_manager.strategies["S1"]["Net_Profit"].to_list() == pytest.approx(
-        [2000.0, -4000.0, 4000.0]
-    )
+    assert cli.portfolio_manager.strategies["S1"][
+        "Net_Profit"
+    ].to_list() == pytest.approx([2000.0, -4000.0, 4000.0])
 
 
 def test_drawdown_pairing_apply_skips_zero_dd(tmp_path, capsys):

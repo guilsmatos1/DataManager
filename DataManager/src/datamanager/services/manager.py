@@ -34,19 +34,27 @@ class DataManager:
                 instance = fetcher_class()
                 self._fetchers[instance.source_name.upper()] = instance
             except Exception as e:
-                logger.warning(f"Failed to initialize fetcher {fetcher_class.__name__}: {e}")
+                logger.warning(
+                    f"Failed to initialize fetcher {fetcher_class.__name__}: {e}"
+                )
 
     def _get_fetcher(self, source_name: str):
         source = source_name.upper()
         if source not in self._fetchers:
-            raise ValueError(f"Data source not supported: {source_name}. Available: {list(self._fetchers.keys())}")
+            raise ValueError(
+                f"Data source not supported: {source_name}. Available: {list(self._fetchers.keys())}"
+            )
         return self._fetchers[source]
 
-    def download_data(self, source: str, asset: str, start_date: datetime, end_date: datetime):
+    def download_data(
+        self, source: str, asset: str, start_date: datetime, end_date: datetime
+    ):
         """Downloads and saves data in M1 using yearly chunks to save memory."""
         info = self.storage.get_database_info(source, asset, "M1")
         if info.get("status") != "Not Found":
-            logger.warning(f"The database {asset} (M1) from {source} already exists in the database.")
+            logger.warning(
+                f"The database {asset} (M1) from {source} already exists in the database."
+            )
             logger.info("↳ Use the 'update' command to add recent data.")
             raise Exception(f"Database {asset} (M1) already exists in {source}")
 
@@ -69,16 +77,22 @@ class DataManager:
                     df_chunk = fetcher.fetch_data(asset, c_start, c_end)
 
                     if df_chunk is not None and not df_chunk.empty:
-                        self.storage.append_data(df_chunk, source, asset, timeframe="M1")
+                        self.storage.append_data(
+                            df_chunk, source, asset, timeframe="M1"
+                        )
                         total_rows += len(df_chunk)
 
                 except Exception as e:
-                    logger.error(f"    [ERROR] Failed to fetch/save chunk {c_start.date()}: {e}")
+                    logger.error(
+                        f"    [ERROR] Failed to fetch/save chunk {c_start.date()}: {e}"
+                    )
 
                 pbar.update(1)
 
         if total_rows > 0:
-            logger.info(f"Database {asset} (M1) download complete! Total: {total_rows:,} rows.")
+            logger.info(
+                f"Database {asset} (M1) download complete! Total: {total_rows:,} rows."
+            )
         else:
             logger.error(f"No data was downloaded for {asset} (M1).")
 
@@ -148,7 +162,9 @@ class DataManager:
                     ok += 1
                 except Exception as e:
                     failed.append(f"{db['source']}/{db['asset']} (M1)")
-                    logger.error(f"Error updating M1 database ({db['source']}/{db['asset']}): {e}")
+                    logger.error(
+                        f"Error updating M1 database ({db['source']}/{db['asset']}): {e}"
+                    )
 
         # Then rebuilds higher timeframes based on the newly updated M1.
         if other_dbs:
@@ -158,11 +174,15 @@ class DataManager:
                     ok += 1
                 except Exception as e:
                     failed.append(f"{db['source']}/{db['asset']} ({db['timeframe']})")
-                    logger.error(f"Error converting database {db['timeframe']} ({db['source']}/{db['asset']}): {e}")
+                    logger.error(
+                        f"Error converting database {db['timeframe']} ({db['source']}/{db['asset']}): {e}"
+                    )
 
         total = len(m1_dbs) + len(other_dbs)
         if failed:
-            logger.warning(f"=== UPDATE COMPLETE: {ok}/{total} succeeded — {len(failed)} failed ===")
+            logger.warning(
+                f"=== UPDATE COMPLETE: {ok}/{total} succeeded — {len(failed)} failed ==="
+            )
             for entry in failed:
                 logger.warning(f"  ✗ {entry}")
         else:
@@ -171,7 +191,11 @@ class DataManager:
     def delete_database(self, source: str, asset: str, timeframe: str = None):
         """Deletes database (or all timeframes of the asset)"""
         success = self.storage.delete_database(source, asset, timeframe)
-        target = f"{source}/{asset}/{timeframe}" if timeframe else f"{source}/{asset} (all timeframes)"
+        target = (
+            f"{source}/{asset}/{timeframe}"
+            if timeframe
+            else f"{source}/{asset} (all timeframes)"
+        )
         if success:
             logger.info(f"Database deleted: {target}")
         else:
@@ -196,7 +220,9 @@ class DataManager:
 
         detailed_dbs = []
         for db in dbs:
-            info = self.storage.get_database_info(db["source"], db["asset"], db["timeframe"])
+            info = self.storage.get_database_info(
+                db["source"], db["asset"], db["timeframe"]
+            )
             detailed_dbs.append(info)
 
         return detailed_dbs
@@ -211,13 +237,19 @@ class DataManager:
                 logger.info(f"  ● {source_name.capitalize()}: {len(df)} assets found")
             except Exception:
                 # If search is not implemented or fails, show a generic message
-                logger.info(f"  ● {source_name.capitalize()}: Supports searching (Details via search command)")
+                logger.info(
+                    f"  ● {source_name.capitalize()}: Supports searching (Details via search command)"
+                )
 
-    def search_assets(self, source: str = "openbb", query: str = None, exchange: str = None) -> pd.DataFrame:
+    def search_assets(
+        self, source: str = "openbb", query: str = None, exchange: str = None
+    ) -> pd.DataFrame:
         """Search assets via the specified fetcher."""
         source_key = source.upper()
         if source_key not in self._fetchers:
-            logger.warning(f"Source {source} not supported for search. Available: {list(self._fetchers.keys())}")
+            logger.warning(
+                f"Source {source} not supported for search. Available: {list(self._fetchers.keys())}"
+            )
             return pd.DataFrame()
 
         fetcher = self._fetchers[source_key]
@@ -241,7 +273,9 @@ class DataManager:
         try:
             df_m1 = self.storage.load_data(source, asset, timeframe="M1")
         except FileNotFoundError:
-            logger.error(f"There is no saved M1 base for {asset} in source {source}. Download it first.")
+            logger.error(
+                f"There is no saved M1 base for {asset} in source {source}. Download it first."
+            )
             return
 
         logger.info(f"Converting {asset} M1 for {target_timeframe}...")
@@ -250,7 +284,9 @@ class DataManager:
         # but we can show a spinner or a determinate bar if we knew it was slow.
         # Since resample is usually fast for one asset, a simple log is often enough,
         # but for consistency we use tqdm with a single step or just a message.
-        with tqdm(total=1, desc=f"Resampling {asset} to {target_timeframe}", leave=False) as pbar:
+        with tqdm(
+            total=1, desc=f"Resampling {asset} to {target_timeframe}", leave=False
+        ) as pbar:
             df_resampled = self.processor.resample_ohlc(df_m1, target_timeframe)
             self.storage.save_data(df_resampled, source, asset, target_timeframe)
             pbar.update(1)
@@ -262,10 +298,14 @@ class DataManager:
         try:
             df = self.storage.load_data(source, asset, timeframe)
         except FileNotFoundError:
-            logger.error(f"Database {asset} ({timeframe}) in source {source} not found.")
+            logger.error(
+                f"Database {asset} ({timeframe}) in source {source} not found."
+            )
             return
 
-        logger.info(f"=== QUALITY REPORT: {asset.upper()} ({timeframe}) - {source.upper()} ===")
+        logger.info(
+            f"=== QUALITY REPORT: {asset.upper()} ({timeframe}) - {source.upper()} ==="
+        )
         logger.info(f"Total Registers Analyzed: {len(df):,}")
 
         # 1. OHLC Relations Test
@@ -280,7 +320,9 @@ class DataManager:
             failures_ohlc = (~relations_mask).sum()
             logger.info(f"1. OHLC Mathematical Relations : {failures_ohlc} error(s)")
         except KeyError:
-            logger.warning("1. OHLC Mathematical Relations : Ignored (Price columns missing)")
+            logger.warning(
+                "1. OHLC Mathematical Relations : Ignored (Price columns missing)"
+            )
 
         # 2. Time Index Duplicates Test
         failures_dup = df.index.duplicated().sum()
@@ -300,6 +342,8 @@ class DataManager:
             failures_gaps = gaps_mask.sum()
             logger.info(f"4. Absence of Data (Gaps)    : {failures_gaps} gap(s)")
         else:
-            logger.info("4. Absence of Data (Gaps)    : Ignored (Few data for analysis)")
+            logger.info(
+                "4. Absence of Data (Gaps)    : Ignored (Few data for analysis)"
+            )
 
         return

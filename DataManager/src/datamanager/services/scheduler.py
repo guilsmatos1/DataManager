@@ -21,7 +21,9 @@ class SchedulerService:
         self._manager = manager
         self._scheduler = BackgroundScheduler(daemon=True)
         self._jobs: dict[str, dict] = {}
-        self._persist_path = Path(persist_path) if persist_path else Path("metadata/scheduler_jobs.json")
+        self._persist_path = (
+            Path(persist_path) if persist_path else Path("metadata/scheduler_jobs.json")
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -127,10 +129,18 @@ class SchedulerService:
             try:
                 self._manager.update_data(source, asset, timeframe)
             except Exception as e:
-                logger.error(f"[Scheduler] Update failed for {source}/{asset}/{timeframe}: {e}")
+                logger.error(
+                    f"[Scheduler] Update failed for {source}/{asset}/{timeframe}: {e}"
+                )
 
-        trigger = CronTrigger.from_crontab(cron) if cron else IntervalTrigger(minutes=interval_minutes)
-        apsjob = self._scheduler.add_job(_task, trigger, id=job_id, name=f"{source}/{asset}/{timeframe}")
+        trigger = (
+            CronTrigger.from_crontab(cron)
+            if cron
+            else IntervalTrigger(minutes=interval_minutes)
+        )
+        apsjob = self._scheduler.add_job(
+            _task, trigger, id=job_id, name=f"{source}/{asset}/{timeframe}"
+        )
 
         meta = {
             "job_id": job_id,
@@ -145,7 +155,9 @@ class SchedulerService:
         }
         self._jobs[job_id] = meta
         self._save_jobs()
-        logger.info(f"[Scheduler] Job added: {job_id} ({source}/{asset}/{timeframe}, trigger={meta['trigger']})")
+        logger.info(
+            f"[Scheduler] Job added: {job_id} ({source}/{asset}/{timeframe}, trigger={meta['trigger']})"
+        )
         return meta
 
     def list_jobs(self) -> list[dict]:

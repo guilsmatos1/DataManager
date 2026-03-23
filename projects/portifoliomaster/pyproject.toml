@@ -3,16 +3,16 @@ name = "portifoliomaster-project"
 version = "0.1.0"
 description = "PortifolioMaster build project"
 dependencies = [
+    "polars>=1.39.3",
+    "pyarrow>=23.0.1",
+    "pandas>=2.2.3,<3.0.0",
+    "numpy>=2.4.3",
+    "plotly>=6.6.0",
+    "tqdm>=4.67.3",
     "beautifulsoup4>=4.14.3",
     "lxml>=6.0.2",
-    "numpy>=1.26.4",
-    "pandas>=2.2.0",
-    "plotly>=6.6.0",
-    "polars>=1.39.2",
-    "pyarrow>=23.0.1",
     "pydantic>=2.12.5",
-    "pydantic-settings>=2.13.1",
-    "tqdm>=4.67.3",
+    "pydantic-settings>=2.13.1"
 ]
 
 [tool.polylith.projects]
@@ -20,5 +20,5 @@ dependencies = [
 "trademachine/portifolio_master_cli" = "bases"
 
 [tool.uv.sources]
-trademachine = { path = "../../components/portifoliomaster/src" }
-trademachine_bases = { path = "../../bases/portifolio_master_cli/src" }
+trademachine = { path = "../../components/trademachine" }
+trademachine_bases = { path = "../../bases/trademachine" }

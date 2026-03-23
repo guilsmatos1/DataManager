@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
+
 from portifoliomaster.api.cli import PortifolioCLI
 from portifoliomaster.services.adherence import (
     AdherenceResult,
@@ -63,7 +64,12 @@ def test_pearson_daily():
     assert r == pytest.approx(1.0)
 
     # Too few common days (<5)
-    d3 = {"2023-01-01": 10.0, "2023-01-02": 20.0, "2023-01-03": 30.0, "2023-01-04": 40.0}
+    d3 = {
+        "2023-01-01": 10.0,
+        "2023-01-02": 20.0,
+        "2023-01-03": 30.0,
+        "2023-01-04": 40.0,
+    }
     r, n = _pearson_daily(d3, d2)
     assert n == 4
     assert r == 0.0
@@ -206,7 +212,9 @@ def test_run_adherence_check_mismatch(tmp_path):
             "2023-01-06",
         ]
         mt5_ret = np.array([10.0, -5.0, 8.0, -3.0, 6.0, -2.0])
-        sqx_ret = np.array([9.0, -4.5, 7.2, -2.7, 5.4, -1.8])  # proportional → pearson=1.0
+        sqx_ret = np.array(
+            [9.0, -4.5, 7.2, -2.7, 5.4, -1.8]
+        )  # proportional → pearson=1.0
         mock_mt5.return_value = (
             {"match": mt5_ret, "only_mt5": np.array([5.0])},
             {"match": days_mt5, "only_mt5": ["2023-01-01"]},
@@ -233,7 +241,10 @@ def test_run_adherence_check_failure_threshold(tmp_path):
         patch("portifoliomaster.services.adherence.parse_sqx_directory") as mock_sqx,
     ):
         # MT5: 10 trades, SQX: 7 trades -> 0.7 ratio < 0.8 threshold
-        mock_mt5.return_value = ({"fail": np.ones(10) * 10.0}, {"fail": ["2023-01-01"] * 10})
+        mock_mt5.return_value = (
+            {"fail": np.ones(10) * 10.0},
+            {"fail": ["2023-01-01"] * 10},
+        )
         mock_sqx.return_value = {"fail": (np.ones(7) * 10.0, ["2023-01-01"] * 7)}
 
         result = run_adherence_check("dir1", "dir2", threshold=0.8)
@@ -336,7 +347,9 @@ def test_adherence_run_cli(tmp_path):
 
     with (
         patch("portifoliomaster.api.cli.run_adherence_check", return_value=mock_result),
-        patch("portifoliomaster.api.cli.generate_adherence_report_html") as mock_gen_html,
+        patch(
+            "portifoliomaster.api.cli.generate_adherence_report_html"
+        ) as mock_gen_html,
     ):
         cli.adherence_run(
             mt5_dir="mock_mt5",
@@ -399,13 +412,23 @@ def test_adherence_run_auto_output_dir(tmp_path):
     os.chdir(tmp_path)
     try:
         with (
-            patch("portifoliomaster.api.cli.run_adherence_check", return_value=mock_result),
-            patch("portifoliomaster.api.cli.generate_adherence_report_html") as mock_html,
+            patch(
+                "portifoliomaster.api.cli.run_adherence_check", return_value=mock_result
+            ),
+            patch(
+                "portifoliomaster.api.cli.generate_adherence_report_html"
+            ) as mock_html,
         ):
-            cli.adherence_run(mt5_dir="m", sqx_dir="s", output_dir=None, open_browser=False)
+            cli.adherence_run(
+                mt5_dir="m", sqx_dir="s", output_dir=None, open_browser=False
+            )
 
         # An auto-named folder starting with "adherence_" must exist
-        created = [p for p in tmp_path.iterdir() if p.is_dir() and p.name.startswith("adherence_")]
+        created = [
+            p
+            for p in tmp_path.iterdir()
+            if p.is_dir() and p.name.startswith("adherence_")
+        ]
         assert len(created) == 1, f"Expected 1 adherence_* dir, got: {created}"
         out_dir = created[0]
 

@@ -35,14 +35,19 @@ def upgrade() -> None:
         sa.Column("parameters", sa.Text(), nullable=True),
         sa.Column("status", sa.String(), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=True
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=True,
         ),
         sa.ForeignKeyConstraint(
             ["strategy_id"],
             ["strategies.id"],
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("strategy_id", "client_run_id", name="_backtest_strategy_run_uc"),
+        sa.UniqueConstraint(
+            "strategy_id", "client_run_id", name="_backtest_strategy_run_uc"
+        ),
     )
     op.create_table(
         "backtest_deals",
@@ -52,7 +57,9 @@ def upgrade() -> None:
         sa.Column("symbol", sa.String(), nullable=True),
         sa.Column(
             "type",
-            postgresql.ENUM("BUY", "SELL", "BALANCE", name="dealtype", create_type=False),
+            postgresql.ENUM(
+                "BUY", "SELL", "BALANCE", name="dealtype", create_type=False
+            ),
             nullable=True,
         ),
         sa.Column("volume", sa.Float(), nullable=True),
@@ -67,7 +74,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("backtest_id", "timestamp", "ticket"),
     )
     op.create_index(
-        "ix_backtest_deals_id_ts", "backtest_deals", ["backtest_id", "timestamp"], unique=False
+        "ix_backtest_deals_id_ts",
+        "backtest_deals",
+        ["backtest_id", "timestamp"],
+        unique=False,
     )
     op.create_table(
         "backtest_equity",
@@ -82,7 +92,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("backtest_id", "timestamp"),
     )
     op.create_index(
-        "ix_backtest_equity_id_ts", "backtest_equity", ["backtest_id", "timestamp"], unique=False
+        "ix_backtest_equity_id_ts",
+        "backtest_equity",
+        ["backtest_id", "timestamp"],
+        unique=False,
     )
     # ### end Alembic commands ###
 

@@ -14,7 +14,13 @@ import pytest
 def _make_df(n=10):
     dates = pd.date_range("2023-01-02", periods=n, freq="1min")
     return pd.DataFrame(
-        {"Open": [1.0] * n, "High": [2.0] * n, "Low": [0.5] * n, "Close": [1.5] * n, "Volume": [100.0] * n},
+        {
+            "Open": [1.0] * n,
+            "High": [2.0] * n,
+            "Low": [0.5] * n,
+            "Close": [1.5] * n,
+            "Volume": [100.0] * n,
+        },
         index=dates,
     )
 
@@ -163,7 +169,9 @@ def test_do_search_no_args_calls_summary(cli):
 
 def test_do_search_with_query(cli):
     _run(cli, "search --source dukascopy --query EURUSD")
-    cli.server.search_assets.assert_called_once_with(source="dukascopy", query="EURUSD", exchange=None)
+    cli.server.search_assets.assert_called_once_with(
+        source="dukascopy", query="EURUSD", exchange=None
+    )
 
 
 def test_do_schedule_add(cli):

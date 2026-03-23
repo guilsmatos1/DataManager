@@ -5,22 +5,33 @@ description = "Monorepo para os projetos TradeMachine"
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.18.4",
+    "apscheduler>=3.11.2",
     "beautifulsoup4>=4.14.3",
+    "ccxt>=4.5.44",
+    "colorama>=0.4.6",
+    "dukascopy-python>=4.0.1",
     "fastapi>=0.128.8",
     "httpx>=0.28.1",
     "jinja2>=3.1.6",
     "lxml>=6.0.2",
+    "nautilus-trader>=1.224.0",
     "numpy>=2.4.3",
-    "pandas>=3.0.1",
+    "openbb>=4.7.1",
+    "openbb-yfinance>=1.6.0",
+    "pandas>=2.2.3,<3.0.0",
     "plotly>=6.6.0",
     "polars>=1.39.3",
     "psycopg2-binary>=2.9.11",
     "pyarrow>=23.0.1",
+    "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
+    "python-dateutil>=2.9.0.post0",
     "python-multipart>=0.0.22",
     "quantstats>=0.0.81",
+    "requests>=2.32.5",
     "sqlalchemy>=2.0.48",
     "tqdm>=4.67.3",
+    "typer>=0.24.1",
     "uvicorn>=0.40.0",
 ]
 
@@ -43,6 +54,17 @@ dev = [
     "xenon>=0.9.3",
     "mutmut>=3.5.0",
     "vulture>=2.15",
+    "trademachine-datamanager>=0.1.0",
+    "trademachine-tradingmonitor>=0.1.0",
+    "trademachine-portifoliomaster>=0.1.0",
+    "trademachine-backtestengine>=0.1.0",
+    "trademachine-datamanager-api>=0.1.0",
+    "trademachine-datamanager-cli>=0.1.0",
+    "trademachine-trading-monitor-dashboard>=0.1.0",
+    "trademachine-trading-monitor-cli>=0.1.0",
+    "trademachine-trading-monitor-ingestion>=0.1.0",
+    "trademachine-portifolio-master-cli>=0.1.0",
+    "trademachine-backtest-engine-cli>=0.1.0",
 ]
 
 [tool.ruff]
@@ -51,7 +73,7 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP", "S"]
-ignore = ["E501", "S101", "S108", "S603", "B904", "B008", "S110"]
+ignore = ["E501", "S101", "S108", "S603", "B904", "B008", "S110", "B018", "S311"]
 
 [tool.polylith]
 namespace = "trademachine"
@@ -65,9 +87,23 @@ components = "components"
 
 [tool.uv.sources]
 trademachine = { workspace = true }
+trademachine-datamanager = { path = "components/datamanager" }
+trademachine-tradingmonitor = { path = "components/tradingmonitor" }
+trademachine-portifoliomaster = { path = "components/portifoliomaster" }
+trademachine-backtestengine = { path = "components/backtestengine" }
+trademachine-datamanager-api = { path = "bases/datamanager_api" }
+trademachine-datamanager-cli = { path = "bases/datamanager_cli" }
+trademachine-trading-monitor-dashboard = { path = "bases/trading_monitor_dashboard" }
+trademachine-trading-monitor-cli = { path = "bases/trading_monitor_cli" }
+trademachine-trading-monitor-ingestion = { path = "bases/trading_monitor_ingestion" }
+trademachine-portifolio-master-cli = { path = "bases/portifolio_master_cli" }
+trademachine-backtest-engine-cli = { path = "bases/backtest_engine_cli" }
 
 [tool.deptry]
 exclude = ["DataManager", "PortifolioMaster", "TradingMonitor", "BacktestEngine", "venv", ".venv", "tests", ".*_cache"]
+known_first_party = ["trademachine"]
+ignore = ["DEP002"]
+per_rule_ignores = { DEP001 = "trademachine", DEP003 = "pydantic|colorama|requests|python-dateutil" }
 
 [tool.mutmut]
 paths_to_mutate = "components/"

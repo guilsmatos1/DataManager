@@ -8,9 +8,13 @@ from datamanager.utils.logger import setup_logger
 def main():
     setup_logger()
     parser = argparse.ArgumentParser(description="DataManager Command Line Interface")
-    parser.add_argument("-i", "--interactive", action="store_true", help="Start in interactive mode")
+    parser.add_argument(
+        "-i", "--interactive", action="store_true", help="Start in interactive mode"
+    )
     # Capture extra arguments that compose the native command without triggering an error
-    parser.add_argument("command", nargs=argparse.REMAINDER, help="Direct command for execution")
+    parser.add_argument(
+        "command", nargs=argparse.REMAINDER, help="Direct command for execution"
+    )
 
     args = parser.parse_args()
 

@@ -2,8 +2,16 @@ import random
 from datetime import datetime, timedelta
 
 import pytz
+
 from tradingmonitor.db.database import SessionLocal
-from tradingmonitor.db.models import Account, Deal, DealType, EquityCurve, Portfolio, Strategy
+from tradingmonitor.db.models import (
+    Account,
+    Deal,
+    DealType,
+    EquityCurve,
+    Portfolio,
+    Strategy,
+)
 
 
 def generate_synthetic_data():
@@ -144,7 +152,9 @@ def generate_synthetic_data():
             )
             db.add(eq)
 
-        print(f"Finalizado: {config['name']} | Final Balance: {round(current_balance, 2)}")
+        print(
+            f"Finalizado: {config['name']} | Final Balance: {round(current_balance, 2)}"
+        )
 
     db.commit()
     db.close()

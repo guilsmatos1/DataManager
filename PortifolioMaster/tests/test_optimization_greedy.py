@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
+
 from portifoliomaster.services.optimization import (
     METRIC_IDX_NET_PROFIT,
     BruteForceEngine,
@@ -27,7 +28,9 @@ from portifoliomaster.services.optimization import (
 
 def _make_long_df(strategy_data: dict) -> pl.DataFrame:
     """Build a long-format DataFrame from {name: [profit_per_day]} dict."""
-    dates = pd.date_range("2023-01-01", periods=max(len(v) for v in strategy_data.values()))
+    dates = pd.date_range(
+        "2023-01-01", periods=max(len(v) for v in strategy_data.values())
+    )
     rows = []
     for name, values in strategy_data.items():
         for dt, val in zip(dates, values, strict=False):
@@ -113,7 +116,9 @@ def test_filter_combos_ones_matrix_rejects_all_pairs():
     corr = _ones_corr(4)
     combos = list(itertools.combinations(range(4), 2))
     gen = iter(combos)
-    valid, discarded = _filter_combos_standalone(gen, corr, batch_size=100, max_corr=0.9)
+    valid, discarded = _filter_combos_standalone(
+        gen, corr, batch_size=100, max_corr=0.9
+    )
     assert len(valid) == 0
     assert discarded == len(combos)
 
@@ -143,7 +148,9 @@ def test_filter_combos_partial_batch():
 
 
 def test_process_batch_populates_heap():
-    trade_matrix = np.array([[10.0, 5.0], [10.0, 5.0], [10.0, 5.0]])  # 3 timestamps × 2 strategies
+    trade_matrix = np.array(
+        [[10.0, 5.0], [10.0, 5.0], [10.0, 5.0]]
+    )  # 3 timestamps × 2 strategies
     combo_batch = [(0,), (1,)]
     strategy_names = ["S1", "S2"]
     top_heap: list = []
@@ -168,7 +175,9 @@ def test_process_batch_populates_heap():
 
 def test_process_batch_respects_top_n():
     """Heap never exceeds top_n entries."""
-    trade_matrix = np.array([[float(i)] * 5 for i in range(10)])  # 10 timestamps × 5 strategies
+    trade_matrix = np.array(
+        [[float(i)] * 5 for i in range(10)]
+    )  # 10 timestamps × 5 strategies
     combos = [(i,) for i in range(5)]
     strategy_names = [f"S{i}" for i in range(5)]
     top_heap: list = []
@@ -343,7 +352,9 @@ def test_greedy_history_recorded():
     )
     engine = BruteForceEngine(long_df, num_workers=1)
     engine.run(min_assets=1, max_assets=1, top_n=1, rank_by="RetDD")
-    engine.run_greedy(seed_combo=engine.best_portfolios[0]["Combo"], rank_by="RetDD", max_corr=1.0)
+    engine.run_greedy(
+        seed_combo=engine.best_portfolios[0]["Combo"], rank_by="RetDD", max_corr=1.0
+    )
 
     assert hasattr(engine, "greedy_history")
     assert isinstance(engine.greedy_history, list)
@@ -381,7 +392,9 @@ def test_multiprocess_produces_same_top1_as_single_process():
     )
 
     assert results_sp[0]["Combo"] == results_mp[0]["Combo"]
-    assert results_sp[0]["Net_Profit"] == pytest.approx(results_mp[0]["Net_Profit"], rel=1e-6)
+    assert results_sp[0]["Net_Profit"] == pytest.approx(
+        results_mp[0]["Net_Profit"], rel=1e-6
+    )
 
 
 def test_multiprocess_returns_at_least_one_result():
@@ -392,5 +405,7 @@ def test_multiprocess_returns_at_least_one_result():
         }
     )
     engine = BruteForceEngine(long_df, num_workers=2)
-    results = engine.run(min_assets=1, max_assets=1, top_n=3, rank_by="RetDD", max_corr=1.0)
+    results = engine.run(
+        min_assets=1, max_assets=1, top_n=3, rank_by="RetDD", max_corr=1.0
+    )
     assert len(results) >= 1

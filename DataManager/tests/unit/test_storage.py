@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+
 from datamanager.db.storage import StorageManager
 
 
@@ -18,7 +19,13 @@ def sample_df():
     """Simple OHLC DataFrame."""
     dates = pd.date_range("2023-01-01", periods=10, freq="1min")
     return pd.DataFrame(
-        {"Open": [100.0] * 10, "High": [105.0] * 10, "Low": [95.0] * 10, "Close": [102.0] * 10}, index=dates
+        {
+            "Open": [100.0] * 10,
+            "High": [105.0] * 10,
+            "Low": [95.0] * 10,
+            "Close": [102.0] * 10,
+        },
+        index=dates,
     )
 
 
@@ -39,7 +46,13 @@ def test_append_data(temp_storage, sample_df):
     # New data with some overlap
     new_dates = pd.date_range("2023-01-01 00:05:00", periods=10, freq="1min")
     new_df = pd.DataFrame(
-        {"Open": [200.0] * 10, "High": [205.0] * 10, "Low": [195.0] * 10, "Close": [202.0] * 10}, index=new_dates
+        {
+            "Open": [200.0] * 10,
+            "High": [205.0] * 10,
+            "Low": [195.0] * 10,
+            "Close": [202.0] * 10,
+        },
+        index=new_dates,
     )
 
     temp_storage.append_data(new_df, "TEST_SOURCE", "TEST_ASSET", "M1")

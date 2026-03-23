@@ -24,7 +24,9 @@ class DataProcessor:
     def resample_ohlc(cls, df: pd.DataFrame, target_timeframe: str) -> pd.DataFrame:
         """Takes an OHLCV DataFrame (lower TF) and converts it to a higher timeframe."""
         if target_timeframe.upper() not in cls.TF_MAPPING:
-            raise ValueError(f"Target timeframe not supported: {target_timeframe}. Use {list(cls.TF_MAPPING.keys())}")
+            raise ValueError(
+                f"Target timeframe not supported: {target_timeframe}. Use {list(cls.TF_MAPPING.keys())}"
+            )
 
         rule = cls.TF_MAPPING[target_timeframe.upper()]
         cols = {c.lower(): c for c in df.columns}
@@ -42,13 +44,17 @@ class DataProcessor:
             agg_dict[cols["volume"]] = "sum"
 
         if not agg_dict:
-            raise ValueError("The DataFrame does not contain valid OHLC columns for resampling.")
+            raise ValueError(
+                "The DataFrame does not contain valid OHLC columns for resampling."
+            )
 
         resampled_df = df.resample(rule).agg(agg_dict).dropna()
         return resampled_df
 
     @classmethod
-    def fill_gaps(cls, df: pd.DataFrame, timeframe: str, method: str = "ffill") -> pd.DataFrame:
+    def fill_gaps(
+        cls, df: pd.DataFrame, timeframe: str, method: str = "ffill"
+    ) -> pd.DataFrame:
         """Fill gaps in OHLCV data caused by weekends, holidays, or missing M1 candles.
 
         Args:
@@ -63,7 +69,9 @@ class DataProcessor:
             DataFrame with gaps handled according to the chosen method.
         """
         if timeframe.upper() not in cls.TF_MAPPING:
-            raise ValueError(f"Unknown timeframe: {timeframe}. Use {list(cls.TF_MAPPING.keys())}")
+            raise ValueError(
+                f"Unknown timeframe: {timeframe}. Use {list(cls.TF_MAPPING.keys())}"
+            )
 
         if df.empty:
             return df
@@ -83,6 +91,8 @@ class DataProcessor:
         elif method == "none":
             pass
         else:
-            raise ValueError(f"Unknown fill method: '{method}'. Use 'ffill', 'drop', or 'none'.")
+            raise ValueError(
+                f"Unknown fill method: '{method}'. Use 'ffill', 'drop', or 'none'."
+            )
 
         return df_full

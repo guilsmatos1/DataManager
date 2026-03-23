@@ -14,7 +14,13 @@ import pytest
 def _make_ohlcv_df(n=5):
     dates = pd.date_range("2023-01-02 00:00", periods=n, freq="1min", tz="UTC")
     return pd.DataFrame(
-        {"open": [1.0] * n, "high": [2.0] * n, "low": [0.5] * n, "close": [1.5] * n, "volume": [100.0] * n},
+        {
+            "open": [1.0] * n,
+            "high": [2.0] * n,
+            "low": [0.5] * n,
+            "close": [1.5] * n,
+            "volume": [100.0] * n,
+        },
         index=dates,
     )
 
@@ -40,7 +46,9 @@ class TestDukascopyFetcher:
         chunk_df = _make_ohlcv_df()
 
         with patch("datamanager.fetchers.dukascopy.with_retry", return_value=chunk_df):
-            result = fetcher.fetch_data("EURUSD", datetime(2023, 1, 2), datetime(2023, 1, 3))
+            result = fetcher.fetch_data(
+                "EURUSD", datetime(2023, 1, 2), datetime(2023, 1, 3)
+            )
 
         assert isinstance(result, pd.DataFrame)
         assert not result.empty
@@ -50,19 +58,30 @@ class TestDukascopyFetcher:
         """fetch_data returns empty DataFrame when all chunks fail."""
         monkeypatch.chdir(tmp_path)
 
-        with patch("datamanager.fetchers.dukascopy.with_retry", side_effect=Exception("no data")):
-            result = fetcher.fetch_data("EURUSD", datetime(2023, 1, 2), datetime(2023, 1, 3))
+        with patch(
+            "datamanager.fetchers.dukascopy.with_retry",
+            side_effect=Exception("no data"),
+        ):
+            result = fetcher.fetch_data(
+                "EURUSD", datetime(2023, 1, 2), datetime(2023, 1, 3)
+            )
 
         assert result.empty
 
-    def test_fetch_data_raises_when_asset_not_in_csv(self, fetcher, tmp_path, monkeypatch):
+    def test_fetch_data_raises_when_asset_not_in_csv(
+        self, fetcher, tmp_path, monkeypatch
+    ):
         """Raises ValueError if CSV exists but asset is not found."""
         monkeypatch.chdir(tmp_path)
         meta = tmp_path / "metadata"
         meta.mkdir()
-        pd.DataFrame({"ticker": ["GBPUSD"], "alias": [""]}).to_csv(meta / "dukas_assets.csv", index=False)
+        pd.DataFrame({"ticker": ["GBPUSD"], "alias": [""]}).to_csv(
+            meta / "dukas_assets.csv", index=False
+        )
 
-        with pytest.raises(ValueError, match="does not exist in the Dukascopy database"):
+        with pytest.raises(
+            ValueError, match="does not exist in the Dukascopy database"
+        ):
             fetcher.fetch_data("EURUSD", datetime(2023, 1, 2), datetime(2023, 1, 3))
 
     def test_search_returns_empty_when_no_csv(self, fetcher, tmp_path, monkeypatch):
@@ -100,7 +119,9 @@ class TestOpenBBFetcher:
             patch("datamanager.fetchers.openbb.with_retry", return_value=obb_response),
             patch.dict("sys.modules", {"openbb": MagicMock(obb=MagicMock())}),
         ):
-            result = fetcher.fetch_data("AAPL", datetime(2023, 1, 2), datetime(2023, 1, 3))
+            result = fetcher.fetch_data(
+                "AAPL", datetime(2023, 1, 2), datetime(2023, 1, 3)
+            )
 
         assert isinstance(result, pd.DataFrame)
         assert not result.empty
@@ -118,7 +139,10 @@ class TestOpenBBFetcher:
 
     def test_fetch_data_raises_on_exception(self, fetcher):
         with (
-            patch("datamanager.fetchers.openbb.with_retry", side_effect=RuntimeError("API down")),
+            patch(
+                "datamanager.fetchers.openbb.with_retry",
+                side_effect=RuntimeError("API down"),
+            ),
             patch.dict("sys.modules", {"openbb": MagicMock(obb=MagicMock())}),
         ):
             with pytest.raises(RuntimeError):
@@ -133,7 +157,9 @@ class TestOpenBBFetcher:
             patch("datamanager.fetchers.openbb.with_retry", return_value=res),
             patch.dict("sys.modules", {"openbb": MagicMock(obb=MagicMock())}),
         ):
-            result = fetcher.fetch_data("AAPL", datetime(2023, 1, 2), datetime(2023, 1, 3))
+            result = fetcher.fetch_data(
+                "AAPL", datetime(2023, 1, 2), datetime(2023, 1, 3)
+            )
 
         for col in ["Open", "High", "Low", "Close", "Volume"]:
             assert col in result.columns
@@ -173,10 +199,15 @@ class TestCcxtFetcher:
         mock_exchange.fetch_ohlcv.side_effect = [data, []]
 
         with (
-            patch("datamanager.fetchers.ccxt.with_retry", side_effect=lambda f, *a, **k: f(*a, **k)),
+            patch(
+                "datamanager.fetchers.ccxt.with_retry",
+                side_effect=lambda f, *a, **k: f(*a, **k),
+            ),
             patch.object(fetcher, "_get_exchange", return_value=mock_exchange),
         ):
-            result = fetcher.fetch_data("BTC/USDT", datetime(2023, 1, 2), datetime(2023, 1, 2, 0, 5))
+            result = fetcher.fetch_data(
+                "BTC/USDT", datetime(2023, 1, 2), datetime(2023, 1, 2, 0, 5)
+            )
 
         assert len(result) == 2
         assert "Open" in result.columns
@@ -188,7 +219,9 @@ class TestCcxtFetcher:
 
         with patch.object(fetcher, "_get_exchange", return_value=mock_exchange):
             with pytest.raises(ValueError, match="does not support OHLCV fetching"):
-                fetcher.fetch_data("BTC/USDT", datetime(2023, 1, 2), datetime(2023, 1, 3))
+                fetcher.fetch_data(
+                    "BTC/USDT", datetime(2023, 1, 2), datetime(2023, 1, 3)
+                )
 
     def test_fetch_data_no_data_raises(self, fetcher):
         mock_exchange = MagicMock()
@@ -200,7 +233,9 @@ class TestCcxtFetcher:
             patch.object(fetcher, "_get_exchange", return_value=mock_exchange),
         ):
             with pytest.raises(ValueError, match="No data returned"):
-                fetcher.fetch_data("BTC/USDT", datetime(2023, 1, 2), datetime(2023, 1, 3))
+                fetcher.fetch_data(
+                    "BTC/USDT", datetime(2023, 1, 2), datetime(2023, 1, 3)
+                )
 
     def test_search_calls_load_markets(self, fetcher):
         mock_exchange = MagicMock()

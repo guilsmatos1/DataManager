@@ -31,7 +31,9 @@ def upgrade() -> None:
         sa.Column("balance", sa.Numeric(precision=18, scale=8), nullable=True),
         sa.Column("free_margin", sa.Numeric(precision=18, scale=8), nullable=True),
         sa.Column("total_deposits", sa.Numeric(precision=18, scale=8), nullable=True),
-        sa.Column("total_withdrawals", sa.Numeric(precision=18, scale=8), nullable=True),
+        sa.Column(
+            "total_withdrawals", sa.Numeric(precision=18, scale=8), nullable=True
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
 
@@ -81,7 +83,9 @@ def upgrade() -> None:
         sa.Column("ticket", sa.BigInteger(), nullable=False),
         sa.Column("strategy_id", sa.String(), nullable=False),
         sa.Column("symbol", sa.String(), nullable=True),
-        sa.Column("type", sa.Enum("BUY", "SELL", "BALANCE", name="dealtype"), nullable=False),
+        sa.Column(
+            "type", sa.Enum("BUY", "SELL", "BALANCE", name="dealtype"), nullable=False
+        ),
         sa.Column("volume", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("price", sa.Numeric(precision=18, scale=8), nullable=False),
         sa.Column("profit", sa.Numeric(precision=18, scale=8), nullable=False),
@@ -89,7 +93,9 @@ def upgrade() -> None:
         sa.Column("swap", sa.Numeric(precision=18, scale=8), nullable=True),
         sa.ForeignKeyConstraint(["strategy_id"], ["strategies.id"]),
         sa.PrimaryKeyConstraint("id", "timestamp"),
-        sa.UniqueConstraint("ticket", "strategy_id", "timestamp", name="uq_deal_ticket_strategy"),
+        sa.UniqueConstraint(
+            "ticket", "strategy_id", "timestamp", name="uq_deal_ticket_strategy"
+        ),
     )
 
     op.create_table(
@@ -107,7 +113,10 @@ def upgrade() -> None:
         "ingestion_errors",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column(
-            "timestamp", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+            "timestamp",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column("topic", sa.String(length=32), nullable=True),
         sa.Column("raw_message", sa.Text(), nullable=True),
@@ -115,10 +124,16 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
-        "ix_deals_strategy_timestamp", "deals", ["strategy_id", "timestamp"], unique=False
+        "ix_deals_strategy_timestamp",
+        "deals",
+        ["strategy_id", "timestamp"],
+        unique=False,
     )
     op.create_index(
-        "ix_equity_strategy_timestamp", "equity_curve", ["strategy_id", "timestamp"], unique=False
+        "ix_equity_strategy_timestamp",
+        "equity_curve",
+        ["strategy_id", "timestamp"],
+        unique=False,
     )
     # ### end Alembic commands ###
 

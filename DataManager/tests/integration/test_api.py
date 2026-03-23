@@ -4,9 +4,10 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+from fastapi.testclient import TestClient
+
 from datamanager.api.router import app
 from datamanager.db.storage import StorageManager
-from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -17,7 +18,13 @@ from fastapi.testclient import TestClient
 def sample_df():
     dates = pd.date_range("2023-01-02", periods=60, freq="1min")
     return pd.DataFrame(
-        {"Open": [1.0] * 60, "High": [2.0] * 60, "Low": [0.5] * 60, "Close": [1.5] * 60, "Volume": [100.0] * 60},
+        {
+            "Open": [1.0] * 60,
+            "High": [2.0] * 60,
+            "Low": [0.5] * 60,
+            "Close": [1.5] * 60,
+            "Volume": [100.0] * 60,
+        },
         index=dates,
     )
 
@@ -122,7 +129,12 @@ def test_download_triggers_background_task(client):
 
     r = client.post(
         "/download",
-        json={"source": "MOCK", "asset": "EURUSD", "start_date": "2023-01-02", "end_date": "2023-01-03"},
+        json={
+            "source": "MOCK",
+            "asset": "EURUSD",
+            "start_date": "2023-01-02",
+            "end_date": "2023-01-03",
+        },
         headers=HEADERS,
     )
     assert r.status_code == 200
@@ -136,7 +148,12 @@ def test_download_conflict_if_exists(client, sample_df):
 
     r = client.post(
         "/download",
-        json={"source": "mock", "asset": "EURUSD", "start_date": "2023-01-02", "end_date": "2023-01-03"},
+        json={
+            "source": "mock",
+            "asset": "EURUSD",
+            "start_date": "2023-01-02",
+            "end_date": "2023-01-03",
+        },
         headers=HEADERS,
     )
     assert r.status_code == 409
@@ -174,19 +191,31 @@ def test_delete_existing(client, sample_df):
 
     router_module.manager.storage.save_data(sample_df, "test", "AAPL", "M1")
 
-    r = client.post("/delete", json={"source": "test", "asset": "AAPL", "timeframe": "M1"}, headers=HEADERS)
+    r = client.post(
+        "/delete",
+        json={"source": "test", "asset": "AAPL", "timeframe": "M1"},
+        headers=HEADERS,
+    )
     assert r.status_code == 200
     assert r.json()["status"] == "success"
 
 
 def test_update_triggers_background_task(client):
-    r = client.post("/update", json={"source": "test", "asset": "AAPL", "timeframe": "M1"}, headers=HEADERS)
+    r = client.post(
+        "/update",
+        json={"source": "test", "asset": "AAPL", "timeframe": "M1"},
+        headers=HEADERS,
+    )
     assert r.status_code == 200
     assert "started in background" in r.json()["message"]
 
 
 def test_resample_triggers_background_task(client):
-    r = client.post("/resample", json={"source": "test", "asset": "AAPL", "target_timeframe": "H1"}, headers=HEADERS)
+    r = client.post(
+        "/resample",
+        json={"source": "test", "asset": "AAPL", "target_timeframe": "H1"},
+        headers=HEADERS,
+    )
     assert r.status_code == 200
     assert "Resample" in r.json()["message"]
 
@@ -199,7 +228,12 @@ def test_resample_triggers_background_task(client):
 def test_schedule_job(client):
     r = client.post(
         "/schedule",
-        json={"source": "test", "asset": "AAPL", "timeframe": "M1", "interval_minutes": 60},
+        json={
+            "source": "test",
+            "asset": "AAPL",
+            "timeframe": "M1",
+            "interval_minutes": 60,
+        },
         headers=HEADERS,
     )
     assert r.status_code == 200
@@ -211,7 +245,12 @@ def test_schedule_job(client):
 def test_list_scheduled_jobs(client):
     client.post(
         "/schedule",
-        json={"source": "test", "asset": "AAPL", "timeframe": "M1", "interval_minutes": 60},
+        json={
+            "source": "test",
+            "asset": "AAPL",
+            "timeframe": "M1",
+            "interval_minutes": 60,
+        },
         headers=HEADERS,
     )
     r = client.get("/schedule", headers=HEADERS)
@@ -222,7 +261,12 @@ def test_list_scheduled_jobs(client):
 def test_remove_scheduled_job(client):
     res = client.post(
         "/schedule",
-        json={"source": "test", "asset": "AAPL", "timeframe": "M1", "interval_minutes": 60},
+        json={
+            "source": "test",
+            "asset": "AAPL",
+            "timeframe": "M1",
+            "interval_minutes": 60,
+        },
         headers=HEADERS,
     )
     job_id = res.json()["job_id"]
@@ -265,8 +309,9 @@ def test_rate_limit_triggers_after_threshold():
     from collections import deque
     from unittest.mock import MagicMock
 
-    from datamanager.api.router import _RATE_LIMIT, _check_rate_limit, _rate_store
     from fastapi import HTTPException
+
+    from datamanager.api.router import _RATE_LIMIT, _check_rate_limit, _rate_store
 
     ip = "rate-test-client"
     now = time.monotonic()
@@ -309,7 +354,9 @@ def test_search_openbb(client):
 
     mock_fetcher = MagicMock()
     mock_fetcher.source_name = "openbb"
-    mock_fetcher.search.return_value = pd.DataFrame([{"symbol": "AAPL", "name": "Apple"}])
+    mock_fetcher.search.return_value = pd.DataFrame(
+        [{"symbol": "AAPL", "name": "Apple"}]
+    )
 
     with patch.dict(router_module.manager._fetchers, {"OPENBB": mock_fetcher}):
         r = client.get("/search?source=openbb&query=Apple", headers=HEADERS)
@@ -322,7 +369,9 @@ def test_search_openbb(client):
 def test_search_ccxt(client):
     mock_fetcher = MagicMock()
     mock_fetcher.source_name = "ccxt"
-    mock_fetcher.search.return_value = pd.DataFrame([{"ticker": "BTC/USDT", "exchange": "binance"}])
+    mock_fetcher.search.return_value = pd.DataFrame(
+        [{"ticker": "BTC/USDT", "exchange": "binance"}]
+    )
 
     from datamanager.api import router as router_module
 

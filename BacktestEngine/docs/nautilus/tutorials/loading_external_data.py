@@ -29,14 +29,18 @@ DATA_DIR = "~/Downloads/Data/"
 # %%
 path = Path(DATA_DIR).expanduser() / "HISTDATA"
 raw_files = [
-    f for f in path.iterdir() if f.is_file() and (f.suffix == ".csv" or f.name.endswith(".csv.gz"))
+    f
+    for f in path.iterdir()
+    if f.is_file() and (f.suffix == ".csv" or f.name.endswith(".csv.gz"))
 ]
 assert raw_files, f"Unable to find any data files in directory {path}"
 raw_files
 
 # %%
 # Load the first data file into a pandas DataFrame
-df = CSVTickDataLoader.load(raw_files[0], index_col=0, datetime_format="%Y%m%d %H%M%S%f")
+df = CSVTickDataLoader.load(
+    raw_files[0], index_col=0, datetime_format="%Y%m%d %H%M%S%f"
+)
 df.columns = ["bid_price", "ask_price"]
 
 # Process quotes using a wrangler
@@ -99,7 +103,9 @@ strategies = [
         config_path="nautilus_trader.examples.strategies.ema_cross:EMACrossConfig",
         config={
             "instrument_id": instrument.id,
-            "bar_type": BarType.from_str(f"{instrument.id.value}-15-MINUTE-BID-INTERNAL"),
+            "bar_type": BarType.from_str(
+                f"{instrument.id.value}-15-MINUTE-BID-INTERNAL"
+            ),
             "fast_ema_period": 10,
             "slow_ema_period": 20,
             "trade_size": Decimal(1_000_000),

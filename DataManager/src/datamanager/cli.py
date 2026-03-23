@@ -49,12 +49,18 @@ class DataManagerCLI(cmd.Cmd):
             print(self.intro)
             print(f"{Fore.CYAN}{Style.BRIGHT}--- COMMAND GUIDE ---{Style.RESET_ALL}\n")
             for attr in dir(self):
-                if attr.startswith("do_") and attr not in ["do_EOF", "do_quit", "do_help"]:
+                if attr.startswith("do_") and attr not in [
+                    "do_EOF",
+                    "do_quit",
+                    "do_help",
+                ]:
                     cmd_name = attr[3:]
                     doc = getattr(self, attr).__doc__
                     print(f"{Fore.YELLOW}● {cmd_name.upper()}{Style.RESET_ALL}")
                     if doc:
-                        cleaned_doc = "\n".join("  " + line.strip() for line in doc.strip().split("\n"))
+                        cleaned_doc = "\n".join(
+                            "  " + line.strip() for line in doc.strip().split("\n")
+                        )
                         print(f"{Fore.WHITE}{cleaned_doc}\n")
 
     def __init__(self):
@@ -77,7 +83,9 @@ class DataManagerCLI(cmd.Cmd):
         if "-timeframe" in args:
             idx = args.index("-timeframe")
             if idx + 1 < len(args):
-                target_timeframes = [tf.strip() for tf in args[idx + 1].split(",") if tf.strip()]
+                target_timeframes = [
+                    tf.strip() for tf in args[idx + 1].split(",") if tf.strip()
+                ]
             args = args[:idx] + args[idx + 2 :]
 
         if len(args) not in [2, 3, 4]:
@@ -96,14 +104,18 @@ class DataManagerCLI(cmd.Cmd):
             else:
                 # Go back to the distant past
                 start_date = datetime(2000, 1, 1)
-                logger.info(f"Start date omitted. Starting full history search from {start_date.date()}...")
+                logger.info(
+                    f"Start date omitted. Starting full history search from {start_date.date()}..."
+                )
 
             if len(args) == 4:
                 end_date = parse(args[3])
             else:
                 end_date = datetime.now()
                 if len(args) < 4:
-                    logger.info(f"End date omitted. Going up to the current date ({end_date.date()}).")
+                    logger.info(
+                        f"End date omitted. Going up to the current date ({end_date.date()})."
+                    )
 
             for asset in assets:
                 try:
@@ -132,7 +144,9 @@ class DataManagerCLI(cmd.Cmd):
             return
 
         if len(args) not in [2, 3]:
-            logger.error("Correct usage: update <source> <assets,comma,separated> [timeframe=M1] or update all")
+            logger.error(
+                "Correct usage: update <source> <assets,comma,separated> [timeframe=M1] or update all"
+            )
             return
 
         source = args[0]
@@ -166,7 +180,9 @@ class DataManagerCLI(cmd.Cmd):
             return
 
         if len(args) < 2 or len(args) > 3:
-            logger.error("Correct usage: delete <source> <assets,comma,separated> [timeframe] or delete all")
+            logger.error(
+                "Correct usage: delete <source> <assets,comma,separated> [timeframe] or delete all"
+            )
             return
 
         source = args[0]
@@ -190,7 +206,9 @@ class DataManagerCLI(cmd.Cmd):
 
         info = self.server.info(args[0], args[1], args[2])
         if info.get("status") == "Not Found":
-            logger.warning(f"Database not found: {args[1].upper()} ({args[2].upper()}) from {args[0].upper()}")
+            logger.warning(
+                f"Database not found: {args[1].upper()} ({args[2].upper()}) from {args[0].upper()}"
+            )
             return
 
         print(f"\n{Fore.CYAN}{Style.BRIGHT}DATABASE INFO:")
@@ -234,7 +252,9 @@ class DataManagerCLI(cmd.Cmd):
             print(f"{Fore.WHITE}{row}")
 
         print(f"{Fore.WHITE}=" * 95)
-        print(f"{Fore.CYAN}Tip: Use 'rebuild' command to resync this list if you manually changed files.\n")
+        print(
+            f"{Fore.CYAN}Tip: Use 'rebuild' command to resync this list if you manually changed files.\n"
+        )
 
     def do_rebuild(self, arg):
         """Rebuilds the database catalog index. Usage: rebuild"""
@@ -257,15 +277,26 @@ class DataManagerCLI(cmd.Cmd):
             self.server.show_search_summary()
             return
 
-        parser = argparse.ArgumentParser(prog="search", description="Search assets", exit_on_error=False)
-        parser.add_argument("--source", type=str, default="openbb", help="Search source (openbb or dukascopy)")
+        parser = argparse.ArgumentParser(
+            prog="search", description="Search assets", exit_on_error=False
+        )
+        parser.add_argument(
+            "--source",
+            type=str,
+            default="openbb",
+            help="Search source (openbb or dukascopy)",
+        )
         parser.add_argument("--query", type=str, help="Keyword to search")
-        parser.add_argument("--exchange", type=str, help="Exchange to filter (OpenBB only)")
+        parser.add_argument(
+            "--exchange", type=str, help="Exchange to filter (OpenBB only)"
+        )
 
         try:
             args_parsed = parser.parse_args(shlex.split(arg))
             df = self.server.search_assets(
-                source=args_parsed.source, query=args_parsed.query, exchange=args_parsed.exchange
+                source=args_parsed.source,
+                query=args_parsed.query,
+                exchange=args_parsed.exchange,
             )
 
             if df is None or df.empty:
@@ -318,7 +349,9 @@ class DataManagerCLI(cmd.Cmd):
         """
         args = arg.split()
         if len(args) != 3:
-            logger.error("Correct usage: resample <source> <assets,comma,separated> <new_timeframes,separated>")
+            logger.error(
+                "Correct usage: resample <source> <assets,comma,separated> <new_timeframes,separated>"
+            )
             return
 
         source = args[0]
@@ -346,7 +379,9 @@ class DataManagerCLI(cmd.Cmd):
         """
         args = arg.split()
         if len(args) not in [2, 3]:
-            logger.error("Correct usage: quality <source> <assets,comma,separated> [timeframe=M1]")
+            logger.error(
+                "Correct usage: quality <source> <assets,comma,separated> [timeframe=M1]"
+            )
             return
 
         source = args[0]
@@ -381,7 +416,9 @@ class DataManagerCLI(cmd.Cmd):
         add_p.add_argument("asset")
         add_p.add_argument("timeframe", nargs="?", default="M1")
         add_p.add_argument("--cron", type=str, default=None)
-        add_p.add_argument("--interval", type=int, default=None, dest="interval_minutes")
+        add_p.add_argument(
+            "--interval", type=int, default=None, dest="interval_minutes"
+        )
 
         subparsers.add_parser("list")
 
@@ -408,7 +445,9 @@ class DataManagerCLI(cmd.Cmd):
                     cron=parsed.cron,
                     interval_minutes=parsed.interval_minutes,
                 )
-                logger.info(f"Job scheduled: {job['job_id']} | next run: {job['next_run']}")
+                logger.info(
+                    f"Job scheduled: {job['job_id']} | next run: {job['next_run']}"
+                )
             except Exception as e:
                 logger.error(f"Failed to schedule job: {e}")
 
@@ -417,7 +456,9 @@ class DataManagerCLI(cmd.Cmd):
             if not jobs:
                 logger.info("No scheduled jobs.")
                 return
-            print(f"\n{'JOB ID':<38} | {'SOURCE':<10} | {'ASSET':<10} | {'TF':<4} | {'TRIGGER':<20} | NEXT RUN")
+            print(
+                f"\n{'JOB ID':<38} | {'SOURCE':<10} | {'ASSET':<10} | {'TF':<4} | {'TRIGGER':<20} | NEXT RUN"
+            )
             print("-" * 110)
             for j in jobs:
                 print(

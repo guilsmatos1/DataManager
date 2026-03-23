@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import polars as pl
 import pytest
+
 from portifoliomaster.utils.visualizer import (
     _build_equity_data,
     generate_montecarlo_report_html,
@@ -106,7 +107,10 @@ def test_generate_portfolio_report_html_creates_file(
 ):
     output_path = str(tmp_path / "report.html")
     path = generate_portfolio_report_html(
-        sample_portfolios, sample_strategies, output_path=output_path, open_browser=False
+        sample_portfolios,
+        sample_strategies,
+        output_path=output_path,
+        open_browser=False,
     )
 
     assert os.path.exists(path)

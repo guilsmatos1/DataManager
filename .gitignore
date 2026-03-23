@@ -38,3 +38,5 @@ htmlcov/
 *.parquet
 **/database/
 **/catalog/data/
+build/
+*.egg-info/

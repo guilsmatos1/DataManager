@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
+
 from datamanager.services.scheduler import SchedulerService
 
 
@@ -14,13 +15,17 @@ def scheduler(tmp_path):
 
 def test_start_shutdown(scheduler):
     with patch.object(scheduler._scheduler, "start") as mock_start:
-        with patch.object(type(scheduler._scheduler), "running", new_callable=PropertyMock) as mock_running:
+        with patch.object(
+            type(scheduler._scheduler), "running", new_callable=PropertyMock
+        ) as mock_running:
             mock_running.return_value = False
             scheduler.start()
             mock_start.assert_called_once()
 
     with patch.object(scheduler._scheduler, "shutdown") as mock_shutdown:
-        with patch.object(type(scheduler._scheduler), "running", new_callable=PropertyMock) as mock_running:
+        with patch.object(
+            type(scheduler._scheduler), "running", new_callable=PropertyMock
+        ) as mock_running:
             mock_running.return_value = True
             scheduler.shutdown()
             mock_shutdown.assert_called_once()

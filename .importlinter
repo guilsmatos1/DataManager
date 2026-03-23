@@ -1,2 +1,55 @@
 [importlinter]
 root_package = trademachine
+
+# Contratos para garantir que a lógica (components) não dependa das entradas (bases)
+[importlinter:contract:dm-logic-isolation]
+name = DataManager logic isolation
+type = forbidden
+source_modules = trademachine.datamanager
+forbidden_modules =
+    trademachine.datamanager_api
+    trademachine.datamanager_cli
+    trademachine.trading_monitor_dashboard
+    trademachine.trading_monitor_cli
+    trademachine.trading_monitor_ingestion
+    trademachine.portifolio_master_cli
+    trademachine.backtest_engine_cli
+
+[importlinter:contract:tm-logic-isolation]
+name = TradingMonitor logic isolation
+type = forbidden
+source_modules = trademachine.tradingmonitor
+forbidden_modules =
+    trademachine.datamanager_api
+    trademachine.datamanager_cli
+    trademachine.trading_monitor_dashboard
+    trademachine.trading_monitor_cli
+    trademachine.trading_monitor_ingestion
+    trademachine.portifolio_master_cli
+    trademachine.backtest_engine_cli
+
+[importlinter:contract:pm-logic-isolation]
+name = PortifolioMaster logic isolation
+type = forbidden
+source_modules = trademachine.portifoliomaster
+forbidden_modules =
+    trademachine.datamanager_api
+    trademachine.datamanager_cli
+    trademachine.trading_monitor_dashboard
+    trademachine.trading_monitor_cli
+    trademachine.trading_monitor_ingestion
+    trademachine.portifolio_master_cli
+    trademachine.backtest_engine_cli
+
+[importlinter:contract:be-logic-isolation]
+name = BacktestEngine logic isolation
+type = forbidden
+source_modules = trademachine.backtestengine
+forbidden_modules =
+    trademachine.datamanager_api
+    trademachine.datamanager_cli
+    trademachine.trading_monitor_dashboard
+    trademachine.trading_monitor_cli
+    trademachine.trading_monitor_ingestion
+    trademachine.portifolio_master_cli
+    trademachine.backtest_engine_cli

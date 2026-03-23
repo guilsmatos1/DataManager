@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+
 from datamanager.db.storage import StorageManager
 from datamanager.services.manager import DataManager
 
@@ -70,7 +71,9 @@ def test_download_data_chunking(manager, mock_fetcher):
 def test_download_data_already_exists_raises(manager, sample_m1_df):
     manager.storage.save_data(sample_m1_df, "MOCK", "ASSET", "M1")
     with pytest.raises(Exception, match="already exists"):
-        manager.download_data("MOCK", "ASSET", datetime(2023, 1, 1), datetime(2023, 1, 3))
+        manager.download_data(
+            "MOCK", "ASSET", datetime(2023, 1, 1), datetime(2023, 1, 3)
+        )
 
 
 def test_download_data_passes_asset_to_fetcher(manager, mock_fetcher):
@@ -101,7 +104,9 @@ def test_update_data_higher_tf_requires_m1(manager):
     manager.update_data("MOCK", "NONEXISTENT", "H1")  # no M1 — should return early
 
 
-def test_update_data_higher_tf_updates_m1_and_resamples(manager, mock_fetcher, sample_m1_df):
+def test_update_data_higher_tf_updates_m1_and_resamples(
+    manager, mock_fetcher, sample_m1_df
+):
     """Updating H1 must append to M1 first, then rebuild H1 from full M1."""
     manager.storage.save_data(sample_m1_df, "MOCK", "ASSET", "M1")
 
@@ -116,9 +121,17 @@ def test_update_data_higher_tf_updates_m1_and_resamples(manager, mock_fetcher, s
 
 def test_update_data_already_up_to_date(manager, mock_fetcher):
     """If end_date is within the last hour, skip the fetch."""
-    dates = pd.date_range(datetime.now().strftime("%Y-%m-%d %H:%M"), periods=5, freq="1min")
+    dates = pd.date_range(
+        datetime.now().strftime("%Y-%m-%d %H:%M"), periods=5, freq="1min"
+    )
     fresh_df = pd.DataFrame(
-        {"Open": [1.0] * 5, "High": [1.0] * 5, "Low": [1.0] * 5, "Close": [1.0] * 5, "Volume": [1.0] * 5},
+        {
+            "Open": [1.0] * 5,
+            "High": [1.0] * 5,
+            "Low": [1.0] * 5,
+            "Close": [1.0] * 5,
+            "Volume": [1.0] * 5,
+        },
         index=dates,
     )
     manager.storage.save_data(fresh_df, "MOCK", "ASSET", "M1")
@@ -214,7 +227,9 @@ def test_show_search_summary(manager, mock_fetcher):
 
 def test_search_assets_success(manager, mock_fetcher):
     """Verifies search_assets calls fetcher.search and returns results."""
-    mock_fetcher.search.return_value = pd.DataFrame({"symbol": ["AAPL"], "name": ["Apple Inc"], "exchange": ["NASDAQ"]})
+    mock_fetcher.search.return_value = pd.DataFrame(
+        {"symbol": ["AAPL"], "name": ["Apple Inc"], "exchange": ["NASDAQ"]}
+    )
     # Testing search for MOCK source
     df = manager.search_assets(source="MOCK", query="AAPL")
     mock_fetcher.search.assert_called_with(query="AAPL", exchange=None)

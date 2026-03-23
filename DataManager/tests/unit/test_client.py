@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+
 from datamanager.client import DataManagerClient
 
 
@@ -71,7 +72,9 @@ def test_get_data_save_file(client, tmp_path):
         mock_get.return_value.content = pq_data.getvalue()
         mock_get.return_value.raise_for_status = MagicMock()
 
-        res_path = client.get_data("DUKASCOPY", "EURUSD", "M1", save_path=str(save_path))
+        res_path = client.get_data(
+            "DUKASCOPY", "EURUSD", "M1", save_path=str(save_path)
+        )
         assert res_path == str(save_path)
         assert save_path.exists()
 

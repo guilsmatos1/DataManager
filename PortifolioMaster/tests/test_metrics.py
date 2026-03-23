@@ -1,6 +1,10 @@
 import pandas as pd
 import polars as pl
-from portifoliomaster.services.metrics import clean_mt5_numeric_string, compute_vector_metrics
+
+from portifoliomaster.services.metrics import (
+    clean_mt5_numeric_string,
+    compute_vector_metrics,
+)
 
 
 def test_compute_vector_metrics_simple():

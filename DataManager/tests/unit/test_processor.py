@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+
 from datamanager.db.processor import DataProcessor
 
 
@@ -56,7 +57,9 @@ def test_missing_columns():
     dates = pd.date_range(start="2023-01-01", periods=5, freq="1min")
     df = pd.DataFrame({"Price": [1, 2, 3, 4, 5]}, index=dates)
     processor = DataProcessor()
-    with pytest.raises(ValueError, match="The DataFrame does not contain valid OHLC columns"):
+    with pytest.raises(
+        ValueError, match="The DataFrame does not contain valid OHLC columns"
+    ):
         processor.resample_ohlc(df, "H1")
 
 

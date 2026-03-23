@@ -4,7 +4,11 @@ import os
 import numpy as np
 import pandas as pd
 import polars as pl
-from portifoliomaster.services.optimization import BruteForceEngine, compute_batch_performance
+
+from portifoliomaster.services.optimization import (
+    BruteForceEngine,
+    compute_batch_performance,
+)
 from portifoliomaster.services.portfolio import PortfolioManager
 from portifoliomaster.utils.mt5_parser import MT5ReportParser
 

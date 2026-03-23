@@ -68,7 +68,9 @@ DATA_DIR = "~/Downloads/Data/HISTDATA/"
 # %%
 path = Path(DATA_DIR).expanduser()
 raw_files = [
-    f for f in path.iterdir() if f.is_file() and (f.suffix == ".csv" or f.name.endswith(".csv.gz"))
+    f
+    for f in path.iterdir()
+    if f.is_file() and (f.suffix == ".csv" or f.name.endswith(".csv.gz"))
 ]
 assert raw_files, f"Unable to find any CSV files in directory {path}"
 raw_files

@@ -35,7 +35,11 @@ def setup_logger(name: str = "DataManager") -> logging.Logger:
 
     # --- Console: human-readable ---
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(logging.Formatter(fmt="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"))
+    console_handler.setFormatter(
+        logging.Formatter(
+            fmt="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"
+        )
+    )
     logger.addHandler(console_handler)
 
     # --- File: structured JSON ---
