@@ -6,6 +6,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
+import pyarrow.parquet as pq
+
+
+def _pyarrow_to_datetime(val) -> datetime:
+    """Convert a pyarrow scalar or Python value to a datetime."""
+    if val is None:
+        return datetime.min
+    if isinstance(val, datetime):
+        return val
+    if hasattr(val, "as_py"):
+        val = val.as_py()
+    if isinstance(val, datetime):
+        return val
+    # pyarrow timestamps stored as int64 ns since epoch
+    return datetime.fromtimestamp(val / 1e9, tz=UTC)
 
 
 @contextmanager
@@ -281,7 +296,7 @@ class StorageManager:
 
         try:
             if self.format == ".parquet":
-                df.to_parquet(temp_path, engine="fastparquet")
+                df.to_parquet(temp_path, engine="pyarrow")
             else:
                 df.to_csv(temp_path)
             temp_path.replace(file_path)
@@ -299,6 +314,13 @@ class StorageManager:
 
         with _file_lock(file_path):
             existing_df = self.load_data(source, asset, timeframe)
+            # Normalize timezone: strip tz from existing if df has tz, or vice-versa
+            if existing_df.index.tz is not None and df.index.tz is None:
+                df = df.copy()
+                df.index = df.index.tz_localize(existing_df.index.tz)
+            elif existing_df.index.tz is None and df.index.tz is not None:
+                existing_df = existing_df.copy()
+                existing_df.index = existing_df.index.tz_localize(df.index.tz)
             combined_df = pd.concat([existing_df, df])
             combined_df = combined_df[~combined_df.index.duplicated(keep="last")]
             self.save_data(combined_df, source, asset, timeframe)
@@ -311,7 +333,7 @@ class StorageManager:
                 f"Database not found: {source} -> {asset} ({timeframe})"
             )
         if self.format == ".parquet":
-            return pd.read_parquet(file_path, engine="fastparquet")
+            return pd.read_parquet(file_path, engine="pyarrow")
         return pd.read_csv(file_path, index_col=0, parse_dates=True)
 
     def delete_database(
@@ -350,11 +372,67 @@ class StorageManager:
         except OSError:
             return False
 
+    def _get_parquet_stats(self, file_path: Path) -> dict:
+        """Extract row count and date range from Parquet metadata without loading data.
+
+        Uses pyarrow ParquetFile metadata (row group statistics) to get min/max
+        values of the datetime index without reading the full column into memory.
+        """
+        pf = pq.ParquetFile(file_path)
+        num_rows = pf.metadata.num_rows
+
+        # Find the datetime index column in the schema
+        schema = pf.schema_arrow
+        dt_col_idx = None
+        for i, field in enumerate(schema):
+            field_name = field.name.lower()
+            if field_name in ("datetime", "date", "time", "index"):
+                dt_col_idx = i
+                break
+        if dt_col_idx is None:
+            # Fallback: first column is typically the index
+            dt_col_idx = 0
+
+        # Read min/max from row group statistics (never loads full column)
+        row_group = pf.metadata.row_group(0)
+        col_meta = row_group.column(dt_col_idx)
+        stats = col_meta.statistics
+
+        if stats and stats.has_min_max:
+            start_ts = _pyarrow_to_datetime(stats.min)
+            end_ts = _pyarrow_to_datetime(stats.max)
+            start_date = str(start_ts)
+            end_date = str(end_ts)
+        else:
+            # Fallback: read only the datetime column (still cheaper than full df)
+            table = pf.read_row_group(0, columns=[schema.field(dt_col_idx).name])
+            dt_values = table.column(0)
+            start_date = str(dt_values[0].as_py())
+            end_date = str(dt_values[-1].as_py())
+
+        return {"rows": num_rows, "start_date": start_date, "end_date": end_date}
+
     def get_database_info(self, source: str, asset: str, timeframe: str) -> dict:
         """Return metadata for a specific database."""
         file_path = self._get_path(source, asset, timeframe)
         if not file_path.exists():
             return {"status": "Not Found"}
+
+        file_size_kb = round(file_path.stat().st_size / 1024, 2)
+
+        if self.format == ".parquet":
+            stats = self._get_parquet_stats(file_path)
+            return {
+                "source": source.lower(),
+                "asset": asset.upper(),
+                "timeframe": timeframe.upper(),
+                "rows": stats["rows"],
+                "start_date": stats["start_date"],
+                "end_date": stats["end_date"],
+                "file_size_kb": file_size_kb,
+            }
+
+        # Fallback for CSV (or if parquet stats fail)
         df = self.load_data(source, asset, timeframe)
         return {
             "source": source.lower(),
@@ -363,7 +441,7 @@ class StorageManager:
             "rows": len(df),
             "start_date": str(df.index.min()),
             "end_date": str(df.index.max()),
-            "file_size_kb": round(file_path.stat().st_size / 1024, 2),
+            "file_size_kb": file_size_kb,
         }
 
     # ------------------------------------------------------------------
