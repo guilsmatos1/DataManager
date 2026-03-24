@@ -24,7 +24,7 @@ class NotificationManager:
 
     async def send_message(self, text: str):
         """Send a generic text message to the configured Telegram chat."""
-        if not self.enabled or not self.token or not self.chat_id:
+        if not self.enabled or not self.token or not self.chat_id or not self.api_url:
             return
 
         payload = {"chat_id": self.chat_id, "text": text, "parse_mode": "HTML"}

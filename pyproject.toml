@@ -87,7 +87,7 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 88
-extend-exclude = ["BacktestEngine/docs", "BacktestEngine/docs.py", "projects/backtestengine/docs"]
+extend-exclude = ["projects/backtestengine/docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP", "S"]
@@ -120,7 +120,7 @@ trademachine-portifolio-master-cli = { workspace = true }
 trademachine-backtest-engine-cli = { workspace = true }
 
 [tool.deptry]
-exclude = ["DataManager", "PortifolioMaster", "BacktestEngine", "venv", ".venv", "tests", ".*_cache"]
+exclude = ["venv", ".venv", "tests", ".*_cache"]
 known_first_party = ["trademachine"]
 ignore = ["DEP002"]
 per_rule_ignores = { DEP001 = "trademachine", DEP003 = "pydantic|colorama|requests|python-dateutil" }
@@ -153,11 +153,14 @@ pythonpath = [
     "components/core/src",
     "components/mt5/src"
 ]
+markers = [
+    "integration: marks tests that require a real database (deselect with '-m not integration')",
+]
 
 [tool.mypy]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
-exclude = ["BacktestEngine/docs", "BacktestEngine/docs.py", "build", ".venv", "venv", "projects/backtestengine/docs"]
+exclude = ["build", ".venv", "venv", "projects/backtestengine/docs"]
 explicit_package_bases = true
 mypy_path = ["components/datamanager/src", "components/tradingmonitor/src", "components/portifoliomaster/src", "components/backtestengine/src", "bases/datamanager_api/src", "bases/datamanager_cli/src", "bases/trading_monitor_dashboard/src", "bases/trading_monitor_cli/src", "bases/trading_monitor_ingestion/src", "bases/portifolio_master_cli/src", "bases/backtest_engine_cli/src", "components/core/src", "components/mt5/src"]
 warn_return_any = true

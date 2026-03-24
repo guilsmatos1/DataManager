@@ -10,7 +10,8 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, S
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security.api_key import APIKeyHeader
 from trademachine.core.logger import LOGGER_NAME, setup_logger
-from trademachine.datamanager import __version__
+
+__version__ = "0.1.0"
 from trademachine.datamanager.core.config import settings
 from trademachine.datamanager.schemas import (
     DatabaseInfo,
@@ -236,8 +237,8 @@ def get_info(
 @app.get("/search", response_model=SearchResponse)
 def search_assets(
     source: str = "openbb",
-    query: str = None,
-    exchange: str = None,
+    query: str | None = None,
+    exchange: str | None = None,
     api_key: str = Depends(get_api_key),
 ):
     try:

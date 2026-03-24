@@ -173,13 +173,13 @@ def get_ingestion_status() -> dict:
         "connected_clients": len(clients),
         "clients": clients,
         "last_event_at": last,
-        "uptime_seconds": round(uptime, 1),
+        "uptime_seconds": round(uptime, 1) if uptime is not None else 0.0,
         "heartbeat": heartbeat_ts,
     }
 
 
 def ensure_strategy_exists(
-    db, strategy_id: str, symbol: str = None, account_id: str | None = None
+    db, strategy_id: str, symbol: str | None = None, account_id: str | None = None
 ):
     if strategy_id in EXISTING_STRATEGIES:
         if account_id:
@@ -229,7 +229,7 @@ def ensure_symbol_exists(db, symbol: str | None) -> None:
     EXISTING_SYMBOLS.add(symbol)
 
 
-def ensure_account_exists(db, account_id: str, broker: str = None):
+def ensure_account_exists(db, account_id: str, broker: str | None = None):
     if account_id in EXISTING_ACCOUNTS:
         return
     acc = db.query(Account).filter(Account.id == account_id).first()
@@ -441,7 +441,9 @@ def handle_client(conn: socket.socket, addr: tuple, on_event: Callable | None = 
         logger.info("MT5 disconnected", extra={"addr": f"{addr[0]}:{addr[1]}"})
 
 
-def start_server(host: str = None, port: int = None, on_event: Callable | None = None):
+def start_server(
+    host: str | None = None, port: int | None = None, on_event: Callable | None = None
+):
     """Start the TCP ingestion server. Accepts multiple concurrent MT5 connections."""
     global _server_start_time
     _server_start_time = datetime.now(UTC)
