@@ -1275,6 +1275,7 @@ def get_backtest_trade_stats(backtest_id: int, db: Session = Depends(get_db)):
 class TelegramSettings(BaseModel):
     bot_token: str | None = None
     chat_id: str | None = None
+    var_95_threshold: float | None = None
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
@@ -1284,9 +1285,11 @@ class TelegramSettings(BaseModel):
 def get_telegram_settings(db: Session = Depends(get_db)):
     bot_token = db.query(Setting).filter(Setting.key == "telegram_bot_token").first()
     chat_id = db.query(Setting).filter(Setting.key == "telegram_chat_id").first()
+    var_95_threshold = db.query(Setting).filter(Setting.key == "var_95_limit").first()
     return TelegramSettings(
         bot_token=bot_token.value if bot_token else None,
         chat_id=chat_id.value if chat_id else None,
+        var_95_threshold=float(var_95_threshold.value) if var_95_threshold else None,
     )
 
 
@@ -1295,13 +1298,14 @@ def update_telegram_settings(payload: TelegramSettings, db: Session = Depends(ge
     def _set(key, val):
         s = db.query(Setting).filter(Setting.key == key).first()
         if not s:
-            s = Setting(key=key, value=val)
+            s = Setting(key=key, value=str(val) if val is not None else "")
             db.add(s)
         else:
-            s.value = val
+            s.value = str(val) if val is not None else ""
 
     _set("telegram_bot_token", payload.bot_token)
     _set("telegram_chat_id", payload.chat_id)
+    _set("var_95_limit", payload.var_95_threshold)
     db.commit()
 
 

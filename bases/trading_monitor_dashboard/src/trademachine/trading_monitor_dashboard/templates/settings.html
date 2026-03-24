@@ -23,6 +23,11 @@
                 <label for="chat_id" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Chat ID</label>
                 <input type="text" id="chat_id" name="chat_id" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: -100123456789">
             </div>
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label for="var_95_threshold" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Limite VaR 95% (%)</label>
+                <input type="number" step="0.01" id="var_95_threshold" name="var_95_threshold" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: 5.0">
+                <small style="color:var(--text-muted); font-size:0.75rem;">Notificar no Telegram se o VaR diário exceder este valor.</small>
+            </div>
             <div id="settings-status" style="margin-bottom: 1rem; font-size: 0.85rem; display: none;"></div>
             <button type="submit" class="btn btn-primary" id="save-btn" style="background: var(--accent); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500;">Salvar Configurações</button>
         </form>
@@ -133,6 +138,7 @@
                 const data = await response.json();
                 document.getElementById('bot_token').value = data.bot_token || '';
                 document.getElementById('chat_id').value = data.chat_id || '';
+                document.getElementById('var_95_threshold').value = data.var_95_threshold || '';
             }
         } catch (error) {
             console.error('Error loading settings:', error);
@@ -150,7 +156,8 @@
 
         const payload = {
             bot_token: document.getElementById('bot_token').value,
-            chat_id: document.getElementById('chat_id').value
+            chat_id: document.getElementById('chat_id').value,
+            var_95_threshold: parseFloat(document.getElementById('var_95_threshold').value) || 0
         };
 
         try {
