@@ -93,6 +93,7 @@ class CcxtFetcher(BaseFetcher):
                     timeframe="1m",
                     since=current_ms,
                     limit=_CHUNK_SIZE,
+                    timeout_seconds=60,
                     exceptions=(OSError, ConnectionError, TimeoutError),
                 )
                 if not batch:

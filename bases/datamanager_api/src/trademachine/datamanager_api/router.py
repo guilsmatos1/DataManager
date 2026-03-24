@@ -1,14 +1,15 @@
 import io
 import logging
 import re
-import time
-from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Security
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security.api_key import APIKeyHeader
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from trademachine.core.logger import LOGGER_NAME, setup_logger
 
 __version__ = "0.1.0"
@@ -34,25 +35,16 @@ scheduler = SchedulerService(manager)
 logger = logging.getLogger(LOGGER_NAME)
 
 # ---------------------------------------------------------------------------
-# Rate limiting: sliding window (60 req / 60 s per IP)
+# Rate limiting: 60 req/min per IP (in-memory, single-worker).
 # ---------------------------------------------------------------------------
-_RATE_LIMIT = 60
-_RATE_WINDOW = 60.0
-_rate_store: dict[str, deque] = defaultdict(deque)
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 
-def _check_rate_limit(request: Request):
-    ip = request.client.host if request.client else "unknown"
-    now = time.monotonic()
-    window = _rate_store[ip]
-    # evict requests outside the rolling window
-    while window and window[0] <= now - _RATE_WINDOW:
-        window.popleft()
-    if len(window) >= _RATE_LIMIT:
-        raise HTTPException(
-            status_code=429, detail="Rate limit exceeded. Try again later."
-        )
-    window.append(now)
+def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    raise HTTPException(
+        status_code=429,
+        detail=f"Rate limit exceeded: {exc.detail}.",
+    )
 
 
 @asynccontextmanager
@@ -67,7 +59,13 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 
-app = FastAPI(title="DataManager Network API", version=__version__, lifespan=lifespan)
+app = FastAPI(
+    title="DataManager Network API",
+    version=__version__,
+    lifespan=lifespan,
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # --- Dashboard & health (no auth required) ---
@@ -130,7 +128,6 @@ def download_data(
     background_tasks: BackgroundTasks,
     request: Request,
     api_key: str = Depends(get_api_key),
-    _rl=Depends(_check_rate_limit),
 ):
     try:
         start_dt = (

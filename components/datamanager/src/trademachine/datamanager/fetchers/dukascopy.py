@@ -82,6 +82,7 @@ class DukascopyFetcher(BaseFetcher):
                     offer_side=OFFER_SIDE_BID,
                     start=chunk_start,
                     end=chunk_end,
+                    timeout_seconds=60,
                     exceptions=(OSError, ConnectionError, TimeoutError),
                 )
                 if df_chunk is not None and not df_chunk.empty:

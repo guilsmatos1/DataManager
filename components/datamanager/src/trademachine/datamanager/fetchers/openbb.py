@@ -36,6 +36,7 @@ class OpenBBFetcher(BaseFetcher):
             equity_api = obb.equity  # type: ignore[union-attr]
             res = with_retry(
                 equity_api.price.historical,
+                timeout_seconds=60,
                 exceptions=(OSError, ConnectionError, TimeoutError),
                 **kwargs,  # type: ignore[arg-type]
             )

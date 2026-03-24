@@ -70,6 +70,7 @@ class DataManager:
             current_start = current_end
 
         total_rows = 0
+        failed_chunks = 0
 
         with tqdm(total=len(chunks), desc=f"Downloading {asset}", unit="year") as pbar:
             for c_start, c_end in chunks:
@@ -81,8 +82,11 @@ class DataManager:
                             df_chunk, source, asset, timeframe="M1"
                         )
                         total_rows += len(df_chunk)
+                    else:
+                        failed_chunks += 1
 
                 except Exception as e:
+                    failed_chunks += 1
                     logger.error(
                         f"    [ERROR] Failed to fetch/save chunk {c_start.date()}: {e}"
                     )
@@ -93,8 +97,20 @@ class DataManager:
             logger.info(
                 f"Database {asset} (M1) download complete! Total: {total_rows:,} rows."
             )
+            if failed_chunks > 0:
+                logger.warning(
+                    f"    ⚠ {failed_chunks}/{len(chunks)} chunk(s) failed — "
+                    f"data may have gaps. Review errors above."
+                )
         else:
-            logger.error(f"No data was downloaded for {asset} (M1).")
+            logger.error(
+                f"No data was downloaded for {asset} (M1). "
+                f"All {len(chunks)} chunk(s) failed."
+            )
+            raise RuntimeError(
+                f"Download failed: all {len(chunks)} chunk(s) returned no data for "
+                f"{asset} via {source.upper()}. Check logs for details."
+            )
 
     def update_data(self, source: str, asset: str, timeframe: str = "M1"):
         """Updates the M1 database with new data, then rebuilds the requested timeframe.

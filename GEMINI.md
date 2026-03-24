@@ -1,6 +1,12 @@
 # TradeMachine Workspace (Polylith Architecture)
 
-`TradeMachine` é um monorepo para gestão de dados financeiros, monitoramento de trades, otimização de portfólios e backtesting, agora seguindo a **Arquitetura Polylith**.
+`TradeMachine` é um monorepo para gestão de dados financeiros, monitoramento de trades, otimização de portfólios e backtesting, seguindo a **Arquitetura Polylith**.
+
+**Projeto pessoal — decisões de design priorizam simplicidade sobre escalabilidade enterprise.**
+- **Usuário único** — sem multi-usuário, sem deploy comercial
+- Rate limiting em memória (sem Redis) — aceitável para single uvicorn worker
+- Sem requisitos de horizontal scaling ou caching distribuído
+- Simplicidade sobre completude de funcionalidades em todas as decisões arquiteturais
 
 ## Arquitetura Polylith
 
@@ -149,4 +155,4 @@ find . -type d -name ".mypy_cache" -exec rm -rf {} +
 
 ### Hierarquia de Contexto
 
-Este arquivo é a fonte da verdade para a arquitetura do monorepo. Instruções específicas de sub-projetos nos arquivos `GEMINI.md` locais (ex: `DataManager/GEMINI.md`) complementam este documento.
+Este arquivo é a fonte da verdade para a arquitetura do monorepo. Instruções específicas de sub-projetos nos arquivos `GEMINI.md` complementam este documento.
