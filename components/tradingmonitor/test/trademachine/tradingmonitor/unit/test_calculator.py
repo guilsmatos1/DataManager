@@ -36,7 +36,7 @@ def _make_deals(rows: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(records, index=pd.DatetimeIndex(index, tz="UTC"))
 
 
-def _make_equity(values: list[float], start: datetime = None) -> pd.DataFrame:
+def _make_equity(values: list[float], start: datetime | None = None) -> pd.DataFrame:
     """Build an equity DataFrame sampled every day."""
     if start is None:
         start = datetime(2024, 1, 1, tzinfo=UTC)
@@ -213,6 +213,40 @@ class TestProfitFactor:
         assert result["Profit Factor"] == pytest.approx(0.25)
 
 
+# ── Risk-Reward Ratio ──────────────────────────────────────────────────────────
+
+
+class TestRiskRewardRatio:
+    def test_risk_reward_ratio_with_wins_and_losses(self):
+        deals = _make_deals(
+            [
+                {"type": "BUY", "profit": 100.0},
+                {"type": "SELL", "profit": -50.0},
+                {"type": "BUY", "profit": 80.0},
+                {"type": "SELL", "profit": -40.0},
+            ]
+        )
+        result = calculate_metrics_from_df(deals, pd.DataFrame(), advanced=True)
+        assert "Risk-Reward Ratio" in result
+        assert result["Risk-Reward Ratio"] is not None
+        assert result["Risk-Reward Ratio"] > 0
+
+    def test_risk_reward_ratio_all_wins_returns_none(self):
+        deals = _make_deals([{"type": "BUY", "profit": 100.0}])
+        result = calculate_metrics_from_df(deals, pd.DataFrame(), advanced=True)
+        assert "Risk-Reward Ratio" in result
+
+    def test_risk_reward_ratio_all_losses_returns_none(self):
+        deals = _make_deals([{"type": "SELL", "profit": -100.0}])
+        result = calculate_metrics_from_df(deals, pd.DataFrame(), advanced=True)
+        assert "Risk-Reward Ratio" in result
+
+    def test_risk_reward_ratio_not_in_basic_metrics(self):
+        deals = _make_deals([{"type": "BUY", "profit": 100.0}])
+        result = calculate_metrics_from_df(deals, pd.DataFrame(), advanced=False)
+        assert "Risk-Reward Ratio" not in result
+
+
 # ── Risk metrics (require equity curve) ───────────────────────────────────────
 
 
@@ -232,7 +266,7 @@ class TestRiskMetrics:
     def test_max_drawdown_is_negative_or_zero_percent(self):
         deals = _make_deals([{"type": "BUY", "profit": 10.0} for _ in range(5)])
         # Equity goes up then sharply down — creates a drawdown
-        values = [10000, 11000, 12000, 9000, 9500, 10000]
+        values = [10000.0, 11000.0, 12000.0, 9000.0, 9500.0, 10000.0]
         equity = _make_equity(values)
         result = calculate_metrics_from_df(deals, equity)
         if "Max Drawdown (%)" in result and result["Max Drawdown (%)"] is not None:

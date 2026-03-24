@@ -33,10 +33,11 @@ class OpenBBFetcher(BaseFetcher):
         try:
             from openbb import obb
 
+            equity_api = obb.equity  # type: ignore[union-attr]
             res = with_retry(
-                obb.equity.price.historical,
+                equity_api.price.historical,
                 exceptions=(OSError, ConnectionError, TimeoutError),
-                **kwargs,
+                **kwargs,  # type: ignore[arg-type]
             )
             df = res.to_df()
         except Exception as e:
@@ -64,12 +65,13 @@ class OpenBBFetcher(BaseFetcher):
         """Search assets via OpenBB API."""
         from openbb import obb
 
-        search_args = {}
+        search_args: dict[str, str] = {}
         if query:
             search_args["query"] = query
         if "exchange" in kwargs:
             search_args["exchange"] = kwargs["exchange"]
 
-        res = obb.equity.search(**search_args)
+        equity_api = obb.equity  # type: ignore[union-attr]
+        res = equity_api.search(**search_args)
         df = res.to_df()
         return df

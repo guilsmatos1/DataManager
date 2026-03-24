@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import UTC
 from io import BytesIO
 from typing import Any
@@ -15,17 +17,20 @@ class DataManagerClient:
         self,
         base_url: str = "http://127.0.0.1:8686",
         api_key: str = "YOUR_API_KEY_HERE",
+        timeout: float = 30.0,
     ):
         self.base_url = base_url.rstrip("/")
         # Uses a Session to automatically load the custom header
         self.session = requests.Session()
         self.session.headers.update({"X-API-Key": api_key})
+        self.session.timeout = timeout
 
     def _handle_response(self, response: requests.Response) -> dict[str, Any]:
         """Extracts JSON from response, raising exception on HTTP failure"""
         try:
             response.raise_for_status()
-            return response.json()
+            json_data: dict[str, Any] = response.json()
+            return json_data
         except requests.exceptions.HTTPError as e:
             error_detail = None
             try:
@@ -86,11 +91,12 @@ class DataManagerClient:
         res = self.session.post(f"{self.base_url}/rebuild")
         return self._handle_response(res)
 
-    def list_databases(self) -> list[dict]:
+    def list_databases(self) -> list[dict[str, Any]]:
         """Returns a list of dictionaries detailing all databases."""
         res = self.session.get(f"{self.base_url}/list")
         data = self._handle_response(res)
-        return data.get("databases", [])
+        databases = data.get("databases", [])
+        return list(databases)
 
     def info(self, source: str, asset: str, timeframe: str) -> dict:
         """Returns metadata of the specified database on the server."""
@@ -133,6 +139,28 @@ class DataManagerClient:
         df.index = df.index.tz_convert(timezone)
         return df
 
+    def _parse_parquet(self, content: bytes) -> pd.DataFrame:
+        """Parse parquet content into a DataFrame."""
+        file_obj = BytesIO(content)
+        return pd.read_parquet(file_obj, engine="fastparquet")
+
+    def _save_dataframe(
+        self,
+        df: pd.DataFrame,
+        path: str,
+        fmt: str,
+        timezone: str | None,
+    ) -> None:
+        """Save DataFrame to file, applying timezone conversion if specified."""
+        if timezone:
+            df = self._apply_timezone(df, timezone)
+        if fmt == "csv":
+            df.to_csv(path)
+        elif fmt == "parquet":
+            df.to_parquet(path, engine="fastparquet")
+        else:
+            raise ValueError("Format not supported. Choose 'parquet' or 'csv'.")
+
     def get_data(
         self,
         source: str,
@@ -158,28 +186,18 @@ class DataManagerClient:
 
         if save_path:
             save_format = save_format.lower()
-            if save_format == "csv":
-                file_obj = BytesIO(res.content)
-                df = pd.read_parquet(file_obj, engine="fastparquet")
-                if timezone:
-                    df = self._apply_timezone(df, timezone)
-                df.to_csv(save_path)
-            elif save_format == "parquet":
-                if timezone:
-                    file_obj = BytesIO(res.content)
-                    df = pd.read_parquet(file_obj, engine="fastparquet")
-                    df = self._apply_timezone(df, timezone)
-                    df.to_parquet(save_path, engine="fastparquet")
-                else:
-                    with open(save_path, "wb") as f:
-                        f.write(res.content)
+            if save_format == "parquet" and not timezone:
+                # Direct write for parquet without timezone conversion
+                with open(save_path, "wb") as f:
+                    f.write(res.content)
             else:
-                raise ValueError("Format not supported. Choose 'parquet' or 'csv'.")
+                # Parse and save (applies to CSV always, parquet with timezone)
+                df = self._parse_parquet(res.content)
+                self._save_dataframe(df, save_path, save_format, timezone)
             return save_path
         else:
             # Loads the binary into memory for pandas to natively read the parquet
-            file_obj = BytesIO(res.content)
-            df = pd.read_parquet(file_obj, engine="fastparquet")
+            df = self._parse_parquet(res.content)
             if timezone:
                 df = self._apply_timezone(df, timezone)
             return df

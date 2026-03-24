@@ -64,11 +64,62 @@ class MT5ReportParser:
             f"(tried: {', '.join(encodings)})."
         )
 
+    def _parse_period_cell(self, text: str, metadata: dict) -> None:
+        match = re.search(DATE_RANGE_PATTERN, text)
+        if match:
+            metadata["Periodo_Inicial"] = match.group("start")
+            metadata["Periodo_Final"] = match.group("end")
+        else:
+            metadata["Periodo_Inicial"] = text
+            metadata["Periodo_Final"] = text
+        tf = re.split(r"[\s(]", text)[0].strip()
+        if tf and not re.match(r"\d{4}\.\d{2}\.\d{2}", tf):
+            metadata["Timeframe"] = tf
+
+    def _process_metadata_row(
+        self, label_text: str, cells: list, metadata: dict
+    ) -> None:
+        if "Expert Advisor" in label_text or "Expert" in label_text:
+            for cell in cells[1:]:
+                text = cell.get_text(strip=True)
+                if text:
+                    metadata["Expert_Advisor"] = text
+                    break
+
+        elif label_text in ("Ativo:", "Symbol:"):
+            for cell in cells[1:]:
+                text = cell.get_text(strip=True)
+                if text:
+                    metadata["Ativo"] = text
+                    break
+
+        elif "Período:" in label_text or "Period:" in label_text:
+            for cell in cells[1:]:
+                text = cell.get_text(strip=True)
+                if text:
+                    self._parse_period_cell(text, metadata)
+                    break
+
+        elif "Timeframe:" in label_text or label_text == "Timeframe":
+            for cell in cells[1:]:
+                text = cell.get_text(strip=True)
+                if text:
+                    tf = re.split(r"[\s(]", text)[0].strip()
+                    if tf:
+                        metadata["Timeframe"] = tf
+                    break
+
+        elif not label_text:
+            for cell in cells[1:]:
+                text = cell.get_text(strip=True)
+                if text.startswith("MagicNumber="):
+                    metadata["Magic_Number"] = text.split("=", 1)[1]
+
     def extract_metadata(self, soup: BeautifulSoup) -> dict:
         """Extracts metadata from the 'Configuration' section of the report.
         Optimized to stop searching once configuration data is found.
         """
-        metadata = {}
+        metadata: dict[str, str] = {}
         # Configuration is always at the top, no need to search all <tr>s
         rows = soup.find_all("tr", limit=100)
 
@@ -76,54 +127,8 @@ class MT5ReportParser:
             cells = row.find_all("td")
             if len(cells) < 2:
                 continue
-
             label_text = cells[0].get_text(strip=True)
-
-            if "Expert Advisor" in label_text or "Expert" in label_text:
-                for cell in cells[1:]:
-                    text = cell.get_text(strip=True)
-                    if text:
-                        metadata["Expert_Advisor"] = text
-                        break
-
-            elif label_text in ("Ativo:", "Symbol:"):
-                for cell in cells[1:]:
-                    text = cell.get_text(strip=True)
-                    if text:
-                        metadata["Ativo"] = text
-                        break
-
-            elif "Período:" in label_text or "Period:" in label_text:
-                for cell in cells[1:]:
-                    text = cell.get_text(strip=True)
-                    if text:
-                        match = re.search(DATE_RANGE_PATTERN, text)
-                        if match:
-                            metadata["Periodo_Inicial"] = match.group("start")
-                            metadata["Periodo_Final"] = match.group("end")
-                        else:
-                            metadata["Periodo_Inicial"] = text
-                            metadata["Periodo_Final"] = text
-                        # Timeframe is the token before any space or '('
-                        tf = re.split(r"[\s(]", text)[0].strip()
-                        if tf and not re.match(r"\d{4}\.\d{2}\.\d{2}", tf):
-                            metadata["Timeframe"] = tf
-                        break
-
-            elif "Timeframe:" in label_text or label_text == "Timeframe":
-                for cell in cells[1:]:
-                    text = cell.get_text(strip=True)
-                    if text:
-                        tf = re.split(r"[\s(]", text)[0].strip()
-                        if tf:
-                            metadata["Timeframe"] = tf
-                        break
-
-            elif not label_text:
-                for cell in cells[1:]:
-                    text = cell.get_text(strip=True)
-                    if text.startswith("MagicNumber="):
-                        metadata["Magic_Number"] = text.split("=", 1)[1]
+            self._process_metadata_row(label_text, cells, metadata)
 
         return metadata
 

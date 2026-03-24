@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 
 import numpy as np
@@ -21,6 +23,45 @@ __all__ = [
     "calculate_concurrency",
     "calculate_portfolio_metrics",
 ]
+
+
+def _compute_qs_stats(daily_returns: pd.Series, advanced: bool) -> dict:
+    stats: dict = {}
+    try:
+        stats["Max Drawdown (%)"] = qs.stats.max_drawdown(daily_returns) * 100
+    except (ValueError, ZeroDivisionError):
+        stats["Max Drawdown (%)"] = None
+
+    try:
+        stats["Recovery Factor"] = qs.stats.recovery_factor(daily_returns)
+    except (ValueError, ZeroDivisionError):
+        stats["Recovery Factor"] = None
+
+    try:
+        stats["Sharpe Ratio"] = qs.stats.sharpe(daily_returns)
+    except (ValueError, ZeroDivisionError):
+        stats["Sharpe Ratio"] = None
+
+    if advanced:
+        try:
+            stats["Sortino Ratio"] = qs.stats.sortino(daily_returns)
+        except (ValueError, ZeroDivisionError):
+            stats["Sortino Ratio"] = None
+        try:
+            stats["Calmar Ratio"] = qs.stats.calmar(daily_returns)
+        except (ValueError, ZeroDivisionError):
+            stats["Calmar Ratio"] = None
+        try:
+            var_5 = float(np.percentile(daily_returns, 5))
+            stats["VaR 95% (daily)"] = var_5
+            stats["CVaR 95% (daily)"] = float(
+                daily_returns[daily_returns <= var_5].mean()
+            )
+        except (ValueError, ZeroDivisionError):
+            stats["VaR 95% (daily)"] = None
+            stats["CVaR 95% (daily)"] = None
+
+    return stats
 
 
 def calculate_metrics_from_df(
@@ -73,40 +114,9 @@ def calculate_metrics_from_df(
 
         if len(daily_equity) > 1:
             daily_returns = daily_equity.pct_change().dropna()
-
             if not daily_returns.empty:
-                try:
-                    metrics["Max Drawdown (%)"] = (
-                        qs.stats.max_drawdown(daily_returns) * 100
-                    )
-                except (ValueError, ZeroDivisionError):
-                    metrics["Max Drawdown (%)"] = None
-                try:
-                    metrics["Recovery Factor"] = qs.stats.recovery_factor(daily_returns)
-                except (ValueError, ZeroDivisionError):
-                    metrics["Recovery Factor"] = None
-                try:
-                    metrics["Sharpe Ratio"] = qs.stats.sharpe(daily_returns)
-                except (ValueError, ZeroDivisionError):
-                    metrics["Sharpe Ratio"] = None
-
-                if advanced:
-                    try:
-                        metrics["Sortino Ratio"] = qs.stats.sortino(daily_returns)
-                    except (ValueError, ZeroDivisionError):
-                        metrics["Sortino Ratio"] = None
-                    try:
-                        metrics["Calmar Ratio"] = qs.stats.calmar(daily_returns)
-                    except (ValueError, ZeroDivisionError):
-                        metrics["Calmar Ratio"] = None
-                    try:
-                        var_5 = float(np.percentile(daily_returns, 5))
-                        metrics["VaR 95% (daily)"] = var_5
-                        cvar_5 = float(daily_returns[daily_returns <= var_5].mean())
-                        metrics["CVaR 95% (daily)"] = cvar_5
-                    except (ValueError, ZeroDivisionError):
-                        metrics["VaR 95% (daily)"] = None
-                        metrics["CVaR 95% (daily)"] = None
+                stats = _compute_qs_stats(daily_returns, advanced)
+                metrics.update(stats)
 
     if advanced:
         # Risk-Reward Ratio (Expectativa): avg_win / abs(avg_loss)

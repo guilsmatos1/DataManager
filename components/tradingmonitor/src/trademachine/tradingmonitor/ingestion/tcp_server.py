@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pydantic import ValidationError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from trademachine.tradingmonitor.config import settings
 from trademachine.tradingmonitor.db.database import SessionLocal
 from trademachine.tradingmonitor.db.models import (
@@ -130,7 +131,7 @@ def _get_or_lookup_backtest_id(db, strategy_id: str, run_id: int) -> int | None:
         )
         if bt:
             _active_backtests[key] = bt.id
-            return bt.id
+            return int(bt.id)
         return None
 
 
@@ -307,6 +308,46 @@ def _configure_keepalive(conn: socket.socket) -> None:
     conn.settimeout(300)  # 5 minutes — drops stale / frozen connections
 
 
+def _process_message(
+    db: Session,
+    topic: str,
+    data: dict,
+    conn_account_id: str | None,
+    conn_strategies_seen: set[str],
+) -> str | None:
+    """Processes a parsed message and returns the updated conn_account_id if applicable."""
+    if topic == "DEAL":
+        valid_deal = DealSchema(**data)
+        conn_strategies_seen.add(str(valid_deal.magic))
+        process_deal(db, valid_deal, account_id=conn_account_id)
+    elif topic == "EQUITY":
+        valid_eq = EquitySchema(**data)
+        if str(valid_eq.magic) != "0":
+            conn_strategies_seen.add(str(valid_eq.magic))
+        process_equity(db, valid_eq, account_id=conn_account_id)
+    elif topic == "ACCOUNT":
+        valid_acc = AccountSchema(**data)
+        process_account(db, valid_acc)
+        new_account_id = str(valid_acc.login)
+        _link_strategies_to_account(db, conn_strategies_seen, new_account_id)
+        return new_account_id
+    elif topic == "BACKTEST_START":
+        valid_bs = BacktestStartSchema(**data)
+        process_backtest_start(db, valid_bs)
+    elif topic == "BACKTEST_DEAL":
+        valid_bd = BacktestDealSchema(**data)
+        process_backtest_deal(db, valid_bd)
+    elif topic == "BACKTEST_EQUITY":
+        valid_be = BacktestEquitySchema(**data)
+        process_backtest_equity(db, valid_be)
+    elif topic == "BACKTEST_END":
+        valid_bend = BacktestEndSchema(**data)
+        process_backtest_end(db, valid_bend)
+    else:
+        logger.warning("Unknown topic: %s", topic, extra={"topic": topic})
+    return conn_account_id
+
+
 def handle_client(conn: socket.socket, addr: tuple, on_event: Callable | None = None):
     """Handle a single MT5 connection in its own thread."""
     _configure_keepalive(conn)
@@ -362,40 +403,9 @@ def handle_client(conn: socket.socket, addr: tuple, on_event: Callable | None = 
                 topic = topic.upper()
                 try:
                     data = json.loads(json_data)
-
-                    if topic == "DEAL":
-                        valid = DealSchema(**data)
-                        conn_strategies_seen.add(str(valid.magic))
-                        process_deal(db, valid, account_id=conn_account_id)
-                    elif topic == "EQUITY":
-                        valid = EquitySchema(**data)
-                        if str(valid.magic) != "0":
-                            conn_strategies_seen.add(str(valid.magic))
-                        process_equity(db, valid, account_id=conn_account_id)
-                    elif topic == "ACCOUNT":
-                        valid = AccountSchema(**data)
-                        process_account(db, valid)
-                        conn_account_id = str(valid.login)
-                        _link_strategies_to_account(
-                            db, conn_strategies_seen, conn_account_id
-                        )
-                    elif topic == "BACKTEST_START":
-                        valid = BacktestStartSchema(**data)
-                        process_backtest_start(db, valid)
-                    elif topic == "BACKTEST_DEAL":
-                        valid = BacktestDealSchema(**data)
-                        process_backtest_deal(db, valid)
-                    elif topic == "BACKTEST_EQUITY":
-                        valid = BacktestEquitySchema(**data)
-                        process_backtest_equity(db, valid)
-                    elif topic == "BACKTEST_END":
-                        valid = BacktestEndSchema(**data)
-                        process_backtest_end(db, valid)
-                    else:
-                        logger.warning(
-                            "Unknown topic: %s", topic, extra={"topic": topic}
-                        )
-                        continue
+                    conn_account_id = _process_message(
+                        db, topic, data, conn_account_id, conn_strategies_seen
+                    )
 
                     db.commit()
                     update_heartbeat()

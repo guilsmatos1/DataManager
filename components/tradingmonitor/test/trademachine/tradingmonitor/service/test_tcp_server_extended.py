@@ -302,3 +302,66 @@ class TestInvalidateCache:
         EXISTING_STRATEGIES.add("keep_me")
         invalidate_cache()
         assert "keep_me" in EXISTING_STRATEGIES
+
+
+# ── handle_client exceptions ──────────────────────────────────────────────────
+
+
+class TestHandleClientExceptions:
+    def test_handle_client_timeout_error(self):
+        """TimeoutError should break the loop cleanly."""
+        conn = MagicMock()
+        conn.recv.side_effect = TimeoutError("Idle")
+
+        with patch("trademachine.tradingmonitor.ingestion.tcp_server.SessionLocal"):
+            from trademachine.tradingmonitor.ingestion.tcp_server import handle_client
+
+            handle_client(conn, ("127.0.0.1", 12345))
+
+        # It should exit gracefully
+        conn.close.assert_called_once()
+
+    def test_handle_client_os_error(self):
+        """OSError should break the loop cleanly."""
+        conn = MagicMock()
+        conn.recv.side_effect = OSError("Connection reset by peer")
+
+        with patch("trademachine.tradingmonitor.ingestion.tcp_server.SessionLocal"):
+            from trademachine.tradingmonitor.ingestion.tcp_server import handle_client
+
+            handle_client(conn, ("127.0.0.1", 12345))
+
+        conn.close.assert_called_once()
+
+    def test_handle_client_buffer_overflow(self):
+        """Exceeding max buffer should close connection."""
+        conn = MagicMock()
+        conn.recv.return_value = b"x" * 110_000
+
+        with patch("trademachine.tradingmonitor.ingestion.tcp_server.SessionLocal"):
+            from trademachine.tradingmonitor.ingestion.tcp_server import handle_client
+
+            handle_client(conn, ("127.0.0.1", 12345))
+
+        # Should read until overflow, break loop, and close
+        assert conn.recv.call_count > 1
+        conn.close.assert_called_once()
+
+    def test_handle_client_json_decode_error(self):
+        """Invalid JSON should hit warning and not crash thread."""
+        conn = MagicMock()
+        # First yield bad JSON, then yield empty string to end loop
+        conn.recv.side_effect = [b"DEAL {bad_json}\n", b""]
+
+        with (
+            patch("trademachine.tradingmonitor.ingestion.tcp_server.SessionLocal") as _,
+            patch(
+                "trademachine.tradingmonitor.ingestion.tcp_server._save_dead_letter"
+            ) as mock_save,
+        ):
+            from trademachine.tradingmonitor.ingestion.tcp_server import handle_client
+
+            handle_client(conn, ("127.0.0.1", 12345))
+
+        mock_save.assert_called_once()
+        conn.close.assert_called_once()

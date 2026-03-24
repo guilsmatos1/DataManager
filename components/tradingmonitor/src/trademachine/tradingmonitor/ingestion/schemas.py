@@ -20,6 +20,12 @@ class _TimestampMixin(BaseModel):
 
 
 class _TradingFieldsMixin(BaseModel):
+    """Mixin that validates trading fields. Subclasses must define type, volume, price."""
+
+    type: str
+    volume: float
+    price: float
+
     @model_validator(mode="after")
     def _validate_trading_fields(self) -> "_TradingFieldsMixin":
         if self.type != "balance":

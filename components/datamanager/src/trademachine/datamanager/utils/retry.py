@@ -1,19 +1,25 @@
+from __future__ import annotations
+
 import logging
 import time
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from trademachine.core.logger import LOGGER_NAME
 
 logger = logging.getLogger(LOGGER_NAME)
 
+F = TypeVar("F", bound=Callable[..., Any])
+
 
 def with_retry(
-    func,
-    *args,
+    func: Callable[..., Any],
+    *args: Any,
     max_attempts: int = 3,
     base_delay: float = 1.0,
-    exceptions: tuple = (Exception,),
-    **kwargs,
-):
+    exceptions: tuple[type[Exception], ...] = (Exception,),
+    **kwargs: Any,
+) -> Any:
     """Calls func(*args, **kwargs) with exponential backoff retry.
 
     Retries up to max_attempts times on the given exception types.
