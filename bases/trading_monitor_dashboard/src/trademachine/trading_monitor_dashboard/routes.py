@@ -5,6 +5,7 @@ import logging
 import math
 from datetime import UTC, datetime
 
+import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 from fastapi import (
@@ -56,7 +57,10 @@ from trademachine.tradingmonitor.db.models import (
     Strategy,
     Symbol,
 )
-from trademachine.tradingmonitor.ingestion.tcp_server import invalidate_cache
+from trademachine.tradingmonitor.ingestion.tcp_server import (
+    invalidate_cache,
+    send_kill_command,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +148,23 @@ def _compute_max_drawdown(equity_series: list[float]) -> float | None:
     return max_dd
 
 
+def _compute_var(equity_series: list[float], percentile: float = 95) -> float | None:
+    """Compute Value at Risk (VaR) from equity series using daily returns."""
+    if len(equity_series) < 5:
+        return None
+
+    # Calculate daily returns (approximate if equity_series is daily)
+    returns = np.diff(equity_series) / equity_series[:-1]
+    returns = returns[~np.isnan(returns) & ~np.isinf(returns)]
+
+    if len(returns) < 5:
+        return None
+
+    # VaR is the negative of the specified percentile of the returns
+    var = -np.percentile(returns, 100 - percentile)
+    return float(var)
+
+
 router = APIRouter(prefix="/api", dependencies=[Depends(get_api_key)])
 
 
@@ -175,19 +196,8 @@ def get_summary(db: Session = Depends(get_db)):
     )
 
 
-@router.get("/real")
-def get_real_overview(db: Session = Depends(get_db)):
-    """Aggregated view of all real-account strategies: metrics, equity curve, floating P&L."""
-    real_strategies = (
-        db.query(Strategy).filter(Strategy.real_account.is_(True)).all()  # noqa: E712
-    )
-    if not real_strategies:
-        return {"strategies": [], "totals": {"net_profit": 0.0, "floating_pnl": 0.0}}
-
-    sids = [s.id for s in real_strategies]
-
-    # Net profit per strategy (BUY/SELL only)
-    np_map: dict[str, float] = dict(
+def _get_net_profits(db: Session, sids: list[str]) -> dict[str, float]:
+    rows = (
         db.query(Deal.strategy_id, func.sum(Deal.profit + Deal.commission + Deal.swap))
         .filter(
             Deal.strategy_id.in_(sids), Deal.type.in_([DealType.BUY, DealType.SELL])
@@ -195,18 +205,19 @@ def get_real_overview(db: Session = Depends(get_db)):
         .group_by(Deal.strategy_id)
         .all()
     )
+    return {str(r[0]): float(r[1] or 0.0) for r in rows}
 
-    # Latest equity point per strategy
+
+def _get_latest_equity(db: Session, sids: list[str]) -> dict[str, EquityCurve]:
     subq = (
         db.query(
-            EquityCurve.strategy_id,
-            func.max(EquityCurve.timestamp).label("latest_ts"),
+            EquityCurve.strategy_id, func.max(EquityCurve.timestamp).label("latest_ts")
         )
         .filter(EquityCurve.strategy_id.in_(sids))
         .group_by(EquityCurve.strategy_id)
         .subquery()
     )
-    latest_eq_rows = (
+    rows = (
         db.query(EquityCurve)
         .join(
             subq,
@@ -215,41 +226,58 @@ def get_real_overview(db: Session = Depends(get_db)):
         )
         .all()
     )
-    latest_eq_map: dict[str, EquityCurve] = {r.strategy_id: r for r in latest_eq_rows}
+    return {str(r.strategy_id): r for r in rows}
 
-    # Equity curves for the chart (all points, balance+equity per strategy)
-    equity_rows = (
+
+def _get_equity_by_sid(
+    db: Session, sids: list[str]
+) -> dict[str, list[dict[str, object]]]:
+    rows = (
         db.query(EquityCurve)
         .filter(EquityCurve.strategy_id.in_(sids))
         .order_by(EquityCurve.timestamp)
         .all()
     )
-    equity_by_sid: dict[str, list] = {sid: [] for sid in sids}
-    for row in equity_rows:
-        equity_by_sid[row.strategy_id].append(
+    result: dict[str, list[dict[str, object]]] = {sid: [] for sid in sids}
+    for row in rows:
+        result[str(row.strategy_id)].append(
             {
                 "ts": row.timestamp.isoformat(),
                 "balance": float(row.balance),
                 "equity": float(row.equity),
             }
         )
+    return result
+
+
+@router.get("/real")
+def get_real_overview(db: Session = Depends(get_db)):
+    """Aggregated view of all real-account strategies: metrics, equity curve, floating P&L."""
+    real_strategies = db.query(Strategy).filter(Strategy.real_account.is_(True)).all()  # noqa: E712
+    if not real_strategies:
+        return {"strategies": [], "totals": {"net_profit": 0.0, "floating_pnl": 0.0}}
+
+    sids = [str(s.id) for s in real_strategies]
+    np_map = _get_net_profits(db, sids)
+    latest_eq_map = _get_latest_equity(db, sids)
+    equity_by_sid = _get_equity_by_sid(db, sids)
 
     result = []
     total_np = 0.0
     total_floating = 0.0
 
     for s in real_strategies:
-        np_val = float(np_map.get(s.id) or 0)
-        eq = latest_eq_map.get(s.id)
+        np_val = np_map.get(str(s.id), 0.0)
+        eq = latest_eq_map.get(str(s.id))
         balance = float(eq.balance) if eq else None
         equity = float(eq.equity) if eq else None
         floating = (
             (equity - balance) if (equity is not None and balance is not None) else 0.0
         )
 
-        # Max drawdown from equity series
-        equity_series = [p["equity"] for p in equity_by_sid[s.id]]
+        equity_series = [float(str(p["equity"])) for p in equity_by_sid[str(s.id)]]
         max_dd = _compute_max_drawdown(equity_series)
+        var_95 = _compute_var(equity_series, percentile=95)
 
         ret_dd = None
         ib = float(s.initial_balance) if s.initial_balance else None
@@ -265,12 +293,13 @@ def get_real_overview(db: Session = Depends(get_db)):
                 "max_drawdown_pct": round(max_dd * 100, 2)
                 if max_dd is not None
                 else None,
+                "var_95_pct": round(var_95 * 100, 2) if var_95 is not None else None,
                 "ret_dd": ret_dd,
                 "floating_pnl": round(floating, 2),
                 "balance": round(balance, 2) if balance is not None else None,
                 "equity": round(equity, 2) if equity is not None else None,
                 "initial_balance": ib,
-                "equity_curve": equity_by_sid[s.id],
+                "equity_curve": equity_by_sid[str(s.id)],
             }
         )
         total_np += np_val
@@ -829,6 +858,25 @@ def get_portfolio_correlation(
     return calculate_correlation_matrix(strategy_ids, period, since=_ensure_utc(since))
 
 
+@router.get("/portfolios/{portfolio_id}/correlation/dynamic")
+def get_portfolio_dynamic_correlation(
+    portfolio_id: int,
+    window_days: int = Query(default=30, ge=3, le=365),
+    db: Session = Depends(get_db),
+):
+    p = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    strategy_ids = [s.id for s in p.strategies]
+    if len(strategy_ids) < 2:
+        return {"error": "Need at least 2 strategies in this portfolio."}
+    from trademachine.tradingmonitor.metrics.calculator import (
+        calculate_dynamic_correlation,
+    )
+
+    return calculate_dynamic_correlation(strategy_ids, window_days)
+
+
 @router.get("/portfolios/{portfolio_id}/concurrency")
 def get_portfolio_concurrency(
     portfolio_id: int,
@@ -951,6 +999,26 @@ def _inject_bt_net_profit(bt: Backtest, db: Session) -> BacktestResponse:
     )
     r.net_profit = round(float(net), 2) if net is not None else None
     return r
+
+
+@router.post("/strategies/{strategy_id}/kill")
+def kill_strategy(strategy_id: str, db: Session = Depends(get_db)):
+    """Send a kill command to the active connection for this strategy."""
+    s = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    success = send_kill_command(strategy_id)
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to send kill command. Strategy might not be connected.",
+        )
+
+    return {
+        "status": "success",
+        "message": f"Kill command sent to strategy {strategy_id}",
+    }
 
 
 @router.get(
@@ -1521,6 +1589,207 @@ def _parse_deal_type(raw: str) -> DealType | None:
     return _DEAL_TYPE_MAP.get(raw.strip().lower())
 
 
+async def _process_single_html_upload(
+    upload_file: UploadFile,
+    magic_number_override: str | None,
+    db: Session,
+    parser: MT5ReportParser,
+) -> dict:
+    result: dict = {
+        "filename": upload_file.filename,
+        "status": "ok",
+        "backtest_id": None,
+        "deals_imported": 0,
+        "error": None,
+    }
+    try:
+        content = await upload_file.read()
+        soup = _soup_from_bytes(content)
+        metadata = parser.extract_metadata(soup)
+
+        magic_number = magic_number_override or metadata.get("Magic_Number")
+        if not magic_number:
+            raise ValueError("Magic Number não encontrado no relatório")
+
+        strategy = db.query(Strategy).filter(Strategy.id == magic_number).first()
+        if not strategy:
+            raise ValueError(
+                f"Estratégia com Magic Number {magic_number} não cadastrada"
+            )
+
+        report_name = metadata.get("Expert_Advisor")
+        if report_name:
+            strategy.name = report_name
+        if not strategy.timeframe:
+            report_tf = metadata.get("Timeframe")
+            if report_tf:
+                strategy.timeframe = report_tf
+        db.flush()
+
+        client_run_id = int(hashlib.md5(content).hexdigest()[:15], 16)  # noqa: S324
+
+        existing = (
+            db.query(Backtest)
+            .filter(
+                Backtest.strategy_id == magic_number,
+                Backtest.client_run_id == client_run_id,
+            )
+            .first()
+        )
+        if existing:
+            db.commit()
+            result["status"] = "skipped"
+            result["backtest_id"] = existing.id
+            result["error"] = "Relatório já importado anteriormente"
+            return result
+
+        deals_df = parser.extract_table_by_header(soup, "Transações")
+        if deals_df.empty:
+            deals_df = parser.extract_table_by_header(soup, "Deals")
+            if not deals_df.empty:
+                deals_df = deals_df.rename(columns=_EN_TO_PT_COLUMNS)
+        if deals_df.empty:
+            raise ValueError("Tabela de transações não encontrada no relatório")
+
+        deals_df = parser._clean_deals_df(deals_df)
+
+        col_ts = _first_col(deals_df, "Horário", "Time")
+        col_ticket = _first_col(deals_df, "Posição", "Position", "Ticket", "#")
+        col_symbol = _first_col(deals_df, "Símbolo", "Symbol")
+        col_tipo = _first_col(deals_df, "Tipo", "Type")
+        col_vol = _first_col(deals_df, "Volume")
+        col_price = _first_col(deals_df, "Preço", "Price")
+        col_comm = _first_col(deals_df, "Comissão", "Commission")
+        col_swap = _first_col(deals_df, "Swap")
+        col_profit = _first_col(deals_df, "Lucro", "Profit")
+        col_balance = _first_col(deals_df, "Saldo", "Balance")
+
+        if not col_ts or not col_tipo:
+            raise ValueError("Colunas obrigatórias (Horário, Tipo) não encontradas")
+
+        initial_balance: float | None = None
+        if col_balance is not None:
+            balance_rows = deals_df[
+                deals_df[col_tipo].str.strip().str.lower() == "balance"
+            ]
+            if not balance_rows.empty:
+                initial_balance = _to_float(balance_rows.iloc[0][col_balance])
+
+        start_dt = _parse_mt5_date(metadata.get("Periodo_Inicial"))
+        end_dt = _parse_mt5_date(metadata.get("Periodo_Final"))
+        symbol = metadata.get("Ativo")
+
+        backtest = Backtest(
+            strategy_id=magic_number,
+            client_run_id=client_run_id,
+            name=metadata.get("Expert_Advisor") or upload_file.filename,
+            symbol=symbol,
+            start_date=start_dt,
+            end_date=end_dt,
+            initial_balance=initial_balance,
+            status="complete",
+        )
+        db.add(backtest)
+        db.flush()
+
+        deals_imported = _import_deals_from_dataframe(
+            db,
+            backtest.id,
+            deals_df,
+            symbol,
+            col_ts,
+            col_ticket,
+            col_symbol,
+            col_tipo,
+            col_vol,
+            col_price,
+            col_comm,
+            col_swap,
+            col_profit,
+            col_balance,
+        )
+
+        db.commit()
+        result["backtest_id"] = backtest.id
+        result["deals_imported"] = deals_imported
+
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Erro ao processar upload: %s", upload_file.filename)
+        result["status"] = "error"
+        result["error"] = str(exc)
+
+    return result
+
+
+def _import_deals_from_dataframe(
+    db: Session,
+    backtest_id: int,
+    deals_df: pd.DataFrame,
+    symbol: str | None,
+    col_ts: str | None,
+    col_ticket: str | None,
+    col_symbol: str | None,
+    col_tipo: str | None,
+    col_vol: str | None,
+    col_price: str | None,
+    col_comm: str | None,
+    col_swap: str | None,
+    col_profit: str | None,
+    col_balance: str | None,
+) -> int:
+    deals_imported = 0
+    for _, row in deals_df.iterrows():
+        ts_raw = row[col_ts] if col_ts else ""
+        ts = _parse_mt5_timestamp(str(ts_raw))
+        if ts is None:
+            continue
+
+        tipo_raw = str(row[col_tipo]) if col_tipo else ""
+        deal_type = _parse_deal_type(tipo_raw)
+        if deal_type is None:
+            continue
+
+        ticket = _to_int(row[col_ticket]) if col_ticket else 0
+        row_symbol = (
+            str(row[col_symbol]).strip()
+            if col_symbol and row[col_symbol]
+            else (symbol or "")
+        )
+        volume = _to_float(row[col_vol]) if col_vol else 0.0
+        price = _to_float(row[col_price]) if col_price else 0.0
+        commission = _to_float(row[col_comm]) if col_comm else 0.0
+        swap = _to_float(row[col_swap]) if col_swap else 0.0
+        profit = _to_float(row[col_profit]) if col_profit else 0.0
+        balance = _to_float(row[col_balance]) if col_balance else 0.0
+
+        db.add(
+            BacktestDeal(
+                backtest_id=backtest_id,
+                timestamp=ts,
+                ticket=ticket,
+                symbol=row_symbol,
+                type=deal_type,
+                volume=volume,
+                price=price,
+                profit=profit,
+                commission=commission,
+                swap=swap,
+            )
+        )
+        if col_balance:
+            db.add(
+                BacktestEquity(
+                    backtest_id=backtest_id,
+                    timestamp=ts,
+                    balance=balance,
+                    equity=balance,
+                )
+            )
+        deals_imported += 1
+    return deals_imported
+
+
 @router.post("/backtests/upload-html")
 async def upload_backtest_html(
     files: list[UploadFile] = File(...),
@@ -1536,171 +1805,9 @@ async def upload_backtest_html(
     results = []
 
     for upload_file in files:
-        result: dict = {
-            "filename": upload_file.filename,
-            "status": "ok",
-            "backtest_id": None,
-            "deals_imported": 0,
-            "error": None,
-        }
-
-        try:
-            content = await upload_file.read()
-            soup = _soup_from_bytes(content)
-            metadata = parser.extract_metadata(soup)
-
-            magic_number = magic_number_override or metadata.get("Magic_Number")
-            if not magic_number:
-                raise ValueError("Magic Number não encontrado no relatório")
-
-            strategy = db.query(Strategy).filter(Strategy.id == magic_number).first()
-            if not strategy:
-                raise ValueError(
-                    f"Estratégia com Magic Number {magic_number} não cadastrada"
-                )
-
-            # Always sync strategy name and timeframe from report
-            report_name = metadata.get("Expert_Advisor")
-            if report_name:
-                strategy.name = report_name
-            if not strategy.timeframe:
-                report_tf = metadata.get("Timeframe")
-                if report_tf:
-                    strategy.timeframe = report_tf
-            db.flush()  # push strategy changes into the transaction
-
-            # Deterministic run ID based on file content
-            client_run_id = int(hashlib.md5(content).hexdigest()[:15], 16)  # noqa: S324
-
-            existing = (
-                db.query(Backtest)
-                .filter(
-                    Backtest.strategy_id == magic_number,
-                    Backtest.client_run_id == client_run_id,
-                )
-                .first()
-            )
-            if existing:
-                db.commit()  # persist strategy name/timeframe even for skipped backtests
-                result["status"] = "skipped"
-                result["backtest_id"] = existing.id
-                result["error"] = "Relatório já importado anteriormente"
-                results.append(result)
-                continue
-
-            # Extract deals table (PT then EN fallback)
-            deals_df = parser.extract_table_by_header(soup, "Transações")
-            if deals_df.empty:
-                deals_df = parser.extract_table_by_header(soup, "Deals")
-                if not deals_df.empty:
-                    deals_df = deals_df.rename(columns=_EN_TO_PT_COLUMNS)
-            if deals_df.empty:
-                raise ValueError("Tabela de transações não encontrada no relatório")
-
-            deals_df = parser._clean_deals_df(deals_df)
-
-            # Locate column names (differ between PT/EN MT5 versions)
-            col_ts = _first_col(deals_df, "Horário", "Time")
-            col_ticket = _first_col(deals_df, "Posição", "Position", "Ticket", "#")
-            col_symbol = _first_col(deals_df, "Símbolo", "Symbol")
-            col_tipo = _first_col(deals_df, "Tipo", "Type")
-            col_vol = _first_col(deals_df, "Volume")
-            col_price = _first_col(deals_df, "Preço", "Price")
-            col_comm = _first_col(deals_df, "Comissão", "Commission")
-            col_swap = _first_col(deals_df, "Swap")
-            col_profit = _first_col(deals_df, "Lucro", "Profit")
-            col_balance = _first_col(deals_df, "Saldo", "Balance")
-
-            if not col_ts or not col_tipo:
-                raise ValueError("Colunas obrigatórias (Horário, Tipo) não encontradas")
-
-            # Extract initial balance from first BALANCE row
-            initial_balance: float | None = None
-            if col_balance is not None:
-                balance_rows = deals_df[
-                    deals_df[col_tipo].str.strip().str.lower() == "balance"
-                ]
-                if not balance_rows.empty:
-                    initial_balance = _to_float(balance_rows.iloc[0][col_balance])
-
-            start_dt = _parse_mt5_date(metadata.get("Periodo_Inicial"))
-            end_dt = _parse_mt5_date(metadata.get("Periodo_Final"))
-            symbol = metadata.get("Ativo")
-
-            backtest = Backtest(
-                strategy_id=magic_number,
-                client_run_id=client_run_id,
-                name=metadata.get("Expert_Advisor") or upload_file.filename,
-                symbol=symbol,
-                start_date=start_dt,
-                end_date=end_dt,
-                initial_balance=initial_balance,
-                status="complete",
-            )
-            db.add(backtest)
-            db.flush()
-
-            deals_imported = 0
-            for _, row in deals_df.iterrows():
-                ts_raw = row[col_ts] if col_ts else ""
-                ts = _parse_mt5_timestamp(str(ts_raw))
-                if ts is None:
-                    continue
-
-                tipo_raw = str(row[col_tipo]) if col_tipo else ""
-                deal_type = _parse_deal_type(tipo_raw)
-                if deal_type is None:
-                    continue
-
-                ticket = _to_int(row[col_ticket]) if col_ticket else 0
-                row_symbol = (
-                    str(row[col_symbol]).strip()
-                    if col_symbol and row[col_symbol]
-                    else (symbol or "")
-                )
-                volume = _to_float(row[col_vol]) if col_vol else 0.0
-                price = _to_float(row[col_price]) if col_price else 0.0
-                commission = _to_float(row[col_comm]) if col_comm else 0.0
-                swap = _to_float(row[col_swap]) if col_swap else 0.0
-                profit = _to_float(row[col_profit]) if col_profit else 0.0
-                balance = _to_float(row[col_balance]) if col_balance else 0.0
-
-                db.add(
-                    BacktestDeal(
-                        backtest_id=backtest.id,
-                        timestamp=ts,
-                        ticket=ticket,
-                        symbol=row_symbol,
-                        type=deal_type,
-                        volume=volume,
-                        price=price,
-                        profit=profit,
-                        commission=commission,
-                        swap=swap,
-                    )
-                )
-                # Equity point: use balance column value
-                if col_balance:
-                    db.add(
-                        BacktestEquity(
-                            backtest_id=backtest.id,
-                            timestamp=ts,
-                            balance=balance,
-                            equity=balance,
-                        )
-                    )
-                deals_imported += 1
-
-            db.commit()
-            result["backtest_id"] = backtest.id
-            result["deals_imported"] = deals_imported
-
-        except Exception as exc:
-            db.rollback()
-            logger.exception("Erro ao processar upload: %s", upload_file.filename)
-            result["status"] = "error"
-            result["error"] = str(exc)
-
+        result = await _process_single_html_upload(
+            upload_file, magic_number_override, db, parser
+        )
         results.append(result)
 
     return results
