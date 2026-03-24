@@ -5,6 +5,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import quantstats as qs
+from trademachine.tradingmonitor.metrics.plugins import PLUGINS
 from trademachine.tradingmonitor.metrics.repository import (
     get_strategy_deals,
     get_strategy_equity_curve,
@@ -20,48 +21,10 @@ __all__ = [
     "calculate_metrics_from_df",
     "calculate_metrics",
     "calculate_correlation_matrix",
+    "calculate_dynamic_correlation",
     "calculate_concurrency",
     "calculate_portfolio_metrics",
 ]
-
-
-def _compute_qs_stats(daily_returns: pd.Series, advanced: bool) -> dict:
-    stats: dict = {}
-    try:
-        stats["Max Drawdown (%)"] = qs.stats.max_drawdown(daily_returns) * 100
-    except (ValueError, ZeroDivisionError):
-        stats["Max Drawdown (%)"] = None
-
-    try:
-        stats["Recovery Factor"] = qs.stats.recovery_factor(daily_returns)
-    except (ValueError, ZeroDivisionError):
-        stats["Recovery Factor"] = None
-
-    try:
-        stats["Sharpe Ratio"] = qs.stats.sharpe(daily_returns)
-    except (ValueError, ZeroDivisionError):
-        stats["Sharpe Ratio"] = None
-
-    if advanced:
-        try:
-            stats["Sortino Ratio"] = qs.stats.sortino(daily_returns)
-        except (ValueError, ZeroDivisionError):
-            stats["Sortino Ratio"] = None
-        try:
-            stats["Calmar Ratio"] = qs.stats.calmar(daily_returns)
-        except (ValueError, ZeroDivisionError):
-            stats["Calmar Ratio"] = None
-        try:
-            var_5 = float(np.percentile(daily_returns, 5))
-            stats["VaR 95% (daily)"] = var_5
-            stats["CVaR 95% (daily)"] = float(
-                daily_returns[daily_returns <= var_5].mean()
-            )
-        except (ValueError, ZeroDivisionError):
-            stats["VaR 95% (daily)"] = None
-            stats["CVaR 95% (daily)"] = None
-
-    return stats
 
 
 def calculate_metrics_from_df(
@@ -107,27 +70,29 @@ def calculate_metrics_from_df(
         "Win Rate (%)": win_rate,
     }
 
+    # Prepare data for plugins
+    daily_returns = None
     if not equity_df.empty:
-        # Optimization: Resample to daily frequency before calculating complex stats
-        # Forward fill to handle weekends/holidays properly for the equity curve
         daily_equity = equity_df["equity"].resample("D").last().ffill().dropna()
-
         if len(daily_equity) > 1:
             daily_returns = daily_equity.pct_change().dropna()
-            if not daily_returns.empty:
-                stats = _compute_qs_stats(daily_returns, advanced)
-                metrics.update(stats)
 
-    if advanced:
-        # Risk-Reward Ratio (Expectativa): avg_win / abs(avg_loss)
-        wins = trading_deals[trading_deals["profit"] > 0]["profit"]
-        losses = trading_deals[trading_deals["profit"] < 0]["profit"]
-        if not wins.empty and not losses.empty:
-            avg_win = wins.mean()
-            avg_loss = abs(losses.mean())
-            metrics["Risk-Reward Ratio"] = avg_win / avg_loss if avg_loss > 0 else None
-        else:
-            metrics["Risk-Reward Ratio"] = None
+    # Execute Plugins
+    for plugin_cls in PLUGINS:
+        plugin = plugin_cls()
+        if not advanced and plugin.is_advanced:
+            continue
+
+        try:
+            val = plugin.calculate(trading_deals, daily_returns)
+            if val is not None:
+                metrics[plugin.name] = val
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).error(
+                f"Error calculating metric {plugin.name}: {e}"
+            )
 
     ordered_keys = [
         "Total Trades",
@@ -227,6 +192,46 @@ def calculate_correlation_matrix(
             "most_positive": most_positive,
             "most_negative": most_negative,
         },
+    }
+
+
+def calculate_dynamic_correlation(
+    strategy_ids: list[str], window_days: int = 30
+) -> dict:
+    """Calculate rolling correlation across strategies for a specific window in days."""
+    series = {}
+    for sid in strategy_ids:
+        df = get_strategy_deals(sid)
+        if df.empty:
+            continue
+        # Use daily P&L for correlation
+        net = df["profit"] + df["commission"] + df["swap"]
+        series[sid] = net.resample("D").sum()
+
+    if len(series) < 2:
+        return {"error": "Not enough data for dynamic correlation."}
+
+    combined = pd.DataFrame(series).fillna(0)
+
+    # Only keep the last N days
+    if not combined.empty:
+        last_date = combined.index.max()
+        start_date = last_date - pd.Timedelta(days=window_days)
+        combined = combined[combined.index >= start_date]
+
+    if len(combined) < 3:
+        return {"error": f"Not enough data in the last {window_days} days."}
+
+    corr = combined.corr()
+    strategies = list(corr.columns)
+
+    return {
+        "window_days": window_days,
+        "strategies": strategies,
+        "matrix": [
+            [None if pd.isna(v) else round(float(v), 3) for v in row]
+            for row in corr.values
+        ],
     }
 
 
@@ -336,3 +341,75 @@ def calculate_portfolio_metrics(strategy_ids: list[str]) -> dict:
         combined_equity_df = pd.DataFrame()
 
     return calculate_metrics_from_df(combined_deals, combined_equity_df)
+
+
+def generate_qs_report(
+    strategy_id: str | None = None,
+    portfolio_id: int | None = None,
+    output_path: str = "report.html",
+    title: str = "Performance Report",
+) -> str | None:
+    """Generate a QuantStats HTML report for a strategy or portfolio."""
+    from trademachine.tradingmonitor.db.database import SessionLocal
+    from trademachine.tradingmonitor.db.models import Portfolio
+    from trademachine.tradingmonitor.metrics.repository import (
+        get_strategy_equity_curve,
+    )
+
+    equity_df = pd.DataFrame()
+
+    if strategy_id:
+        equity_df = get_strategy_equity_curve(strategy_id)
+        if title == "Performance Report":
+            title = f"Strategy Report: {strategy_id}"
+    elif portfolio_id:
+        db = SessionLocal()
+        try:
+            portfolio = db.query(Portfolio).get(portfolio_id)
+            if not portfolio:
+                return None
+
+            strategy_ids = [s.id for s in portfolio.strategies]
+            if not strategy_ids:
+                return None
+
+            all_equity = []
+            for sid in strategy_ids:
+                df_e = get_strategy_equity_curve(sid)
+                if not df_e.empty:
+                    all_equity.append(df_e["equity"])
+
+            if all_equity:
+                equity_combined_df = pd.concat(all_equity, axis=1).sort_index()
+                equity_combined_df = equity_combined_df.ffill(limit=5).fillna(0)
+                portfolio_equity = equity_combined_df.sum(axis=1)
+                equity_df = pd.DataFrame(portfolio_equity, columns=["equity"])
+
+            if title == "Performance Report":
+                title = f"Portfolio Report: {portfolio.name}"
+        finally:
+            db.close()
+
+    if equity_df.empty:
+        return None
+
+    # Resample to daily equity and get returns
+    daily_equity = equity_df["equity"].resample("D").last().ffill().dropna()
+    if len(daily_equity) < 2:
+        return None
+
+    daily_returns = daily_equity.pct_change().dropna()
+
+    if daily_returns.empty:
+        return None
+
+    # QuantStats report
+    qs.reports.html(
+        daily_returns,
+        output=output_path,
+        title=title,
+        download_filename=output_path,
+        show_browser=False,
+    )
+
+    return output_path

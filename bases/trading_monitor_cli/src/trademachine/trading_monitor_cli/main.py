@@ -303,6 +303,46 @@ def portfolio_report(portfolio_id: int):
 
 
 @app.command()
+def send_report(
+    strategy_id: str | None = typer.Option(None, help="Strategy ID"),
+    portfolio_id: int | None = typer.Option(None, help="Portfolio ID"),
+    output: str = typer.Option("report.html", help="Output filename"),
+):
+    """Generate and send QuantStats report to Telegram."""
+    if not strategy_id and not portfolio_id:
+        typer.echo(
+            "Error: Either --strategy-id or --portfolio-id must be provided.", err=True
+        )
+        raise typer.Exit(1)
+
+    from trademachine.tradingmonitor.metrics.calculator import generate_qs_report
+
+    typer.echo("Generating report...")
+    report_path = generate_qs_report(
+        strategy_id=strategy_id, portfolio_id=portfolio_id, output_path=output
+    )
+
+    if not report_path or not os.path.exists(report_path):
+        typer.echo("Error: Failed to generate report (possibly no data).", err=True)
+        return
+
+    typer.echo(f"Report generated: {report_path}")
+
+    if settings.telegram_token and settings.telegram_chat_id:
+        typer.echo("Sending to Telegram...")
+        caption = "📊 <b>Performance Report</b>"
+        if strategy_id:
+            caption += f"\nStrategy: <code>{strategy_id}</code>"
+        elif portfolio_id:
+            caption += f"\nPortfolio ID: <code>{portfolio_id}</code>"
+
+        notifier.send_document_sync(report_path, caption=caption)
+        typer.echo("Report sent successfully.")
+    else:
+        typer.echo("Skipping Telegram send (Token/ChatID not configured).")
+
+
+@app.command()
 def start_dashboard(
     host: str = typer.Option("127.0.0.1", help="Dashboard host"),
     port: int = typer.Option(8000, help="Dashboard port"),

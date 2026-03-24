@@ -36,6 +36,27 @@ class NotificationManager:
         except Exception as e:
             logger.error(f"Failed to send Telegram message: {e}")
 
+    async def send_document(self, file_path: str, caption: str | None = None):
+        """Send a document (file) to the configured Telegram chat."""
+        if not self.enabled or not self.token or not self.chat_id:
+            return
+
+        url = f"https://api.telegram.org/bot{self.token}/sendDocument"
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                with open(file_path, "rb") as f:
+                    files = {"document": f}
+                    data = {"chat_id": self.chat_id}
+                    if caption:
+                        data["caption"] = caption
+                        data["parse_mode"] = "HTML"
+
+                    response = await client.post(url, data=data, files=files)
+                    response.raise_for_status()
+        except Exception as e:
+            logger.error(f"Failed to send Telegram document: {e}")
+
     def send_message_sync(self, text: str):
         """Synchronous wrapper for send_message to be used in non-async contexts."""
         if not self.enabled:
@@ -52,6 +73,21 @@ class NotificationManager:
         except RuntimeError:
             # No event loop in this thread, use asyncio.run
             asyncio.run(self.send_message(text))
+
+    def send_document_sync(self, file_path: str, caption: str | None = None):
+        """Synchronous wrapper for send_document."""
+        if not self.enabled:
+            return
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    self.send_document(file_path, caption), loop
+                )
+            else:
+                loop.run_until_complete(self.send_document(file_path, caption))
+        except RuntimeError:
+            asyncio.run(self.send_document(file_path, caption))
 
     def notify_new_strategy(self, strategy_id: str, symbol: str | None = None):
         """Notify when a new strategy is registered."""
