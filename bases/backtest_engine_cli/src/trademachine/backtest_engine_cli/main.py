@@ -24,6 +24,7 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.persistence.wranglers import BarDataWrangler
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.trading.strategy import Strategy, StrategyConfig
+from trademachine.core.logger import setup_logger
 
 # DataManager path
 from trademachine.datamanager.client import DataManagerClient
@@ -249,4 +250,5 @@ def main():
 
 
 if __name__ == "__main__":
+    setup_logger()
     main()

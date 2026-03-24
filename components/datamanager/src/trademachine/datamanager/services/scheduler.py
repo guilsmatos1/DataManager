@@ -6,8 +6,9 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from trademachine.core.logger import LOGGER_NAME
 
-logger = logging.getLogger("DataManager")
+logger = logging.getLogger(LOGGER_NAME)
 
 
 class SchedulerService:
@@ -17,7 +18,7 @@ class SchedulerService:
     Jobs are persisted to ``persist_path`` (JSON) so they survive restarts.
     """
 
-    def __init__(self, manager, persist_path: Path = None):
+    def __init__(self, manager, persist_path: Path | None = None):
         self._manager = manager
         self._scheduler = BackgroundScheduler(daemon=True)
         self._jobs: dict[str, dict] = {}
@@ -101,8 +102,8 @@ class SchedulerService:
         source: str,
         asset: str,
         timeframe: str = "M1",
-        cron: str = None,
-        interval_minutes: int = None,
+        cron: str | None = None,
+        interval_minutes: int | None = None,
     ) -> dict:
         """Schedule a recurring update_data call for source/asset/timeframe.
 

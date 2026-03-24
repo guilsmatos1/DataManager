@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Security
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security.api_key import APIKeyHeader
+from trademachine.core.logger import LOGGER_NAME, setup_logger
 from trademachine.datamanager import __version__
 from trademachine.datamanager.core.config import settings
 from trademachine.datamanager.schemas import (
@@ -29,7 +30,7 @@ from trademachine.datamanager.services.scheduler import SchedulerService
 
 manager = DataManager()
 scheduler = SchedulerService(manager)
-logger = logging.getLogger("DataManager")
+logger = logging.getLogger(LOGGER_NAME)
 
 # ---------------------------------------------------------------------------
 # Rate limiting: sliding window (60 req / 60 s per IP)
@@ -55,6 +56,7 @@ def _check_rate_limit(request: Request):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logger()
     if not settings.is_api_key_configured:
         logger.warning(
             "⚠  DATAMANAGER_API_KEY is not set — the API is running UNPROTECTED!"

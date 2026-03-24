@@ -2,6 +2,7 @@ import os
 from datetime import UTC, datetime
 
 import typer
+from trademachine.core.logger import setup_logger
 from trademachine.tradingmonitor.config import settings
 from trademachine.tradingmonitor.db.database import SessionLocal, init_db
 from trademachine.tradingmonitor.db.models import Account, Portfolio, Strategy
@@ -9,6 +10,12 @@ from trademachine.tradingmonitor.ingestion.tcp_server import HEARTBEAT_FILE
 from trademachine.tradingmonitor.utils.notifications import notifier
 
 app = typer.Typer(help="MT5 Trading Monitor CLI")
+
+
+@app.callback()
+def callback():
+    """MT5 Trading Monitor CLI."""
+    setup_logger()
 
 
 @app.command()

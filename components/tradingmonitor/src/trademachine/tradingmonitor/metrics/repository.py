@@ -3,9 +3,10 @@ from datetime import datetime
 
 import pandas as pd
 from sqlalchemy import text
+from trademachine.core.logger import LOGGER_NAME
 from trademachine.tradingmonitor.db.database import engine
 
-logger = logging.getLogger("Repository")
+logger = logging.getLogger(LOGGER_NAME)
 
 
 def get_strategy_deals(strategy_id: str, since: datetime | None = None) -> pd.DataFrame:

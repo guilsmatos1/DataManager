@@ -53,3 +53,29 @@ forbidden_modules =
     trademachine.trading_monitor_ingestion
     trademachine.portifolio_master_cli
     trademachine.backtest_engine_cli
+
+[importlinter:contract:core-logic-isolation]
+name = Core logic isolation
+type = forbidden
+source_modules = trademachine.core
+forbidden_modules =
+    trademachine.datamanager_api
+    trademachine.datamanager_cli
+    trademachine.trading_monitor_dashboard
+    trademachine.trading_monitor_cli
+    trademachine.trading_monitor_ingestion
+    trademachine.portifolio_master_cli
+    trademachine.backtest_engine_cli
+
+[importlinter:contract:mt5-logic-isolation]
+name = MT5 logic isolation
+type = forbidden
+source_modules = trademachine.mt5
+forbidden_modules =
+    trademachine.datamanager_api
+    trademachine.datamanager_cli
+    trademachine.trading_monitor_dashboard
+    trademachine.trading_monitor_cli
+    trademachine.trading_monitor_ingestion
+    trademachine.portifolio_master_cli
+    trademachine.backtest_engine_cli

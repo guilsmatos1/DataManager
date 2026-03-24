@@ -125,7 +125,7 @@ class CcxtFetcher(BaseFetcher):
         df = df[~df.index.duplicated(keep="last")]
         return df
 
-    def search(self, query: str = None, **kwargs) -> pd.DataFrame:
+    def search(self, query: str | None = None, **kwargs) -> pd.DataFrame:
         """Return available markets for the given exchange (default: binance)."""
         exchange_id = kwargs.get("exchange", "binance").lower()
         exchange = self._get_exchange(exchange_id)

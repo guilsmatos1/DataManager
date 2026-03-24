@@ -3,8 +3,9 @@ import json
 import logging
 
 from fastapi import WebSocket
+from trademachine.core.logger import LOGGER_NAME
 
-logger = logging.getLogger("WebSocket")
+logger = logging.getLogger(LOGGER_NAME)
 
 
 class ConnectionManager:

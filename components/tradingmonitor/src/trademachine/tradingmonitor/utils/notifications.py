@@ -3,9 +3,10 @@ import logging
 from datetime import datetime
 
 import httpx
+from trademachine.core.logger import LOGGER_NAME
 from trademachine.tradingmonitor.config import settings
 
-logger = logging.getLogger("Notifications")
+logger = logging.getLogger(LOGGER_NAME)
 
 
 class NotificationManager:

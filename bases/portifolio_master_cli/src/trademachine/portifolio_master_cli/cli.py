@@ -13,6 +13,8 @@ import shlex
 
 import polars as pl
 from tqdm import tqdm
+from trademachine.core.logger import LOGGER_NAME
+from trademachine.mt5.parser import MT5ReportParser
 from trademachine.portifoliomaster.core.exceptions import (
     DataError,
     OptimizationError,
@@ -25,8 +27,6 @@ from trademachine.portifoliomaster.services.adherence import (
 )
 from trademachine.portifoliomaster.services.optimization import BruteForceEngine
 from trademachine.portifoliomaster.services.portfolio import PortfolioManager
-from trademachine.portifoliomaster.utils.logger import LOGGER_NAME
-from trademachine.portifoliomaster.utils.mt5_parser import MT5ReportParser
 from trademachine.portifoliomaster.utils.visualizer import (
     generate_adherence_report_html,
     generate_montecarlo_report_html,

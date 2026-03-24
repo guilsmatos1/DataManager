@@ -17,6 +17,8 @@ dependencies = [
 
 [tool.polylith.projects]
 "trademachine/portifoliomaster" = "components"
+"trademachine/core" = "components"
+"trademachine/mt5" = "components"
 "trademachine/portifolio_master_cli" = "bases"
 
 [tool.uv.sources]

@@ -11,6 +11,7 @@ dependencies = [
 
 [tool.polylith.projects]
 "trademachine/backtestengine" = "components"
+"trademachine/core" = "components"
 "trademachine/backtest_engine_cli" = "bases"
 
 [tool.uv.sources]

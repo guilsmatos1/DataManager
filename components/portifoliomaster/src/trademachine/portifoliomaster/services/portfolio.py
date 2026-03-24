@@ -11,11 +11,11 @@ import logging
 import numpy as np
 import pandas as pd
 import polars as pl
+from trademachine.core.logger import LOGGER_NAME
 from trademachine.portifoliomaster.services.metrics import (
     clean_mt5_numeric_string,
     compute_vector_metrics,
 )
-from trademachine.portifoliomaster.utils.logger import LOGGER_NAME
 
 logger = logging.getLogger(LOGGER_NAME)
 

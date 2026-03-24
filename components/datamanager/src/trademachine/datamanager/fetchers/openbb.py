@@ -60,7 +60,7 @@ class OpenBBFetcher(BaseFetcher):
 
         return df
 
-    def search(self, query: str = None, **kwargs) -> pd.DataFrame:
+    def search(self, query: str | None = None, **kwargs) -> pd.DataFrame:
         """Search assets via OpenBB API."""
         from openbb import obb
 

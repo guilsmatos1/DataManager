@@ -3,6 +3,8 @@ import inspect
 import pkgutil
 from pathlib import Path
 
+from trademachine.core.logger import LOGGER_NAME
+
 from .base import BaseFetcher
 
 
@@ -38,7 +40,7 @@ def get_all_fetchers():
             # This makes the system robust to partial installations
             import logging
 
-            logging.getLogger("DataManager").warning(
+            logging.getLogger(LOGGER_NAME).warning(
                 f"Could not load fetcher module '{module_name}': {e}"
             )
 

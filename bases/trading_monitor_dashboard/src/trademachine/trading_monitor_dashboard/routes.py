@@ -23,6 +23,10 @@ from pydantic import BaseModel
 from sqlalchemy import cast, extract, func, or_, text
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.types import Date, String
+from trademachine.mt5.parser import (
+    _EN_TO_PT_COLUMNS,
+    MT5ReportParser,
+)
 from trademachine.trading_monitor_dashboard.serializers import (
     AccountResponse,
     BacktestDealResponse,
@@ -53,10 +57,6 @@ from trademachine.tradingmonitor.db.models import (
     Symbol,
 )
 from trademachine.tradingmonitor.ingestion.tcp_server import invalidate_cache
-from trademachine.tradingmonitor.utils.mt5_parser import (
-    _EN_TO_PT_COLUMNS,
-    MT5ReportParser,
-)
 
 logger = logging.getLogger(__name__)
 

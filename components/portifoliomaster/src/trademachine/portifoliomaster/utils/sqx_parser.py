@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from trademachine.portifoliomaster.utils.logger import LOGGER_NAME
+from trademachine.core.logger import LOGGER_NAME
 
 logger = logging.getLogger(LOGGER_NAME)
 

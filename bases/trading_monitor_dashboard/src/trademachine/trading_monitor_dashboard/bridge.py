@@ -1,7 +1,9 @@
 import asyncio
 import logging
 
-logger = logging.getLogger("Bridge")
+from trademachine.core.logger import LOGGER_NAME
+
+logger = logging.getLogger(LOGGER_NAME)
 
 _queue: asyncio.Queue | None = None
 _loop: asyncio.AbstractEventLoop | None = None

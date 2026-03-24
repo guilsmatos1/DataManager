@@ -6,13 +6,15 @@ from datetime import UTC, datetime
 
 from colorama import Fore, Style, init
 from dateutil.parser import parse
-from trademachine.datamanager import __version__
+from trademachine.core.logger import LOGGER_NAME, setup_logger
+
+__version__ = "0.1.0"
 from trademachine.datamanager.services.manager import DataManager
 from trademachine.datamanager.services.scheduler import SchedulerService
 
 init(autoreset=True)
 
-logger = logging.getLogger("DataManager")
+logger = logging.getLogger(LOGGER_NAME)
 
 
 class DataManagerCLI(cmd.Cmd):
@@ -480,3 +482,8 @@ class DataManagerCLI(cmd.Cmd):
 
     def do_quit(self, arg):
         return self.do_exit(arg)
+
+
+if __name__ == "__main__":
+    setup_logger()
+    DataManagerCLI().cmdloop()

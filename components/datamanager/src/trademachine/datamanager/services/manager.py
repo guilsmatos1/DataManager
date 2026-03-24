@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import pandas as pd
 from colorama import init
 from tqdm import tqdm
+from trademachine.core.logger import LOGGER_NAME
 from trademachine.datamanager.db.processor import DataProcessor
 from trademachine.datamanager.db.storage import StorageManager
 from trademachine.datamanager.fetchers import get_all_fetchers
@@ -14,7 +15,7 @@ logging.getLogger("DUKASCRIPT").setLevel(logging.WARNING)
 
 init(autoreset=True)
 
-logger = logging.getLogger("DataManager")
+logger = logging.getLogger(LOGGER_NAME)
 
 
 class DataManager:
@@ -187,7 +188,7 @@ class DataManager:
         else:
             logger.info(f"=== UPDATE COMPLETE: {ok}/{total} succeeded ===")
 
-    def delete_database(self, source: str, asset: str, timeframe: str = None):
+    def delete_database(self, source: str, asset: str, timeframe: str | None = None):
         """Deletes database (or all timeframes of the asset)"""
         success = self.storage.delete_database(source, asset, timeframe)
         target = (
@@ -241,7 +242,10 @@ class DataManager:
                 )
 
     def search_assets(
-        self, source: str = "openbb", query: str = None, exchange: str = None
+        self,
+        source: str = "openbb",
+        query: str | None = None,
+        exchange: str | None = None,
     ) -> pd.DataFrame:
         """Search assets via the specified fetcher."""
         source_key = source.upper()

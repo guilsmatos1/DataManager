@@ -21,6 +21,7 @@ dependencies = [
 
 [tool.polylith.projects]
 "trademachine/datamanager" = "components"
+"trademachine/core" = "components"
 "trademachine/datamanager_api" = "bases"
 "trademachine/datamanager_cli" = "bases"
 

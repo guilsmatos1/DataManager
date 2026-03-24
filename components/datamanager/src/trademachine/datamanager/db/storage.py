@@ -240,7 +240,7 @@ class StorageManager:
         return sorted(p.stem for p in vdir.glob("*.parquet"))
 
     def restore_version(
-        self, source: str, asset: str, timeframe: str, version_ts: str = None
+        self, source: str, asset: str, timeframe: str, version_ts: str | None = None
     ) -> bool:
         """Restore a specific version (or latest if version_ts is None)."""
         vdir = self._versions_dir(source, asset, timeframe)
@@ -314,7 +314,9 @@ class StorageManager:
             return pd.read_parquet(file_path, engine="fastparquet")
         return pd.read_csv(file_path, index_col=0, parse_dates=True)
 
-    def delete_database(self, source: str, asset: str, timeframe: str = None) -> bool:
+    def delete_database(
+        self, source: str, asset: str, timeframe: str | None = None
+    ) -> bool:
         """Delete a specific timeframe or all timeframes for an asset."""
         if timeframe:
             file_path = self._get_path(source, asset, timeframe)

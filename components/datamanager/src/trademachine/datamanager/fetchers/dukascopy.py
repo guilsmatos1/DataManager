@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 from tqdm import tqdm
+from trademachine.core.logger import LOGGER_NAME
 
 from ..utils.retry import with_retry
 from .base import BaseFetcher
@@ -11,7 +12,7 @@ from .base import BaseFetcher
 logging.getLogger("dukascopy_python").setLevel(logging.WARNING)
 logging.getLogger("DUKASCRIPT").setLevel(logging.WARNING)
 
-logger = logging.getLogger("DataManager")
+logger = logging.getLogger(LOGGER_NAME)
 
 
 class DukascopyFetcher(BaseFetcher):
@@ -113,7 +114,7 @@ class DukascopyFetcher(BaseFetcher):
 
         return df
 
-    def search(self, query: str = None, **kwargs) -> pd.DataFrame:
+    def search(self, query: str | None = None, **kwargs) -> pd.DataFrame:
         """Search Dukascopy offline database."""
         from pathlib import Path
 

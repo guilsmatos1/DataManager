@@ -1,7 +1,9 @@
 import logging
 import time
 
-logger = logging.getLogger("DataManager")
+from trademachine.core.logger import LOGGER_NAME
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 def with_retry(

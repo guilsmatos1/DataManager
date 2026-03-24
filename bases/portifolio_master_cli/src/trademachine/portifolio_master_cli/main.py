@@ -9,14 +9,14 @@ import argparse
 import logging
 import sys
 
-from trademachine.portifolio_master_cli.cli import PortifolioCLI, _flag_value
-from trademachine.portifoliomaster.core.config import AppConfig
-from trademachine.portifoliomaster.core.exceptions import ValidationError
-from trademachine.portifoliomaster.utils.logger import (
+from trademachine.core.logger import (
     LOGGER_NAME,
     configure_console_streams,
     setup_logger,
 )
+from trademachine.portifolio_master_cli.cli import PortifolioCLI, _flag_value
+from trademachine.portifoliomaster.core.config import AppConfig
+from trademachine.portifoliomaster.core.exceptions import ValidationError
 
 _SUBCOMMANDS = {"inspect", "cache", "config", "adherence", "drawdown"}
 

@@ -26,7 +26,7 @@ class BaseFetcher(ABC):
         """
         pass
 
-    def search(self, query: str = None, **kwargs) -> pd.DataFrame:
+    def search(self, query: str | None = None, **kwargs) -> pd.DataFrame:
         """
         Optional: Search for assets supported by this fetcher.
         Returns a DataFrame with search results or raises NotImplementedError.

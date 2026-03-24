@@ -10,9 +10,9 @@ import numpy as np
 import pandas as pd
 import polars as pl
 from tqdm import tqdm
+from trademachine.core.logger import LOGGER_NAME
 from trademachine.portifoliomaster.services.metrics import calculate_metrics_from_deals
 from trademachine.portifoliomaster.services.portfolio import PortfolioManager
-from trademachine.portifoliomaster.utils.logger import LOGGER_NAME
 
 logger = logging.getLogger(LOGGER_NAME)
 

@@ -25,10 +25,10 @@ import logging
 import os
 
 import numpy as np
+from trademachine.core.logger import LOGGER_NAME
+from trademachine.mt5.parser import MT5ReportParser
 from trademachine.portifoliomaster.services.metrics import compute_vector_metrics
 from trademachine.portifoliomaster.services.portfolio import PortfolioManager
-from trademachine.portifoliomaster.utils.logger import LOGGER_NAME
-from trademachine.portifoliomaster.utils.mt5_parser import MT5ReportParser
 from trademachine.portifoliomaster.utils.sqx_parser import parse_sqx_directory
 
 logger = logging.getLogger(LOGGER_NAME)

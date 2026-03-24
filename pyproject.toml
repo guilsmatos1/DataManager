@@ -2,7 +2,7 @@
 name = "trademachine-workspace"
 version = "0.1.0"
 description = "Monorepo para os projetos TradeMachine"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.18.4",
     "apscheduler>=3.11.2",
@@ -37,10 +37,23 @@ dependencies = [
 
 [tool.uv.workspace]
 members = [
-    "DataManager",
-    "PortifolioMaster",
-    "TradingMonitor",
-    "BacktestEngine"
+    "projects/backtestengine",
+    "projects/datamanager",
+    "projects/portifoliomaster",
+    "projects/tradingmonitor",
+    "components/datamanager",
+    "components/tradingmonitor",
+    "components/portifoliomaster",
+    "components/backtestengine",
+    "components/mt5",
+    "components/core",
+    "bases/datamanager_api",
+    "bases/datamanager_cli",
+    "bases/trading_monitor_dashboard",
+    "bases/trading_monitor_cli",
+    "bases/trading_monitor_ingestion",
+    "bases/portifolio_master_cli",
+    "bases/backtest_engine_cli"
 ]
 
 [dependency-groups]
@@ -65,12 +78,16 @@ dev = [
     "trademachine-trading-monitor-ingestion>=0.1.0",
     "trademachine-portifolio-master-cli>=0.1.0",
     "trademachine-backtest-engine-cli>=0.1.0",
+    "trademachine-mt5>=0.1.0",
+    "trademachine-core>=0.1.0",
+    "pytest-cov>=7.1.0",
+    "types-python-dateutil>=2.9.0.20260323",
 ]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 88
-extend-exclude = ["BacktestEngine/docs", "BacktestEngine/docs.py"]
+extend-exclude = ["BacktestEngine/docs", "BacktestEngine/docs.py", "projects/backtestengine/docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP", "S"]
@@ -88,20 +105,22 @@ components = "components"
 
 [tool.uv.sources]
 trademachine = { workspace = true }
-trademachine-datamanager = { path = "components/datamanager" }
-trademachine-tradingmonitor = { path = "components/tradingmonitor" }
-trademachine-portifoliomaster = { path = "components/portifoliomaster" }
-trademachine-backtestengine = { path = "components/backtestengine" }
-trademachine-datamanager-api = { path = "bases/datamanager_api" }
-trademachine-datamanager-cli = { path = "bases/datamanager_cli" }
-trademachine-trading-monitor-dashboard = { path = "bases/trading_monitor_dashboard" }
-trademachine-trading-monitor-cli = { path = "bases/trading_monitor_cli" }
-trademachine-trading-monitor-ingestion = { path = "bases/trading_monitor_ingestion" }
-trademachine-portifolio-master-cli = { path = "bases/portifolio_master_cli" }
-trademachine-backtest-engine-cli = { path = "bases/backtest_engine_cli" }
+trademachine-datamanager = { workspace = true }
+trademachine-tradingmonitor = { workspace = true }
+trademachine-portifoliomaster = { workspace = true }
+trademachine-backtestengine = { workspace = true }
+trademachine-mt5 = { workspace = true }
+trademachine-core = { workspace = true }
+trademachine-datamanager-api = { workspace = true }
+trademachine-datamanager-cli = { workspace = true }
+trademachine-trading-monitor-dashboard = { workspace = true }
+trademachine-trading-monitor-cli = { workspace = true }
+trademachine-trading-monitor-ingestion = { workspace = true }
+trademachine-portifolio-master-cli = { workspace = true }
+trademachine-backtest-engine-cli = { workspace = true }
 
 [tool.deptry]
-exclude = ["DataManager", "PortifolioMaster", "TradingMonitor", "BacktestEngine", "venv", ".venv", "tests", ".*_cache"]
+exclude = ["DataManager", "PortifolioMaster", "BacktestEngine", "venv", ".venv", "tests", ".*_cache"]
 known_first_party = ["trademachine"]
 ignore = ["DEP002"]
 per_rule_ignores = { DEP001 = "trademachine", DEP003 = "pydantic|colorama|requests|python-dateutil" }
@@ -113,17 +132,13 @@ tests_dir = "tests/"
 dict_synonyms = ["Struct"]
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib --cov=components --cov-report=term-missing"
 testpaths = [
-    "DataManager/tests",
-    "PortifolioMaster/tests",
-    "TradingMonitor/tests"
+    "components/datamanager/test",
+    "components/portifoliomaster/test",
+    "components/tradingmonitor/test"
 ]
 pythonpath = [
-    "DataManager/src",
-    "PortifolioMaster/src",
-    "TradingMonitor/src",
-    "TradingMonitor",
     "components/datamanager/src",
     "components/tradingmonitor/src",
     "bases/datamanager_api/src",
@@ -134,17 +149,22 @@ pythonpath = [
     "components/portifoliomaster/src",
     "bases/portifolio_master_cli/src",
     "components/backtestengine/src",
-    "bases/backtest_engine_cli/src"
+    "bases/backtest_engine_cli/src",
+    "components/core/src",
+    "components/mt5/src"
 ]
 
 [tool.mypy]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
-exclude = ["BacktestEngine/docs", "BacktestEngine/docs.py"]
+exclude = ["BacktestEngine/docs", "BacktestEngine/docs.py", "build", ".venv", "venv", "projects/backtestengine/docs"]
 explicit_package_bases = true
-mypy_path = ["components/datamanager/src", "components/tradingmonitor/src", "components/portifoliomaster/src", "components/backtestengine/src", "bases/datamanager_api/src", "bases/datamanager_cli/src", "bases/trading_monitor_dashboard/src", "bases/trading_monitor_cli/src", "bases/trading_monitor_ingestion/src", "bases/portifolio_master_cli/src", "bases/backtest_engine_cli/src"]
+mypy_path = ["components/datamanager/src", "components/tradingmonitor/src", "components/portifoliomaster/src", "components/backtestengine/src", "bases/datamanager_api/src", "bases/datamanager_cli/src", "bases/trading_monitor_dashboard/src", "bases/trading_monitor_cli/src", "bases/trading_monitor_ingestion/src", "bases/portifolio_master_cli/src", "bases/backtest_engine_cli/src", "components/core/src", "components/mt5/src"]
 warn_return_any = true
 warn_unused_ignores = true
 check_untyped_defs = true
 no_implicit_optional = true
 ignore_missing_imports = true
+
+[tool.vulture]
+exclude = ["venv", ".venv", "build"]

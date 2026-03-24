@@ -8,12 +8,13 @@ from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from trademachine.core.logger import LOGGER_NAME, setup_logger
 from trademachine.trading_monitor_dashboard.bridge import init_bridge, push_event
 from trademachine.trading_monitor_dashboard.routes import router
 from trademachine.trading_monitor_dashboard.websocket import manager
 from trademachine.tradingmonitor.config import settings
 
-logger = logging.getLogger("Dashboard")
+logger = logging.getLogger(LOGGER_NAME)
 
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -26,6 +27,7 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        setup_logger()
         loop = asyncio.get_event_loop()
         init_bridge(manager.queue, loop)
 

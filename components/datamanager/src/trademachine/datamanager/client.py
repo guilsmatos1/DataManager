@@ -38,7 +38,11 @@ class DataManagerClient:
             raise RuntimeError(f"API Error: {response.text or str(e)}")
 
     def download(
-        self, source: str, asset: str, start_date: str = None, end_date: str = None
+        self,
+        source: str,
+        asset: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
     ) -> dict:
         """Sends a command to download/save assets on the server."""
         payload = {"source": source, "asset": asset}
@@ -55,7 +59,7 @@ class DataManagerClient:
         res = self.session.post(f"{self.base_url}/update", json=payload)
         return self._handle_response(res)
 
-    def delete(self, source: str, asset: str, timeframe: str = None) -> dict:
+    def delete(self, source: str, asset: str, timeframe: str | None = None) -> dict:
         """Physically deletes a database or entire asset from the server."""
         payload = {"source": source, "asset": asset}
         if timeframe:
@@ -94,7 +98,10 @@ class DataManagerClient:
         return self._handle_response(res)
 
     def search(
-        self, source: str = "openbb", query: str = None, exchange: str = None
+        self,
+        source: str = "openbb",
+        query: str | None = None,
+        exchange: str | None = None,
     ) -> pd.DataFrame:
         """String-based search in the chosen source, returning a pandas DataFrame."""
         params = {"source": source}
@@ -131,9 +138,9 @@ class DataManagerClient:
         source: str,
         asset: str,
         timeframe: str,
-        save_path: str = None,
+        save_path: str | None = None,
         save_format: str = "parquet",
-        timezone: str = None,
+        timezone: str | None = None,
     ) -> pd.DataFrame | str:
         """
         Downloads the `.parquet` file from the server.
