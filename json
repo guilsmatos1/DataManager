@@ -1,0 +1,374 @@
+[
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'slowapi' imported but it is a transitive dependency"
+        },
+        "module": "slowapi",
+        "location": {
+            "file": "bases/datamanager_api/src/trademachine/datamanager_api/router.py",
+            "line": 10,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'slowapi' imported but it is a transitive dependency"
+        },
+        "module": "slowapi",
+        "location": {
+            "file": "bases/datamanager_api/src/trademachine/datamanager_api/router.py",
+            "line": 11,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'slowapi' imported but it is a transitive dependency"
+        },
+        "module": "slowapi",
+        "location": {
+            "file": "bases/datamanager_api/src/trademachine/datamanager_api/router.py",
+            "line": 12,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/datamanager/test/trademachine/datamanager/test_core.py",
+            "line": 5,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/datamanager/test/trademachine/datamanager/test_processor.py",
+            "line": 4,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/datamanager/test/trademachine/datamanager/test_storage.py",
+            "line": 6,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/mt5/test/trademachine/mt5/test_parser.py",
+            "line": 1,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/portifoliomaster/test/trademachine/portifoliomaster/test_adherence.py",
+            "line": 6,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/portifoliomaster/test/trademachine/portifoliomaster/test_brute_force_direct.py",
+            "line": 7,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/portifoliomaster/test/trademachine/portifoliomaster/test_cli.py",
+            "line": 15,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/portifoliomaster/test/trademachine/portifoliomaster/test_config.py",
+            "line": 1,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/portifoliomaster/test/trademachine/portifoliomaster/test_drawdown_pairing.py",
+            "line": 4,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/portifoliomaster/test/trademachine/portifoliomaster/test_main_validation.py",
+            "line": 8,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/portifoliomaster/test/trademachine/portifoliomaster/test_montecarlo.py",
+            "line": 6,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/portifoliomaster/test/trademachine/portifoliomaster/test_optimization_greedy.py",
+            "line": 12,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/portifoliomaster/test/trademachine/portifoliomaster/test_portfolio.py",
+            "line": 4,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/portifoliomaster/test/trademachine/portifoliomaster/test_visualizer.py",
+            "line": 10,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/conftest.py",
+            "line": 29,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/e2e/test_api_flow.py",
+            "line": 14,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/service/test_processors.py",
+            "line": 17,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/service/test_routes.py",
+            "line": 11,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/service/test_routes_extended.py",
+            "line": 4,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/service/test_tcp_server_extended.py",
+            "line": 14,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/test_migrations.py",
+            "line": 3,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/unit/test_bridge.py",
+            "line": 11,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/unit/test_calculator.py",
+            "line": 16,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/unit/test_calculator_extended.py",
+            "line": 5,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP004",
+            "message": "'pytest' imported but declared as a dev dependency"
+        },
+        "module": "pytest",
+        "location": {
+            "file": "components/tradingmonitor/test/trademachine/tradingmonitor/unit/test_schemas.py",
+            "line": 8,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'databento' imported but missing from the dependency definitions"
+        },
+        "module": "databento",
+        "location": {
+            "file": "projects/backtestengine/docs/nautilus/tutorials/databento_data_catalog.py",
+            "line": 28,
+            "column": 8
+        }
+    },
+    {
+        "error": {
+            "code": "DEP001",
+            "message": "'databento' imported but missing from the dependency definitions"
+        },
+        "module": "databento",
+        "location": {
+            "file": "projects/backtestengine/docs/nautilus/tutorials/databento_data_catalog.py",
+            "line": 49,
+            "column": 1
+        }
+    },
+    {
+        "error": {
+            "code": "DEP003",
+            "message": "'pytz' imported but it is a transitive dependency"
+        },
+        "module": "pytz",
+        "location": {
+            "file": "projects/tradingmonitor/scripts/generate_data.py",
+            "line": 4,
+            "column": 8
+        }
+    }
+]
