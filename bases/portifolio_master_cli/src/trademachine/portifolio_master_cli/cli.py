@@ -1260,7 +1260,7 @@ class PortifolioCLI:
 
         return result.failed == 0
 
-    def start_interactive_shell(self, default_csv_cols: list[str] | None = None):
+    def start_interactive_shell(self, _default_csv_cols: list[str] | None = None):
         """Enters an interactive loop for command execution using the Typer app."""
         import typer
         from trademachine.portifolio_master_cli.typer_app import app

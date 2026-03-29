@@ -268,7 +268,7 @@ def _mask_sensitive_data(data: str) -> str:
             for k, v in obj.items():
                 if any(sensitive in k.lower() for sensitive in _SENSITIVE_KEYS):
                     result[k] = REDACTED
-                elif isinstance(v, (dict, list)):
+                elif isinstance(v, dict | list):
                     result[k] = redact(v)
                 else:
                     result[k] = v
