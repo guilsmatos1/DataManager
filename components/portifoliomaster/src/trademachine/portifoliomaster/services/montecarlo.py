@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
+from trademachine.core.metrics import compute_equity_curve
 from trademachine.portifoliomaster.services.metrics import compute_vector_metrics
 
 
@@ -54,7 +55,7 @@ def run_montecarlo(
 
     # Original metrics
     orig_metrics = compute_vector_metrics(returns)
-    orig_equity = np.concatenate([[0.0], np.cumsum(returns)])
+    orig_equity = compute_equity_curve(returns)
     orig_profit = float(np.sum(returns))
 
     # Vectorized shuffle: create (n_iterations, n_trades) matrix, shuffle each row

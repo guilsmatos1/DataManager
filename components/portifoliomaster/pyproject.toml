@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "trademachine-portifoliomaster"
 version = "0.1.0"
 description = "trademachine-portifoliomaster brick"
-dependencies = []
+dependencies = ["trademachine-core"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

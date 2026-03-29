@@ -26,6 +26,7 @@ import os
 
 import numpy as np
 from trademachine.core.logger import LOGGER_NAME
+from trademachine.core.metrics import compute_equity_curve
 from trademachine.mt5.parser import MT5ReportParser
 from trademachine.portifoliomaster.services.metrics import compute_vector_metrics
 from trademachine.portifoliomaster.services.portfolio import PortfolioManager
@@ -82,13 +83,8 @@ class AdherenceResult:
 # ---------------------------------------------------------------------------
 
 
-def _equity_curve(returns: np.ndarray) -> np.ndarray:
-    """Cumulative equity curve starting at 0."""
-    return np.cumsum(np.insert(returns, 0, 0.0))
-
-
 def _win_rate(returns: np.ndarray) -> float:
-    """Percentage of trades with Net_Profit >= 0."""
+    """Percentage of trades with Net_Profit >= 0 (MT5 convention)."""
     if len(returns) == 0:
         return 0.0
     return float(np.sum(returns >= 0) / len(returns))
@@ -264,8 +260,8 @@ def run_adherence_check(
                 mt5_maxdd=mt5_metrics["MaxDD"],
                 sqx_maxdd=sqx_metrics["MaxDD"],
                 passes=passes,
-                mt5_equity=_equity_curve(mt5_ret),
-                sqx_equity=_equity_curve(sqx_ret),
+                mt5_equity=compute_equity_curve(mt5_ret),
+                sqx_equity=compute_equity_curve(sqx_ret),
                 mt5_timestamps=mt5_ts,
                 sqx_timestamps=sqx_ts,
             )

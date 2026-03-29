@@ -10,6 +10,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import polars as pl
+from trademachine.core.metrics import (
+    compute_max_drawdown,
+    compute_retdd,
+    compute_win_loss_ratio,
+    compute_win_rate,
+)
 
 
 def clean_mt5_numeric_string(series: pd.Series | pl.Series) -> pd.Series | pl.Series:
@@ -48,13 +54,9 @@ def compute_vector_metrics(
     arr = np.array(returns, dtype=np.float64)
     profit = float(np.sum(arr))
 
-    # Drawdown calculation starting from 0.0 (Initial account state)
-    equity = np.cumsum(np.insert(arr, 0, 0.0))
-    peaks = np.maximum.accumulate(equity)
-    drawdowns = peaks - equity
-    max_dd = float(np.max(drawdowns))
-
-    ret_dd = (profit / max_dd) if max_dd > 0 else 0.0
+    # Use core.metrics for MaxDD and RetDD
+    max_dd = compute_max_drawdown(arr)
+    ret_dd = compute_retdd(arr)
 
     return {
         "Profit": round(profit, 2),
@@ -144,12 +146,15 @@ def compute_performance_ratios(trades_df: pd.DataFrame) -> dict[str, float]:
     avg_win = wins["Net_Profit"].mean() if num_wins > 0 else 0.0
     avg_loss = losses["Net_Profit"].mean() if num_losses > 0 else 0.0
 
-    win_loss_ratio = round(num_wins / num_losses, 2) if num_losses > 0 else float("inf")
+    # Use core.metrics for win_percentage and win_loss_ratio
+    win_pct = compute_win_rate(trades_df["Net_Profit"].values)
+    win_loss_ratio = compute_win_loss_ratio(trades_df["Net_Profit"].values)
+
     return {
         "avg_win": round(float(avg_win), 2),
         "avg_loss": round(float(avg_loss), 2),
-        "win_percentage": round((num_wins / total) * 100, 2),
-        "win_loss_ratio": win_loss_ratio,
+        "win_percentage": round(win_pct, 2),
+        "win_loss_ratio": round(win_loss_ratio, 2),
     }
 
 
@@ -247,6 +252,6 @@ def calculate_metrics_from_deals(deals_df: pd.DataFrame) -> dict[str, Any]:
         "Avg_Loss": ratios["avg_loss"],
         "Avg_Consecutive_Wins": streaks["avg_win_streak"],
         "Avg_Consecutive_Losses": streaks["avg_loss_streak"],
-        "Winning_Trades_Count": int(len(trades_df[trades_df["Net_Profit"] >= 0])),
-        "Losing_Trades_Count": int(len(trades_df[trades_df["Net_Profit"] < 0])),
+        "Winning_Trades_Count": len(trades_df[trades_df["Net_Profit"] >= 0]),
+        "Losing_Trades_Count": len(trades_df[trades_df["Net_Profit"] < 0]),
     }

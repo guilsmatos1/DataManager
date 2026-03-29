@@ -12,6 +12,7 @@ def _make_cli(*names, lots: dict = None, data: dict = None):
     cli.portfolio_manager = MagicMock()
     cli.portfolio_manager.strategy_lots = lots or {}
     cli.portfolio_manager.strategies = data or {}
+    cli.portfolio_manager._lots_meta = {}
     return cli
 
 

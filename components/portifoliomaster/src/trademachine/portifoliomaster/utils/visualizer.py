@@ -415,7 +415,7 @@ def generate_montecarlo_report_html(
         xaxis_title="Trade #",
         yaxis_title="Cumulative PnL",
         template="plotly_dark",
-        height=500,
+        height=800,
         margin=dict(t=60, b=40, l=60, r=20),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )

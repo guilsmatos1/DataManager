@@ -43,7 +43,8 @@ pip install .
 ```
 
 ### Common Commands
-- **CLI Tool:** `portifoliomaster [args]` or `python -m portifoliomaster [args]`
+- **CLI Tool:** `portifoliomaster [args]`
+- **Entry point:** `trademachine.portifolio_master_cli.main:main` (definido em `bases/portifolio_master_cli/pyproject.toml`)
 - **Interactive Shell:** `portifoliomaster -i`
 - **Run Tests:** `pytest` (Configured to include `src/` in `PYTHONPATH`)
 - **Linting:** `ruff check .`

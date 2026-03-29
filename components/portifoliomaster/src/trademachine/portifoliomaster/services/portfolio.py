@@ -6,7 +6,9 @@ Uses Polars (Rust) for high-performance processing.
 Follows PEP8 standards and uses descriptive naming.
 """
 
+import json
 import logging
+import os
 
 import numpy as np
 import pandas as pd
@@ -26,6 +28,42 @@ class PortfolioManager:
     def __init__(self):
         self.strategies: dict[str, pl.DataFrame] = {}
         self.strategy_lots: dict[str, float] = {}
+        self._lots_meta: dict = {}  # metadata persisted inside cache_lots.json
+
+    @staticmethod
+    def _lots_cache_path(cache_path: str) -> str:
+        """Returns the path for the lots sidecar JSON file alongside the cache."""
+        base = os.path.splitext(cache_path)[0]
+        return f"{base}_lots.json"
+
+    def save_lots_cache(self, cache_path: str) -> None:
+        """Persists strategy_lots (and any metadata) to a JSON sidecar file."""
+        if not self.strategy_lots:
+            return
+        lots_path = self._lots_cache_path(cache_path)
+        try:
+            data: dict = dict(self.strategy_lots)
+            if self._lots_meta:
+                data["__meta__"] = self._lots_meta
+            with open(lots_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            logger.info(f"Lots cache saved to {os.path.abspath(lots_path)}")
+        except Exception as e:
+            logger.warning(f"Failed to write lots cache: {e}")
+
+    def load_lots_cache(self, cache_path: str) -> None:
+        """Loads strategy_lots (and metadata) from the JSON sidecar if it exists."""
+        lots_path = self._lots_cache_path(cache_path)
+        if not os.path.exists(lots_path):
+            return
+        try:
+            with open(lots_path, encoding="utf-8") as f:
+                raw: dict = json.load(f)
+            self._lots_meta = raw.pop("__meta__", {})
+            self.strategy_lots = raw
+            logger.info(f"Lots cache loaded from {os.path.abspath(lots_path)}")
+        except Exception as e:
+            logger.warning(f"Could not load lots cache: {e}")
 
     def add_strategy(self, name: str, strategy_deals_df: pd.DataFrame) -> bool:
         """
@@ -71,7 +109,7 @@ class PortfolioManager:
             try:
                 cleaned_vol = clean_mt5_numeric_string(processed_df["Volume"])
                 positive = cleaned_vol.filter(cleaned_vol > 0)
-                if len(positive) > 0:
+                if len(positive):
                     median_val = positive.median()
                     if median_val is not None:
                         self.strategy_lots[name] = float(median_val)  # type: ignore[arg-type]

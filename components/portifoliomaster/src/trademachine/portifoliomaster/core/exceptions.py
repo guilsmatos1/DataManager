@@ -23,12 +23,6 @@ class ParserError(PortfolioMasterError):
     pass
 
 
-class OptimizationError(PortfolioMasterError):
-    """Raised when errors occur during the optimization process."""
-
-    pass
-
-
 class DataError(PortfolioMasterError):
     """Raised when strategies have insufficient or corrupt data."""
 

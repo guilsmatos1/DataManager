@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "trademachine-portifolio-master-cli brick"
 dependencies = []
 
+[project.scripts]
+portifoliomaster = "trademachine.portifolio_master_cli.main:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["trademachine*"]

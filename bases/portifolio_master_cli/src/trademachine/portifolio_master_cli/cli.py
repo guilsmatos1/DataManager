@@ -4,7 +4,6 @@ CLI Module
 Manages the Command Line Interface and user interactions.
 """
 
-import argparse
 import glob
 import json
 import logging
@@ -12,12 +11,12 @@ import os
 import shlex
 
 import polars as pl
+from colorama import Fore, Style, init
 from tqdm import tqdm
 from trademachine.core.logger import LOGGER_NAME
 from trademachine.mt5.parser import MT5ReportParser
 from trademachine.portifoliomaster.core.exceptions import (
     DataError,
-    OptimizationError,
     ParserError,
     ValidationError,
 )
@@ -33,6 +32,8 @@ from trademachine.portifoliomaster.utils.visualizer import (
     generate_portfolio_report_html,
     plot_portfolio_equity,
 )
+
+init(autoreset=True)
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -56,42 +57,6 @@ class PortifolioCLI:
         self.loaded_expert_names: list[str] = []
         self.default_config = default_config or {}
         self.last_optimization_results: list[dict] = []
-        self._lots_meta: dict = {}  # metadata persisted inside cache_lots.json
-
-    @staticmethod
-    def _lots_cache_path(cache_path: str) -> str:
-        """Returns the path for the lots sidecar JSON file alongside the cache."""
-        base = os.path.splitext(cache_path)[0]
-        return f"{base}_lots.json"
-
-    def _save_lots_cache(self, cache_path: str) -> None:
-        """Persists strategy_lots (and any metadata) to a JSON sidecar file."""
-        if not self.portfolio_manager.strategy_lots:
-            return
-        lots_path = self._lots_cache_path(cache_path)
-        try:
-            data: dict = dict(self.portfolio_manager.strategy_lots)
-            if self._lots_meta:
-                data["__meta__"] = self._lots_meta
-            with open(lots_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-            logger.info(f"Lots cache saved to {os.path.abspath(lots_path)}")
-        except Exception as e:
-            logger.warning(f"Failed to write lots cache: {e}")
-
-    def _load_lots_cache(self, cache_path: str) -> None:
-        """Loads strategy_lots (and metadata) from the JSON sidecar if it exists."""
-        lots_path = self._lots_cache_path(cache_path)
-        if not os.path.exists(lots_path):
-            return
-        try:
-            with open(lots_path, encoding="utf-8") as f:
-                raw: dict = json.load(f)
-            self._lots_meta = raw.pop("__meta__", {})
-            self.portfolio_manager.strategy_lots = raw
-            logger.info(f"Lots cache loaded from {os.path.abspath(lots_path)}")
-        except Exception as e:
-            logger.warning(f"Could not load lots cache: {e}")
 
     def load_reports(self, directory_path: str | None = None, use_cache: bool = True):
         """Loads MT5 reports. Prioritizes root cache."""
@@ -121,7 +86,7 @@ class PortifolioCLI:
                         .rename({name: "Net_Profit"})
                         .filter(pl.col("Net_Profit") != 0.0)
                     )
-                self._load_lots_cache(cache_filepath)
+                self.portfolio_manager.load_lots_cache(cache_filepath)
                 logger.info(
                     f"[OK] {len(self.loaded_expert_names)} strategies loaded from cache."
                 )
@@ -167,7 +132,7 @@ class PortifolioCLI:
                 logger.info(f"Cache saved to {os.path.abspath(cache_filepath)}")
             except Exception as e:
                 logger.error(f"Failed to write cache file: {e}")
-            self._save_lots_cache(cache_filepath)
+            self.portfolio_manager.save_lots_cache(cache_filepath)
 
         logger.info(
             f"Total: {len(self.loaded_expert_names)} strategies successfully loaded."
@@ -198,6 +163,56 @@ class PortifolioCLI:
             f"{metrics['MaxDD']:<10.2f} | "
             f"{metrics['RetDD']:<8.2f}"
         )
+
+    def _handle_optimization_results(
+        self, engine: BruteForceEngine, kwargs: dict
+    ) -> None:
+        if not engine.best_portfolios:
+            return
+
+        self.last_optimization_results = engine.best_portfolios
+
+        if kwargs.get("show_terminal"):
+            engine.print_results(columns=kwargs.get("csv_columns") or None)
+
+        if kwargs.get("save_trades_prefix"):
+            self._save_best_portfolio_trades(
+                engine.best_portfolios, kwargs["save_trades_prefix"]
+            )
+
+        if kwargs.get("export_best_json"):
+            self._export_to_json(engine.best_portfolios[0], kwargs["export_best_json"])
+
+        if kwargs.get("plot_chart"):
+            report_path = generate_portfolio_report_html(
+                engine.best_portfolios, self.portfolio_manager.strategies
+            )
+            logger.info(f"Portfolio report saved to: {report_path}")
+
+        if kwargs.get("montecarlo"):
+            if kwargs.get("output_dir") is not None:
+                from datetime import datetime as _dt
+
+                raw_dir = kwargs["output_dir"]
+                _ts = _dt.now().strftime("%Y-%m-%d_%H-%M")
+                _out_dir = raw_dir if raw_dir else f"run_{_ts}"
+                mc_path = os.path.join(_out_dir, "montecarlo_report.html")
+                self._run_montecarlo(
+                    engine.best_portfolios[0],
+                    kwargs["montecarlo"],
+                    mc_path,
+                    open_browser=False,
+                )
+            else:
+                self._run_montecarlo(
+                    engine.best_portfolios[0],
+                    kwargs["montecarlo"],
+                    "montecarlo_report.html",
+                    open_browser=True,
+                )
+
+        if kwargs.get("output_dir") is not None:
+            self._save_output_dir(engine, kwargs)
 
     def run_optimization(self, **kwargs) -> bool:
         """Orchestrates the portfolio optimization process.
@@ -263,56 +278,10 @@ class PortifolioCLI:
                     max_corr=kwargs["max_correlation"],
                 )
 
-            if engine.best_portfolios:
-                self.last_optimization_results = engine.best_portfolios
-
-            if kwargs.get("show_terminal"):
-                engine.print_results(columns=kwargs.get("csv_columns") or None)
-
-            if kwargs.get("save_trades_prefix") and engine.best_portfolios:
-                self._save_best_portfolio_trades(
-                    engine.best_portfolios, kwargs["save_trades_prefix"]
-                )
-
-            if kwargs.get("export_best_json") and engine.best_portfolios:
-                self._export_to_json(
-                    engine.best_portfolios[0], kwargs["export_best_json"]
-                )
-
-            if kwargs.get("plot_chart") and engine.best_portfolios:
-                report_path = generate_portfolio_report_html(
-                    engine.best_portfolios, self.portfolio_manager.strategies
-                )
-                logger.info(f"Portfolio report saved to: {report_path}")
-
-            if kwargs.get("montecarlo") and engine.best_portfolios:
-                if kwargs.get("output_dir") is not None:
-                    from datetime import datetime as _dt
-
-                    raw_dir = kwargs["output_dir"]
-                    _ts = _dt.now().strftime("%Y-%m-%d_%H-%M")
-                    _out_dir = raw_dir if raw_dir else f"run_{_ts}"
-                    mc_path = os.path.join(_out_dir, "montecarlo_report.html")
-                    self._run_montecarlo(
-                        engine.best_portfolios[0],
-                        kwargs["montecarlo"],
-                        mc_path,
-                        open_browser=False,
-                    )
-                else:
-                    self._run_montecarlo(
-                        engine.best_portfolios[0],
-                        kwargs["montecarlo"],
-                        "montecarlo_report.html",
-                        open_browser=True,
-                    )
-
-            if kwargs.get("output_dir") is not None and engine.best_portfolios:
-                self._save_output_dir(engine, kwargs)
-
+            self._handle_optimization_results(engine, kwargs)
             return bool(engine.best_portfolios)
 
-        except (ValidationError, OptimizationError) as e:
+        except ValidationError as e:
             logger.error(str(e))
             return False
         except Exception as e:
@@ -652,10 +621,10 @@ class PortifolioCLI:
                 logger.info(f"Cache updated: {os.path.abspath(cache_filepath)}")
             except Exception as e:
                 logger.error(f"Failed to update cache: {e}")
-            self._save_lots_cache(cache_filepath)
+            self.portfolio_manager.save_lots_cache(cache_filepath)
         elif lots_updated:
             logger.info("[import] Lot values updated from parquet.")
-            self._save_lots_cache(cache_filepath)
+            self.portfolio_manager.save_lots_cache(cache_filepath)
         else:
             logger.info("[import] All strategies already in cache — nothing added.")
 
@@ -809,7 +778,7 @@ class PortifolioCLI:
             print(f"Cache deleted: {os.path.abspath(path)}")
         except Exception as e:
             logger.error(f"Failed to delete cache: {e}")
-        lots_path = self._lots_cache_path(path)
+        lots_path = self.portfolio_manager._lots_cache_path(path)
         if os.path.exists(lots_path):
             try:
                 os.remove(lots_path)
@@ -892,9 +861,9 @@ class PortifolioCLI:
             return
 
         # Guard: refuse to apply if already applied to prevent double-scaling
-        if apply and self._lots_meta.get("dd_paired"):
-            prev_target = self._lots_meta.get("target", "?")
-            prev_tick = self._lots_meta.get("tick", "?")
+        if apply and self.portfolio_manager._lots_meta.get("dd_paired"):
+            prev_target = self.portfolio_manager._lots_meta.get("target", "?")
+            prev_tick = self.portfolio_manager._lots_meta.get("tick", "?")
             print(
                 f"[!] DD Pairing already applied (target={prev_target}, tick={prev_tick}). "
                 "Run 'cache rebuild <dir>' to reset before applying again."
@@ -1039,8 +1008,12 @@ class PortifolioCLI:
         except Exception as e:
             logger.error(f"Failed to update cache: {e}")
 
-        self._lots_meta = {"dd_paired": True, "target": target_dd, "tick": lot_tick}
-        self._save_lots_cache(cache_filepath)
+        self.portfolio_manager._lots_meta = {
+            "dd_paired": True,
+            "target": target_dd,
+            "tick": lot_tick,
+        }
+        self.portfolio_manager.save_lots_cache(cache_filepath)
         print(f"[OK] Scaling applied to {applied} strategy(ies). Cache updated.")
 
     # ------------------------------------------------------------------
@@ -1164,26 +1137,25 @@ class PortifolioCLI:
                 return
             name = candidates[0]
 
-        import numpy as np
+        from trademachine.portifoliomaster.services.metrics import (
+            compute_performance_ratios,
+            compute_vector_metrics,
+        )
 
         df = self.portfolio_manager.strategies[name]
         profits = df["Net_Profit"].to_numpy()
         total = len(profits)
 
-        # Core metrics
-        cum = np.cumsum(np.insert(profits, 0, 0.0))
-        net_profit = float(cum[-1])
-        peaks = np.maximum.accumulate(cum)
-        max_dd = float(np.max(peaks - cum))
-        ret_dd = (net_profit / max_dd) if max_dd > 0 else 0.0
-
-        # Win / loss
-        wins = profits[profits >= 0]
-        losses = profits[profits < 0]
-        win_rate = 100.0 * len(wins) / total if total > 0 else 0.0
-        avg_win = float(wins.mean()) if len(wins) > 0 else 0.0
-        avg_loss = float(losses.mean()) if len(losses) > 0 else 0.0
-        wl_ratio = len(wins) / len(losses) if len(losses) > 0 else float("inf")
+        # Use shared metrics
+        vm = compute_vector_metrics(profits)
+        net_profit = vm["Profit"]
+        max_dd = vm["MaxDD"]
+        ret_dd = vm["RetDD"]
+        pr = compute_performance_ratios(df)
+        win_rate = pr["win_percentage"]
+        avg_win = pr["avg_win"]
+        avg_loss = pr["avg_loss"]
+        wl_ratio = pr["win_loss_ratio"]
 
         # Date range
         dates = df["Horário"].drop_nulls()
@@ -1289,39 +1261,55 @@ class PortifolioCLI:
         return result.failed == 0
 
     def start_interactive_shell(self, default_csv_cols: list[str] | None = None):
-        """Enters an interactive loop for command execution."""
-        banner_art = r"""
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@                                                                              @
-@   _____           _   _  __      _ _        __  __           _               @
-@  |  __ \         | | (_)/ _|    | (_)      |  \/  |         | |              @
-@  | |__) |__  _ __| |_ _| |_ ___ | |_  ___  | \  / | __ _ ___| |_ ___ _ __    @
-@  |  ___/ _ \| '__| __| |  _/ _ \| | |/ _ \ | |\/| |/ _` / __| __/ _ \ '__|   @
-@  | |  | (_) | |  | |_| | || (_) | | | (_) || |  | | (_| \__ \ ||  __/ |      @
-@  |_|   \___/|_|   \__|_|_| \___/|_|_|\___/ |_|  |_|\__,_|___/\__\___|_|      @
-@                                                                              @
-@                                                                              @
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        """
-        print(banner_art)
-        print("INTERACTIVE MODE - Type 'help' or 'exit'.")
+        """Enters an interactive loop for command execution using the Typer app."""
+        import typer
+        from trademachine.portifolio_master_cli.typer_app import app
 
-        shell_parser = self._build_shell_parser()
+        banner_art = (
+            f"\n{Fore.CYAN}{Style.BRIGHT}"
+            r"  _____           _   _  __      _ _        __  __           _            "
+            + "\n"
+            r"  |  __ \         | | (_)/ _|    | (_)      |  \/  |         | |           "
+            + "\n"
+            r"  | |__) |__  _ __| |_ _| |_ ___ | |_  ___  | \  / | __ _ ___| |_ ___ _ __ "
+            + "\n"
+            r"  |  ___/ _ \| '__| __| |  _/ _ \| | |/ _ \ | |\/| |/ _` / __| __/ _ \ '__|"
+            + "\n"
+            r"  | |  | (_) | |  | |_| | || (_) | | | (_) || |  | | (_| \__ \ ||  __/ |   "
+            + "\n"
+            r"  |_|   \___/|_|   \__|_|_| \___/|_|_|\___/ |_|  |_|\__,_|___/\__\___|_|   "
+        )
+        separator = f"{Fore.WHITE}{'═' * 76}"
+        title = (
+            f"  {' ' * 20}{Fore.CYAN}{Style.BRIGHT}PortfolioMaster"
+            f"{Fore.WHITE} - {Fore.GREEN}v0.1.0"
+        )
+        commands = (
+            f"  {Fore.CYAN}optimize{Fore.WHITE} | {Fore.CYAN}adherence{Fore.WHITE} | "
+            f"{Fore.CYAN}inspect{Fore.WHITE} | {Fore.CYAN}cache{Fore.WHITE} | "
+            f"{Fore.CYAN}config{Fore.WHITE} | {Fore.CYAN}drawdown{Fore.WHITE}"
+        )
+        hint = f"  {Fore.WHITE}Type {Fore.YELLOW}'help'{Fore.WHITE} for full help or {Fore.YELLOW}'exit'{Fore.WHITE} to quit."
+        mode_label = f"  {Fore.YELLOW}● INTERACTIVE MODE ●"
+        print(banner_art)
+        print(separator)
+        print(title)
+        print(separator)
+        print(mode_label)
+        print()
+        print(f"  {Style.BRIGHT}COMMANDS:{Style.NORMAL}")
+        print(f"  {commands}")
+        print()
+        print(hint)
+        print(separator)
 
         while True:
             try:
-                user_input = input("\nPMaster> ").strip()
+                user_input = input(f"\n{Fore.GREEN}PMaster> {Style.RESET_ALL}").strip()
                 if not user_input:
                     continue
                 if user_input.lower() in ("exit", "quit", "q"):
                     break
-                if user_input.lower() in ("help", "-h", "--help"):
-                    from trademachine.portifoliomaster.utils.help import (
-                        get_detailed_help,
-                    )
-
-                    print(get_detailed_help())
-                    continue
 
                 try:
                     split_args = shlex.split(user_input)
@@ -1329,189 +1317,29 @@ class PortifolioCLI:
                     logger.error(f"Invalid command syntax: {e}")
                     continue
 
-                if split_args and split_args[0] in (
-                    "inspect",
-                    "cache",
-                    "config",
-                    "adherence",
-                    "drawdown",
-                ):
-                    self._dispatch_subcommand(split_args[0], split_args[1:])
-                else:
-                    args = shell_parser.parse_args(split_args)
-                    self._dispatch_shell_command(args, default_csv_cols)
+                if not split_args:
+                    continue
+
+                # Map bare 'help' / 'help <cmd>' to '--help' / '<cmd> --help'
+                if split_args[0].lower() == "help":
+                    split_args = (
+                        split_args[1:] + ["--help"]
+                        if len(split_args) > 1
+                        else ["--help"]
+                    )
+
+                # Run command through Typer
+                try:
+                    # Using standalone_mode=False to avoid sys.exit() on help or errors
+                    app(split_args, standalone_mode=False)
+                except (typer.Exit, typer.Abort):
+                    continue
+                except Exception as e:
+                    logger.error(f"Command Error: {e}")
 
             except KeyboardInterrupt:
                 break
+            except EOFError:
+                break
             except Exception as error:
                 logger.error(f"Shell Error: {error}")
-
-    def _dispatch_subcommand(self, cmd: str, rest: list[str]) -> None:
-        """Routes inspect / cache / config subcommands from the interactive shell."""
-        if cmd == "cache":
-            sub = rest[0] if rest else ""
-            args = rest[1:]
-            cache_path = _flag_value(args, "--cache-path")
-            if sub == "info":
-                self.cache_info(cache_path=cache_path)
-            elif sub == "rebuild":
-                directory = args[0] if args and not args[0].startswith("--") else None
-                if not directory:
-                    print("Usage: cache rebuild <directory> [--cache-path PATH]")
-                    return
-                self.cache_rebuild(directory, cache_path=cache_path)
-            elif sub == "clear":
-                self.cache_clear(cache_path=cache_path)
-            else:
-                print("cache subcommands: info | rebuild <dir> | clear")
-
-        elif cmd == "config":
-            sub = rest[0] if rest else ""
-            config_path = _flag_value(rest[1:], "--config") or "config.json"
-            if sub == "show":
-                self.config_show(config_path)
-            elif sub == "validate":
-                self.config_validate(config_path)
-            else:
-                print("config subcommands: show | validate")
-
-        elif cmd == "inspect":
-            sub = rest[0] if rest else ""
-            rest2 = rest[1:]
-            if sub == "correlations":
-                period = _flag_value(rest2, "--corr-period") or "D"
-                top_n = int(_flag_value(rest2, "--top") or 10)
-                threshold_raw = _flag_value(rest2, "--threshold")
-                threshold = float(threshold_raw) if threshold_raw else None
-                self.inspect_correlations(
-                    period=period, top_n=top_n, threshold=threshold
-                )
-            elif sub == "strategy":
-                name = rest2[0] if rest2 and not rest2[0].startswith("--") else None
-                if not name:
-                    print("Usage: inspect strategy <name> [--chart]")
-                    return
-                show_chart = "--chart" in rest2
-                self.inspect_strategy(name, show_chart=show_chart)
-            else:
-                print("inspect subcommands: correlations | strategy <name>")
-
-        elif cmd == "adherence":
-            mt5_dir = _flag_value(rest, "--mt5-dir") or "tests/reports"
-            sqx_dir = _flag_value(rest, "--sqx-dir") or "tests/reports-sqx"
-            output = _flag_value(rest, "--output")
-            threshold_raw = _flag_value(rest, "--threshold")
-            pearson_raw = _flag_value(rest, "--pearson")
-            threshold = (
-                float(threshold_raw)
-                if threshold_raw
-                else self.default_config.get("adherence_threshold", 0.80)
-            )
-            pearson_threshold = (
-                float(pearson_raw)
-                if pearson_raw
-                else self.default_config.get("adherence_pearson", 0.85)
-            )
-            open_browser = "--no-browser" not in rest
-            self.adherence_run(
-                mt5_dir=mt5_dir,
-                sqx_dir=sqx_dir,
-                output_dir=output,
-                threshold=threshold,
-                pearson_threshold=pearson_threshold,
-                open_browser=open_browser,
-            )
-
-        elif cmd == "drawdown":
-            sub = rest[0] if rest else ""
-            args = rest[1:]
-            if sub == "pairing":
-                target_raw = _flag_value(args, "--target")
-                tick_raw = _flag_value(args, "--tick")
-                target_dd = float(target_raw) if target_raw else 4000.0
-                lot_tick = float(tick_raw) if tick_raw else 0.1
-                apply = "--apply" in args
-                self.drawdown_pairing(
-                    target_dd=target_dd, lot_tick=lot_tick, apply=apply
-                )
-            else:
-                print("drawdown subcommands: pairing [--target N] [--tick X] [--apply]")
-
-    def _build_shell_parser(self) -> argparse.ArgumentParser:
-        """Builds the argument parser for the interactive shell."""
-        shell_parser = argparse.ArgumentParser(prog="", add_help=False)
-        shell_parser.add_argument("--load", type=str)
-        shell_parser.add_argument("--list", action="store_true")
-        shell_parser.add_argument("--optimize", action="store_true")
-        shell_parser.add_argument("--strats", type=str)
-        shell_parser.add_argument("--min", type=int, default=5)
-        shell_parser.add_argument("--max", type=int, default=5)
-        shell_parser.add_argument("--top", type=int, default=10)
-        shell_parser.add_argument("--corr", type=float, default=0.3)
-        shell_parser.add_argument(
-            "--corr-period", type=str, choices=["H", "D", "W", "M"], default="D"
-        )
-        shell_parser.add_argument(
-            "--rank", type=str, choices=["RetDD", "NetProfit"], default="RetDD"
-        )
-        shell_parser.add_argument("--save-trades", type=str)
-        shell_parser.add_argument("--print", action="store_true")
-        shell_parser.add_argument(
-            "--output", nargs="?", const="", default="", metavar="DIR"
-        )
-        shell_parser.add_argument("--import-p", type=str)
-        shell_parser.add_argument("--greedy", action="store_true")
-        shell_parser.add_argument("--date-initial", type=str, default=None)
-        shell_parser.add_argument("--date-final", type=str, default=None)
-        shell_parser.add_argument("--filter", type=float, default=0.0)
-        shell_parser.add_argument(
-            "--montecarlo",
-            nargs="?",
-            const=1000,
-            default=None,
-            type=int,
-            metavar="N",
-        )
-        return shell_parser
-
-    def _dispatch_shell_command(self, args, default_csv_cols: list[str] | None):
-        """Dispatches a parsed shell command to the appropriate handler."""
-        if args.import_p:
-            self.import_saved_portfolio(args.import_p, plot_after_load=True)
-            return
-
-        if args.load:
-            self.load_reports(args.load)
-            if args.list:
-                self.list_loaded_strategies()
-        elif args.list:
-            if not self.loaded_expert_names:
-                self.load_reports()
-            self.list_loaded_strategies()
-
-        if args.optimize:
-            if not self.loaded_expert_names:
-                self.load_reports()
-            strategy_filter = (
-                [s.strip() for s in args.strats.split(",")]
-                if args.strats and args.strats.lower() != "all"
-                else None
-            )
-            self.run_optimization(
-                min_assets=args.min,
-                max_assets=args.max,
-                top_n=args.top,
-                include_strats=strategy_filter,
-                save_trades_prefix=args.save_trades,
-                show_terminal=args.print,
-                rank_by=args.rank,
-                max_correlation=args.corr,
-                corr_period=args.corr_period,
-                output_dir=args.output,
-                csv_columns=default_csv_cols,
-                greedy=args.greedy,
-                date_initial=args.date_initial,
-                date_final=args.date_final,
-                min_metric=args.filter,
-                montecarlo=args.montecarlo,
-            )

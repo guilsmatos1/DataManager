@@ -20,7 +20,6 @@ Usuário
 
 ```text
 src/portifoliomaster/
-├── __main__.py                 # Permite `python -m portifoliomaster`
 ├── main.py                     # Parsing de argumentos e roteamento principal
 ├── api/
 │   └── cli.py                  # Orquestrador da aplicação e shell interativo

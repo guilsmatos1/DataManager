@@ -9,7 +9,8 @@ Guia operacional para agentes que trabalham neste repositório.
 - Tipo de aplicação: CLI local para parsing de relatórios HTML do MetaTrader 5, otimização de portfólios, relatório HTML, Monte Carlo e aderência MT5 vs SQX
 - Entrypoints:
   - `uv run portifoliomaster`
-  - `uv run python -m portifoliomaster`
+  - Entry point em `bases/portifolio_master_cli/pyproject.toml`:
+    `portifoliomaster = "trademachine.portifolio_master_cli.main:main"`
 
 Não assuma API web/FastAPI neste repositório. A documentação legada menciona isso, mas o código atual versionado é centrado em CLI.
 
@@ -103,6 +104,6 @@ Observação: parte da suíte usa datasets reais e pode ser mais lenta que teste
 ## Estado Validado ao Criar Este Arquivo
 
 - `pyproject.toml` confirma Python `>=3.12`
-- o entrypoint publicado é `portifoliomaster = "portifoliomaster.main:main"`
+- o entrypoint publicado é `portifoliomaster = "trademachine.portifolio_master_cli.main:main"`
 - a suíte `tests/test_config.py tests/test_cli.py tests/test_engine.py` passou localmente
 - resultado observado: `44 passed`
