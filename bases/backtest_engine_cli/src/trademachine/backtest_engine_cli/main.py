@@ -1,3 +1,4 @@
+import os
 import time
 from pathlib import Path
 
@@ -200,7 +201,7 @@ def main():
     data = DataHandler(
         catalog_path=Path(__file__).parent / "catalog",
         dm_url="http://10.10.10.240:8686",
-        dm_api_key="K91DS441s31",
+        dm_api_key=os.environ.get("DATAMANAGER_API_KEY", ""),
     )
 
     inst_id = InstrumentId(Symbol(ASSET), Venue("SIM"))

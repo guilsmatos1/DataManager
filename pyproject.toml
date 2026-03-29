@@ -26,10 +26,13 @@ dependencies = [
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
     "python-dateutil>=2.9.0.post0",
+    "python-json-logger>=2.0.7",
     "python-multipart>=0.0.22",
     "quantstats>=0.0.81",
     "requests>=2.32.5",
+    "slowapi>=0.1.9",
     "sqlalchemy>=2.0.48",
+    "tenacity>=9.0.0",
     "tqdm>=4.67.3",
     "typer>=0.24.1",
     "uvicorn>=0.40.0",
@@ -51,7 +54,6 @@ members = [
     "bases/datamanager_cli",
     "bases/trading_monitor_dashboard",
     "bases/trading_monitor_cli",
-    "bases/trading_monitor_ingestion",
     "bases/portifolio_master_cli",
     "bases/backtest_engine_cli"
 ]
@@ -75,13 +77,13 @@ dev = [
     "trademachine-datamanager-cli>=0.1.0",
     "trademachine-trading-monitor-dashboard>=0.1.0",
     "trademachine-trading-monitor-cli>=0.1.0",
-    "trademachine-trading-monitor-ingestion>=0.1.0",
     "trademachine-portifolio-master-cli>=0.1.0",
     "trademachine-backtest-engine-cli>=0.1.0",
     "trademachine-mt5>=0.1.0",
     "trademachine-core>=0.1.0",
     "pytest-cov>=7.1.0",
     "types-python-dateutil>=2.9.0.20260323",
+    "types-requests>=2.32.4.20260324",
 ]
 
 [tool.ruff]
@@ -115,7 +117,6 @@ trademachine-datamanager-api = { workspace = true }
 trademachine-datamanager-cli = { workspace = true }
 trademachine-trading-monitor-dashboard = { workspace = true }
 trademachine-trading-monitor-cli = { workspace = true }
-trademachine-trading-monitor-ingestion = { workspace = true }
 trademachine-portifolio-master-cli = { workspace = true }
 trademachine-backtest-engine-cli = { workspace = true }
 
@@ -145,7 +146,6 @@ pythonpath = [
     "bases/datamanager_cli/src",
     "bases/trading_monitor_dashboard/src",
     "bases/trading_monitor_cli/src",
-    "bases/trading_monitor_ingestion/src",
     "components/portifoliomaster/src",
     "bases/portifolio_master_cli/src",
     "components/backtestengine/src",
@@ -162,7 +162,6 @@ python_version = "3.12"
 plugins = ["pydantic.mypy"]
 exclude = ["build", ".venv", "venv", "projects/backtestengine/docs"]
 explicit_package_bases = true
-mypy_path = ["components/datamanager/src", "components/tradingmonitor/src", "components/portifoliomaster/src", "components/backtestengine/src", "bases/datamanager_api/src", "bases/datamanager_cli/src", "bases/trading_monitor_dashboard/src", "bases/trading_monitor_cli/src", "bases/trading_monitor_ingestion/src", "bases/portifolio_master_cli/src", "bases/backtest_engine_cli/src", "components/core/src", "components/mt5/src"]
 warn_return_any = true
 warn_unused_ignores = true
 check_untyped_defs = true

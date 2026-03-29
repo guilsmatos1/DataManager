@@ -9,6 +9,9 @@ dependencies = [
     "pydantic-settings>=2.13.1",
 ]
 
+[project.optional-dependencies]
+databento = ["databento>=0.34.0"]
+
 [tool.polylith.projects]
 "trademachine/backtestengine" = "components"
 "trademachine/core" = "components"
