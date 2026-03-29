@@ -5,14 +5,26 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import quantstats as qs
+from trademachine.core.metrics import compute_profit_factor, compute_win_rate
+from trademachine.tradingmonitor.db.database import SessionLocal
+from trademachine.tradingmonitor.db.models import Portfolio
 from trademachine.tradingmonitor.metrics.plugins import PLUGINS
+from trademachine.tradingmonitor.metrics.plugins.base import BaseMetric
 from trademachine.tradingmonitor.metrics.repository import (
     get_strategy_deals,
     get_strategy_equity_curve,
 )
 
-# Extending pandas with quantstats
-qs.extend_pandas()
+# Lazy initialization cache for plugin instances
+_plugin_instances: dict[type[BaseMetric], BaseMetric] = {}
+
+
+def _get_plugin(plugin_cls: type[BaseMetric]) -> BaseMetric:
+    """Get or create a cached instance of a plugin."""
+    if plugin_cls not in _plugin_instances:
+        _plugin_instances[plugin_cls] = plugin_cls()
+    return _plugin_instances[plugin_cls]
+
 
 # Re-export for backward compatibility
 __all__ = [
@@ -50,16 +62,9 @@ def calculate_metrics_from_df(
         + trading_deals["swap"].sum()
     )
 
-    profit_factor = (
-        gross_profit / gross_loss
-        if gross_loss > 0
-        else (float("inf") if gross_profit > 0 else 0.0)
-    )
+    profit_factor = compute_profit_factor(trading_deals["profit"].values)
 
-    winning_trades = len(trading_deals[trading_deals["profit"] > 0])
-    win_rate = (
-        (winning_trades / len(trading_deals)) * 100 if len(trading_deals) > 0 else 0
-    )
+    win_rate = compute_win_rate(trading_deals["profit"].values)
 
     metrics = {
         "Total Trades": len(trading_deals),
@@ -79,20 +84,13 @@ def calculate_metrics_from_df(
 
     # Execute Plugins
     for plugin_cls in PLUGINS:
-        plugin = plugin_cls()
+        plugin = _get_plugin(plugin_cls)
         if not advanced and plugin.is_advanced:
             continue
 
-        try:
-            val = plugin.calculate(trading_deals, daily_returns)
-            if val is not None:
-                metrics[plugin.name] = val
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).error(
-                f"Error calculating metric {plugin.name}: {e}"
-            )
+        val = plugin.calculate(trading_deals, daily_returns)
+        if val is not None:
+            metrics[plugin.name] = val
 
     ordered_keys = [
         "Total Trades",
@@ -349,13 +347,23 @@ def generate_qs_report(
     output_path: str = "report.html",
     title: str = "Performance Report",
 ) -> str | None:
-    """Generate a QuantStats HTML report for a strategy or portfolio."""
-    from trademachine.tradingmonitor.db.database import SessionLocal
-    from trademachine.tradingmonitor.db.models import Portfolio
-    from trademachine.tradingmonitor.metrics.repository import (
-        get_strategy_equity_curve,
-    )
+    """Generate a QuantStats HTML report for a strategy or portfolio.
 
+    Args:
+        strategy_id: The strategy identifier. If provided, generates a report for
+            that strategy alone.
+        portfolio_id: The portfolio database ID. If provided, generates a report
+            combining all strategies in the portfolio. Cannot be used together
+            with strategy_id.
+        output_path: File path where the HTML report will be saved.
+        title: Title displayed in the report header. Defaults to "Performance Report".
+            Automatically prefixed with "Strategy Report: " or "Portfolio Report: "
+            based on the source.
+
+    Returns:
+        The output_path string if the report was generated successfully, or None
+        if no data was available for the specified strategy or portfolio.
+    """
     equity_df = pd.DataFrame()
 
     if strategy_id:
@@ -365,7 +373,7 @@ def generate_qs_report(
     elif portfolio_id:
         db = SessionLocal()
         try:
-            portfolio = db.query(Portfolio).get(portfolio_id)
+            portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
             if not portfolio:
                 return None
 
@@ -387,6 +395,13 @@ def generate_qs_report(
 
             if title == "Performance Report":
                 title = f"Portfolio Report: {portfolio.name}"
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).error(
+                f"Error fetching portfolio {portfolio_id}: {e}"
+            )
+            return None
         finally:
             db.close()
 

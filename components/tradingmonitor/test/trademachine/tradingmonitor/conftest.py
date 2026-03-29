@@ -89,7 +89,6 @@ def _patch_sqlite_composite_pk():
                 table.constraints.remove(pk_constraint)
                 new_pk = PrimaryKeyConstraint(table.columns["id"])
                 table.append_constraint(new_pk)
-                table.primary_key = new_pk
 
 
 _patch_sqlite_jsonb()

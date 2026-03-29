@@ -20,6 +20,7 @@ from trademachine.tradingmonitor.db.models import (
     Base,
     Deal,
     DealType,
+    EquityCurve,
     Portfolio,
     Strategy,
 )
@@ -339,3 +340,30 @@ class TestSummary:
         body = client.get("/api/summary").json()
         assert body["by_symbol"]["EURUSD"] == 2
         assert body["by_symbol"]["GBPUSD"] == 1
+
+
+class TestRealOverview:
+    def test_limits_equity_points_per_strategy(self, client, session):
+        session.add(
+            Strategy(
+                id="s1", name="Real Strat", real_account=True, initial_balance=1000
+            )
+        )
+        session.flush()
+
+        for i in range(150):
+            session.add(
+                EquityCurve(
+                    timestamp=datetime(2024, 1, 1, i // 60, i % 60, 0, tzinfo=UTC),
+                    strategy_id="s1",
+                    balance=1000.0,
+                    equity=1000.0 + i,
+                )
+            )
+        session.flush()
+
+        response = client.get("/api/real?max_points_per_strategy=100")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["strategies"]) == 1
+        assert len(data["strategies"][0]["equity_curve"]) == 100

@@ -74,6 +74,19 @@ window.fetch = function(url, options = {}) {
     return _nativeFetch(url, options);
 };
 
+// ── Copy ID utility ──────────────────────────────────────────────────────────
+function copyId(id, btn) {
+    navigator.clipboard.writeText(String(id)).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = "✓";
+        btn.classList.add("copy-id-success");
+        setTimeout(() => {
+            btn.textContent = orig;
+            btn.classList.remove("copy-id-success");
+        }, 1500);
+    });
+}
+
 // ── Fetch helper ─────────────────────────────────────────────────────────────
 async function fetchJson(url, options = {}) {
     const res = await fetch(url, options);
@@ -82,6 +95,7 @@ async function fetchJson(url, options = {}) {
         try { detail = (await res.json()).detail || detail; } catch (_) {}
         throw new Error(`HTTP ${res.status}: ${detail}`);
     }
+    if (res.status === 204) return null;
     return res.json();
 }
 
@@ -109,6 +123,14 @@ async function fetchJson(url, options = {}) {
 
 // Dispatch custom ws-event from HTMX WS messages
 document.body.addEventListener("htmx:wsAfterMessage", function(evt) {
+    // Pulse the LED on every incoming message
+    const led = document.getElementById("ws-pulse");
+    if (led) {
+        led.classList.remove("ws-pulse-flash");
+        void led.offsetWidth; // force reflow to restart animation
+        led.classList.add("ws-pulse-flash");
+    }
+
     try {
         const payload = JSON.parse(evt.detail.message);
         window.dispatchEvent(new CustomEvent("ws-event", { detail: payload }));

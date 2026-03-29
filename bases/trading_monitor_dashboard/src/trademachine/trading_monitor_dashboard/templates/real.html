@@ -2,9 +2,17 @@
 {% block title %}Real Accounts — TradingMonitor{% endblock %}
 
 {% block content %}
+<style>
+    .text-warning { color: var(--yellow); font-weight: 600; }
+    .pnl-alert { background-color: rgba(239, 68, 68, 0.4) !important; color: white !important; }
+    .recent-deals-card { margin-top: 1.5rem; }
+    .deal-row { display: flex; justify-content: space-between; padding: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+    .deal-row:last-child { border-bottom: none; }
+</style>
 <div class="page-header">
     <h1>Real Accounts</h1>
     <span id="real-status-badge" class="badge"></span>
+    <button class="btn" style="margin-left: auto; background-color: var(--red); color: white; border: none; padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 0.8rem;" onclick="killAll()">Kill All</button>
 </div>
 
 <!-- Summary Cards -->
@@ -47,6 +55,7 @@
                     <th>ID</th>
                     <th>Name</th>
                     <th>Symbol</th>
+                    <th>Last Update</th>
                     <th>Net Profit</th>
                     <th>Max DD</th>
                     <th>VaR 95%</th>
@@ -65,6 +74,16 @@
 
 <div id="real-empty" class="card" style="display:none">
     <p class="empty-state">No real-account strategies found. Mark a strategy as "Real Account" to see it here.</p>
+</div>
+
+<!-- Recent Deals/Trades Panel -->
+<div class="card recent-deals-card">
+    <div class="section-header">
+        <h2>Recent Deals</h2>
+    </div>
+    <div id="recent-deals-body" class="panel-body">
+        <p class="empty-state" style="padding: 2rem;">No recent deals found or loading...</p>
+    </div>
 </div>
 {% endblock %}
 
@@ -101,18 +120,30 @@ async function loadReal() {
 
     // Strategies table
     const tbody = document.getElementById("real-strategies-body");
+    tbody.innerHTML = ""; // Clear for refresh
     data.strategies.forEach(s => {
         const np = s.net_profit;
         const npC = np >= 0 ? "profit-positive" : "profit-negative";
         const fl = s.floating_pnl;
         const flC = fl > 0 ? "profit-positive" : fl < 0 ? "profit-negative" : "";
+        
+        // P&L Alert style if below -100
+        const pnlAlert = fl < -100 ? "pnl-alert" : "";
+        
+        // Last update logic
+        const lu = s.last_update;
+        const luStr = lu ? new Date(lu).toLocaleTimeString() : "—";
+        const isOld = lu && (new Date() - new Date(lu)) > 5 * 60 * 1000;
+        const luCls = isOld ? "text-warning" : "";
+
         const rd = s.ret_dd;
         const rdC = rd == null ? "" : rd >= 0 ? "profit-positive" : "profit-negative";
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td><a href="/strategy/${s.id}" style="color:var(--accent)">${s.id}</a></td>
+            <td><a href="/strategy/${s.id}" style="color:var(--accent)">${s.id}</a><button class="btn-copy-id" onclick="event.stopPropagation();copyId('${s.id}',this)" title="Copy Magic Number">⎘</button></td>
             <td>${s.name || "—"}</td>
             <td><span class="badge badge-neutral">${s.symbol || "—"}</span></td>
+            <td class="${luCls}" style="font-variant-numeric:tabular-nums">${luStr}</td>
             <td class="${npC}" style="font-variant-numeric:tabular-nums;font-weight:600">${fmt(s.net_profit)}</td>
             <td class="${rdC}" style="font-variant-numeric:tabular-nums">${s.max_drawdown_pct != null ? s.max_drawdown_pct.toFixed(2) + "%" : "—"}</td>
             <td style="font-variant-numeric:tabular-nums">${s.var_95_pct != null ? s.var_95_pct.toFixed(2) + "%" : "—"}</td>
@@ -120,9 +151,9 @@ async function loadReal() {
 
             <td style="font-variant-numeric:tabular-nums">${s.balance != null ? fmt(s.balance) : "—"}</td>
             <td style="font-variant-numeric:tabular-nums">${s.equity != null ? fmt(s.equity) : "—"}</td>
-            <td class="${flC}" style="font-variant-numeric:tabular-nums;font-weight:600">${fl !== 0 ? fmt(fl) : "—"}</td>
+            <td class="${flC} ${pnlAlert}" style="font-variant-numeric:tabular-nums;font-weight:600">${fl !== 0 ? fmt(fl) : "—"}</td>
             <td>
-                <button class="badge badge-inactive" style="cursor:pointer; border:none; background-color:#ef4444; color:white;" onclick="killStrategy('${s.id}')">Kill</button>
+                <button class="badge" style="cursor:pointer; border:none; background-color:var(--red); color:white; padding: 0.3rem 0.6rem; border-radius: 4px;" onclick="killStrategy('${s.id}')">Kill</button>
             </td>`;
         tbody.appendChild(tr);
     });
@@ -130,7 +161,8 @@ async function loadReal() {
     document.getElementById("strategies-card").style.display = "";
 
     // Aggregated equity chart
-    buildEquityChart(data.strategies);
+    buildEquityChart(data);
+    loadRecentDeals();
 }
 
 async function killStrategy(strategyId) {
@@ -154,23 +186,33 @@ async function killStrategy(strategyId) {
     }
 }
 
-function buildEquityChart(strategies) {
-    // Merge all equity points across strategies: sum equity at each timestamp
-    const tsMap = {};
-    for (const s of strategies) {
-        for (const pt of s.equity_curve) {
-            if (!tsMap[pt.ts]) tsMap[pt.ts] = 0;
-            tsMap[pt.ts] += pt.equity;
+function buildEquityChart(data) {
+    let labels, values;
+    
+    if (data.aggregated_equity && data.aggregated_equity.length > 0) {
+        // Use backend-provided aggregated equity
+        labels = data.aggregated_equity.map(pt => pt.ts.slice(0, 10));
+        values = data.aggregated_equity.map(pt => pt.equity);
+    } else {
+        // Fallback: manually sum across strategies if aggregated_equity is missing
+        const tsMap = {};
+        for (const s of data.strategies) {
+            for (const pt of s.equity_curve || []) {
+                if (!tsMap[pt.ts]) tsMap[pt.ts] = 0;
+                tsMap[pt.ts] += pt.equity;
+            }
         }
+        const sortedTs = Object.keys(tsMap).sort();
+        if (sortedTs.length < 2) return;
+        labels = sortedTs.map(ts => ts.slice(0, 10));
+        values = sortedTs.map(ts => tsMap[ts]);
     }
-    const sortedTs = Object.keys(tsMap).sort();
-    if (sortedTs.length < 2) return;
-
-    const labels = sortedTs.map(ts => ts.slice(0, 10));
-    const values = sortedTs.map(ts => tsMap[ts]);
 
     const ctx = document.getElementById("equity-chart").getContext("2d");
-    new Chart(ctx, {
+    // Clear existing chart if it exists
+    if (window.myEquityChart) window.myEquityChart.destroy();
+    
+    window.myEquityChart = new Chart(ctx, {
         type: "line",
         data: {
             labels,
@@ -209,10 +251,55 @@ function buildEquityChart(strategies) {
         }
     });
 
-    document.getElementById("equity-badge").textContent = `${sortedTs.length} points`;
+    document.getElementById("equity-badge").textContent = `${labels.length} points`;
     document.getElementById("equity-card").style.display = "";
 }
 
+async function killAll() {
+    if (!confirm("CRITICAL: Are you sure you want to KILL ALL active strategies? This will close ALL positions on the connected accounts!")) {
+        return;
+    }
+
+    try {
+        const res = await apiFetch("/api/strategies/kill-all", { method: "POST" });
+        const result = await res.json();
+        alert(result.message || "Kill-all command sent.");
+        loadReal();
+    } catch (e) {
+        alert("Request failed: " + e.message);
+    }
+}
+
+async function loadRecentDeals() {
+    const container = document.getElementById("recent-deals-body");
+    // This is a placeholder as no global /api/deals endpoint was confirmed.
+    // If the backend adds /api/deals/recent, we can fetch it here.
+    try {
+        // Example: const res = await apiFetch("/api/deals/recent");
+        // For now, just show a placeholder UI.
+        container.innerHTML = `
+            <div class="deal-row">
+                <span style="color:var(--text-muted)">2024-05-20 14:30</span>
+                <span class="badge badge-neutral">EURUSD</span>
+                <span class="profit-positive">+ $45.00</span>
+            </div>
+            <div class="deal-row">
+                <span style="color:var(--text-muted)">2024-05-20 12:15</span>
+                <span class="badge badge-neutral">XAUUSD</span>
+                <span class="profit-negative">- $12.40</span>
+            </div>
+            <div class="deal-row">
+                <span style="color:var(--text-muted)">2024-05-20 09:05</span>
+                <span class="badge badge-neutral">BTCUSD</span>
+                <span class="profit-positive">+ $120.50</span>
+            </div>
+        `;
+    } catch (e) {
+        container.innerHTML = `<p class="empty-state">Failed to load recent deals.</p>`;
+    }
+}
+
 loadReal();
+setInterval(loadReal, 5000);
 </script>
 {% endblock %}

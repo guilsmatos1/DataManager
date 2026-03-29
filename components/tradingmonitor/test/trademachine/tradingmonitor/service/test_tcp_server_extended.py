@@ -365,3 +365,109 @@ class TestHandleClientExceptions:
 
         mock_save.assert_called_once()
         conn.close.assert_called_once()
+
+    def test_handle_client_validation_error(self):
+        """Pydantic ValidationError should save dead letter and continue."""
+        conn = MagicMock()
+        # Valid JSON but fails schema validation
+        conn.recv.side_effect = [b'DEAL {"time": "not_a_number"}\n', b""]
+
+        with (
+            patch("trademachine.tradingmonitor.ingestion.tcp_server.SessionLocal") as _,
+            patch(
+                "trademachine.tradingmonitor.ingestion.tcp_server._save_dead_letter"
+            ) as mock_save,
+        ):
+            from trademachine.tradingmonitor.ingestion.tcp_server import handle_client
+
+            handle_client(conn, ("127.0.0.1", 12345))
+
+        mock_save.assert_called_once()
+        # Verify it was called with DEAL topic and the raw message
+        call_args = mock_save.call_args
+        assert call_args[0][1] == "DEAL"  # topic
+        conn.close.assert_called_once()
+
+    def test_handle_client_unknown_topic(self):
+        """Unknown topic should log warning and continue processing."""
+        conn = MagicMock()
+        # Valid JSON with unknown topic
+        conn.recv.side_effect = [
+            b'UNKNOWN_TOPIC {"key": "value"}\n',
+            b"",  # End connection
+        ]
+
+        with (
+            patch("trademachine.tradingmonitor.ingestion.tcp_server.SessionLocal") as _,
+            patch(
+                "trademachine.tradingmonitor.ingestion.tcp_server._save_dead_letter"
+            ) as mock_save,
+        ):
+            from trademachine.tradingmonitor.ingestion.tcp_server import handle_client
+
+            with patch(
+                "trademachine.tradingmonitor.ingestion.tcp_server.logger"
+            ) as mock_logger:
+                handle_client(conn, ("127.0.0.1", 12345))
+
+        # Should NOT save dead letter for unknown topic (just warning)
+        mock_save.assert_not_called()
+        mock_logger.warning.assert_called()
+        conn.close.assert_called_once()
+
+    def test_handle_client_malformed_message_format(self):
+        """Message without space separator should be skipped with warning."""
+        conn = MagicMock()
+        # No space at all between topic and JSON - truly malformed
+        # Line will be: TOPIC_NO_SPACE_JSON - split gives only 1 part
+        conn.recv.side_effect = [b"TOPIC_NO_SPACE_JSON\n", b""]
+
+        with (
+            patch("trademachine.tradingmonitor.ingestion.tcp_server.SessionLocal") as _,
+            patch(
+                "trademachine.tradingmonitor.ingestion.tcp_server._save_dead_letter"
+            ) as mock_save,
+        ):
+            from trademachine.tradingmonitor.ingestion.tcp_server import handle_client
+
+            with patch(
+                "trademachine.tradingmonitor.ingestion.tcp_server.logger"
+            ) as mock_logger:
+                handle_client(conn, ("127.0.0.1", 12345))
+
+        # Should log warning but not save dead letter
+        mock_save.assert_not_called()
+        mock_logger.warning.assert_called()
+        conn.close.assert_called_once()
+
+    def test_handle_client_generic_exception_in_processing(self):
+        """Generic exception during processing should save dead letter."""
+        conn = MagicMock()
+        # Valid format and valid JSON, but will cause exception in process_deal
+        # due to DB error
+        conn.recv.side_effect = [
+            b'DEAL {"time": 123456, "ticket": 1, "magic": 123, "symbol": "EURUSD", "type": "buy", "volume": 0.1, "price": 1.08, "profit": 10.0, "commission": -1.0, "swap": 0.0}\n',
+            b"",
+        ]
+
+        mock_db = MagicMock()
+        # Make db.execute raise an exception during processing
+        mock_db.execute.side_effect = RuntimeError("DB error")
+
+        with (
+            patch(
+                "trademachine.tradingmonitor.ingestion.tcp_server.SessionLocal",
+                return_value=mock_db,
+            ),
+            patch(
+                "trademachine.tradingmonitor.ingestion.tcp_server._save_dead_letter"
+            ) as mock_save,
+        ):
+            from trademachine.tradingmonitor.ingestion.tcp_server import handle_client
+
+            with patch("trademachine.tradingmonitor.ingestion.tcp_server.logger"):
+                handle_client(conn, ("127.0.0.1", 12345))
+
+        # Dead letter should be saved for generic exception
+        mock_save.assert_called()
+        conn.close.assert_called_once()

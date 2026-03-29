@@ -4,8 +4,12 @@ from datetime import UTC, datetime
 import typer
 from trademachine.core.logger import setup_logger
 from trademachine.tradingmonitor.config import settings
-from trademachine.tradingmonitor.db.database import SessionLocal, init_db
-from trademachine.tradingmonitor.db.models import Account, Portfolio, Strategy
+from trademachine.tradingmonitor.db.database import init_db
+from trademachine.tradingmonitor.db.repository import (
+    AccountRepository,
+    PortfolioRepository,
+    StrategyRepository,
+)
 from trademachine.tradingmonitor.ingestion.tcp_server import HEARTBEAT_FILE
 from trademachine.tradingmonitor.utils.notifications import notifier
 
@@ -68,37 +72,27 @@ def register_account(
     description: str | None = typer.Option(None),
 ):
     """Register or update a trading account."""
-    db = SessionLocal()
-    try:
-        acc = db.query(Account).filter(Account.id == account_number).first()
-        if not acc:
-            acc = Account(id=account_number)
-            db.add(acc)
-
-        acc.name = name
-        acc.broker = broker
-        acc.account_type = account_type
-        acc.currency = currency
-        acc.description = description
-
-        db.commit()
-        typer.echo(f"Account {account_number} registered.")
-    finally:
-        db.close()
+    account_repo = AccountRepository()
+    account_repo.create_or_update(
+        account_id=account_number,
+        name=name,
+        broker=broker,
+        account_type=account_type,
+        currency=currency,
+        description=description,
+    )
+    typer.echo(f"Account {account_number} registered.")
 
 
 @app.command()
 def list_accounts():
     """List all registered trading accounts."""
-    db = SessionLocal()
-    try:
-        accounts = db.query(Account).all()
-        for acc in accounts:
-            typer.echo(
-                f"[{acc.id}] {acc.name} - Broker: {acc.broker} - Balance: {acc.balance} {acc.currency}"
-            )
-    finally:
-        db.close()
+    account_repo = AccountRepository()
+    accounts = account_repo.get_all()
+    for acc in accounts:
+        typer.echo(
+            f"[{acc.get('id')}] {acc.get('name')} - Broker: {acc.get('broker')} - Balance: {acc.get('balance')} {acc.get('currency')}"
+        )
 
 
 @app.command()
@@ -127,33 +121,30 @@ def register_strategy(
     ),
 ):
     """Register or update strategy metadata."""
-    db = SessionLocal()
-    try:
-        strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    strategy_repo = StrategyRepository()
 
-        if not strategy:
-            strategy = Strategy(id=strategy_id)
-            db.add(strategy)
-            typer.echo(f"Creating new strategy: {strategy_id}")
-        else:
-            typer.echo(f"Updating strategy: {strategy_id}")
+    # Check if exists for messaging
+    existing = strategy_repo.get_by_id(strategy_id)
+    if existing:
+        typer.echo(f"Updating strategy: {strategy_id}")
+    else:
+        typer.echo(f"Creating new strategy: {strategy_id}")
 
-        strategy.name = name
-        strategy.account_id = account_id
-        strategy.symbol = symbol
-        strategy.timeframe = timeframe
-        strategy.operational_style = style
-        strategy.trade_duration = duration
-        strategy.initial_balance = balance
-        strategy.base_currency = currency
-        strategy.description = description
-        strategy.live = live
-        strategy.real_account = real
-
-        db.commit()
-        typer.echo(f"Strategy '{name}' registered successfully.")
-    finally:
-        db.close()
+    strategy_repo.create_or_update(
+        strategy_id=strategy_id,
+        name=name,
+        account_id=account_id,
+        symbol=symbol,
+        timeframe=timeframe,
+        operational_style=style,
+        trade_duration=duration,
+        initial_balance=balance,
+        base_currency=currency,
+        description=description,
+        live=live,
+        real_account=real,
+    )
+    typer.echo(f"Strategy '{name}' registered successfully.")
 
 
 @app.command()
@@ -165,141 +156,125 @@ def create_portfolio(
     real: bool = typer.Option(False, "--real/--demo"),
 ):
     """Create a new portfolio."""
-    db = SessionLocal()
-    try:
-        portfolio = Portfolio(
-            name=name,
-            initial_balance=balance,
-            description=description,
-            live=live,
-            real_account=real,
-        )
-        db.add(portfolio)
-        db.commit()
-        typer.echo(f"Portfolio '{name}' (ID: {portfolio.id}) created.")
-    finally:
-        db.close()
+    portfolio_repo = PortfolioRepository()
+    portfolio_id = portfolio_repo.create(
+        name=name,
+        initial_balance=balance,
+        description=description,
+        live=live,
+        real_account=real,
+    )
+    typer.echo(f"Portfolio '{name}' (ID: {portfolio_id}) created.")
 
 
 @app.command()
 def add_to_portfolio(portfolio_id: int, strategy_id: str):
     """Add a strategy to a portfolio."""
-    db = SessionLocal()
-    try:
-        portfolio = db.query(Portfolio).get(portfolio_id)
-        strategy = db.query(Strategy).get(strategy_id)
+    portfolio_repo = PortfolioRepository()
+    success = portfolio_repo.add_strategy(portfolio_id, strategy_id)
+    if not success:
+        typer.echo("Portfolio or Strategy not found.", err=True)
+        return
 
-        if not portfolio or not strategy:
-            typer.echo("Portfolio or Strategy not found.", err=True)
-            return
-
-        if strategy not in portfolio.strategies:
-            portfolio.strategies.append(strategy)
-            db.commit()
-            typer.echo(f"Strategy {strategy_id} added to Portfolio {portfolio_id}.")
-        else:
+    # Check if already exists
+    portfolio = portfolio_repo.get_by_id(portfolio_id, include_strategies=True)
+    if portfolio:
+        strategy_ids = [s["id"] for s in portfolio.get("strategies", [])]
+        if strategy_id in strategy_ids:
             typer.echo(
                 f"Strategy {strategy_id} is already in Portfolio {portfolio_id}."
             )
-    finally:
-        db.close()
+            return
+
+    typer.echo(f"Strategy {strategy_id} added to Portfolio {portfolio_id}.")
 
 
 @app.command()
 def list_portfolios():
     """List all portfolios."""
-    db = SessionLocal()
-    try:
-        portfolios = db.query(Portfolio).all()
-        for p in portfolios:
-            strategies_ids = [s.id for s in p.strategies]
-            typer.echo(
-                f"[{p.id}] {p.name} - Initial: {p.initial_balance} - Strategies: {strategies_ids}"
-            )
-    finally:
-        db.close()
+    portfolio_repo = PortfolioRepository()
+    portfolios = portfolio_repo.get_all(include_strategies=True)
+    for p in portfolios:
+        strategies_ids = [s["id"] for s in p.get("strategies", [])]
+        typer.echo(
+            f"[{p.get('id')}] {p.get('name')} - Initial: {p.get('initial_balance')} - Strategies: {strategies_ids}"
+        )
 
 
 @app.command()
 def report(strategy_id: str):
     """Generate a performance report for a specific strategy."""
-    db = SessionLocal()
-    try:
-        strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    strategy_repo = StrategyRepository()
+    strategy = strategy_repo.get_by_id(strategy_id, include_account=True)
 
-        if not strategy:
-            typer.echo(f"Strategy {strategy_id} not found in database.")
-            return
+    if not strategy:
+        typer.echo(f"Strategy {strategy_id} not found in database.")
+        return
 
-        typer.echo(f"Generating report for {strategy.name} ({strategy_id})...")
-        from trademachine.tradingmonitor.metrics.calculator import calculate_metrics
+    typer.echo(f"Generating report for {strategy.get('name')} ({strategy_id})...")
+    from trademachine.tradingmonitor.metrics.calculator import calculate_metrics
 
-        metrics = calculate_metrics(strategy_id)
+    metrics = calculate_metrics(strategy_id)
 
-        if "error" in metrics:
-            typer.echo(f"Error: {metrics['error']}", err=True)
-            return
+    if "error" in metrics:
+        typer.echo(f"Error: {metrics['error']}", err=True)
+        return
 
-        typer.echo("\n--- Strategy Info ---")
-        typer.echo(f"Symbol: {strategy.symbol}")
-        typer.echo(f"Timeframe: {strategy.timeframe}")
-        typer.echo(f"Style: {strategy.operational_style}")
-        typer.echo(f"Status: {'Live' if strategy.live else 'Incubation'}")
-        typer.echo(f"Account: {'Real' if strategy.real_account else 'Demo'}")
-        if strategy.account:
-            typer.echo(
-                f"Broker/Account: {strategy.account.broker} / {strategy.account.id}"
-            )
+    typer.echo("\n--- Strategy Info ---")
+    typer.echo(f"Symbol: {strategy.get('symbol')}")
+    typer.echo(f"Timeframe: {strategy.get('timeframe')}")
+    typer.echo(f"Style: {strategy.get('operational_style')}")
+    typer.echo(f"Status: {'Live' if strategy.get('live') else 'Incubation'}")
+    typer.echo(f"Account: {'Real' if strategy.get('real_account') else 'Demo'}")
+    if strategy.get("account"):
+        typer.echo(
+            f"Broker/Account: {strategy.get('account', {}).get('broker')} / {strategy.get('account', {}).get('id')}"
+        )
 
-        typer.echo("\n--- Performance Metrics ---")
-        for key, value in metrics.items():
-            if isinstance(value, float):
-                typer.echo(f"{key}: {value:.2f}")
-            else:
-                typer.echo(f"{key}: {value}")
-        typer.echo("-----------------------------------")
-    finally:
-        db.close()
+    typer.echo("\n--- Performance Metrics ---")
+    for key, value in metrics.items():
+        if isinstance(value, float):
+            typer.echo(f"{key}: {value:.2f}")
+        else:
+            typer.echo(f"{key}: {value}")
+    typer.echo("-----------------------------------")
 
 
 @app.command()
 def portfolio_report(portfolio_id: int):
     """Generate aggregate report for a portfolio."""
-    db = SessionLocal()
-    try:
-        portfolio = db.query(Portfolio).get(portfolio_id)
-        if not portfolio:
-            typer.echo("Portfolio not found.", err=True)
-            return
+    portfolio_repo = PortfolioRepository()
+    portfolio = portfolio_repo.get_by_id(portfolio_id, include_strategies=True)
+    if not portfolio:
+        typer.echo("Portfolio not found.", err=True)
+        return
 
-        typer.echo(f"\n=== PORTFOLIO REPORT: {portfolio.name} ===")
-        typer.echo(f"Initial Balance: {portfolio.initial_balance}")
-        typer.echo(f"Status: {'Live' if portfolio.live else 'Incubation'}")
+    typer.echo(f"\n=== PORTFOLIO REPORT: {portfolio.get('name')} ===")
+    typer.echo(f"Initial Balance: {portfolio.get('initial_balance')}")
+    typer.echo(f"Status: {'Live' if portfolio.get('live') else 'Incubation'}")
 
-        strategy_ids = [s.id for s in portfolio.strategies]
-        if not strategy_ids:
-            typer.echo("No strategies in this portfolio.")
-            return
+    strategy_ids = [s["id"] for s in portfolio.get("strategies", [])]
+    if not strategy_ids:
+        typer.echo("No strategies in this portfolio.")
+        return
 
-        from trademachine.tradingmonitor.metrics.calculator import (
-            calculate_portfolio_metrics,
-        )
+    from trademachine.tradingmonitor.metrics.calculator import (
+        calculate_portfolio_metrics,
+    )
 
-        metrics = calculate_portfolio_metrics(strategy_ids)
+    metrics = calculate_portfolio_metrics(strategy_ids)
 
-        if "error" in metrics:
-            typer.echo(f"Error: {metrics['error']}", err=True)
-            return
+    if "error" in metrics:
+        typer.echo(f"Error: {metrics['error']}", err=True)
+        return
 
-        typer.echo("\n--- Aggregate Performance ---")
-        for key, value in metrics.items():
-            if isinstance(value, float):
-                typer.echo(f"{key}: {value:.2f}")
-            else:
-                typer.echo(f"{key}: {value}")
-        typer.echo("===========================================")
-    finally:
-        db.close()
+    typer.echo("\n--- Aggregate Performance ---")
+    for key, value in metrics.items():
+        if isinstance(value, float):
+            typer.echo(f"{key}: {value:.2f}")
+        else:
+            typer.echo(f"{key}: {value}")
+    typer.echo("===========================================")
 
 
 @app.command()

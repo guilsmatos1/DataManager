@@ -120,6 +120,22 @@
     </div>
 </div>
 
+
+<div class="card">
+    <div class="card-header" style="display:flex;align-items:center;gap:1rem">
+        <h2 class="card-title">Erros de Ingestão (Dead Letters)</h2>
+        <span id="dl-count" class="badge badge-neutral" style="margin-left:auto"></span>
+        <button class="btn btn-ghost btn-sm" onclick="loadDeadLetters()">Atualizar</button>
+        <button class="btn btn-sm" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25)" onclick="clearDeadLetters()">Limpar tudo</button>
+    </div>
+    <div class="card-body">
+        <p style="color:var(--text-muted);font-size:0.8rem;margin-bottom:0.75rem">Últimas mensagens que falharam ao ser processadas pelo servidor TCP.</p>
+        <div id="dl-list" style="display:flex;flex-direction:column;gap:0.5rem">
+            <p style="color:var(--text-muted);font-size:0.85rem">Carregando…</p>
+        </div>
+    </div>
+</div>
+
 </div>
 {% endblock %}
 
@@ -370,5 +386,39 @@
         btRenderFileList();
         document.getElementById('bt-file-input').value = '';
     }
+
+    async function loadDeadLetters() {
+        const list = document.getElementById("dl-list");
+        try {
+            const res = await fetch("/api/ingestion-errors?limit=50", { headers: { "X-API-Key": API_KEY } });
+            const data = await res.json();
+            document.getElementById("dl-count").textContent = `${data.length} erros`;
+            if (!data.length) {
+                list.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem">Nenhum erro registrado.</p>';
+                return;
+            }
+            list.innerHTML = data.map(e => `
+                <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:0.4rem;padding:0.6rem 0.75rem;font-size:0.8rem">
+                    <div style="display:flex;gap:0.75rem;margin-bottom:0.25rem">
+                        <span class="badge badge-neutral">${e.topic || "—"}</span>
+                        <span style="color:var(--text-muted)">${e.timestamp ? new Date(e.timestamp).toLocaleString("pt-BR") : "—"}</span>
+                    </div>
+                    <div style="color:#f97316;margin-bottom:0.2rem">${e.error_message || ""}</div>
+                    <details><summary style="color:var(--text-muted);cursor:pointer">Raw message</summary>
+                        <pre style="margin-top:0.3rem;overflow:auto;font-size:0.75rem;color:var(--text-muted);white-space:pre-wrap">${(e.raw_message || "").slice(0, 500)}</pre>
+                    </details>
+                </div>`).join("");
+        } catch(e) {
+            list.innerHTML = '<p style="color:#ef4444">Erro ao carregar.</p>';
+        }
+    }
+
+    async function clearDeadLetters() {
+        if (!confirm("Limpar todos os erros de ingestão?")) return;
+        await fetch("/api/ingestion-errors", { method: "DELETE", headers: { "X-API-Key": API_KEY } });
+        loadDeadLetters();
+    }
+
+    document.addEventListener("DOMContentLoaded", loadDeadLetters);
 </script>
 {% endblock %}

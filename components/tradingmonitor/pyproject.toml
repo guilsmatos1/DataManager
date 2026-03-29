@@ -6,7 +6,17 @@ build-backend = "setuptools.build_meta"
 name = "trademachine-tradingmonitor"
 version = "0.1.0"
 description = "trademachine-tradingmonitor brick"
-dependencies = []
+dependencies = ["trademachine-core", "pytest>=7.0"]
+
+[project.entry-points."trademachine.metrics"]
+sharpe = "trademachine.tradingmonitor.metrics.plugins.sharpe:SharpeRatio"
+max_drawdown = "trademachine.tradingmonitor.metrics.plugins.max_drawdown:MaxDrawdown"
+recovery = "trademachine.tradingmonitor.metrics.plugins.recovery:RecoveryFactor"
+sortino = "trademachine.tradingmonitor.metrics.plugins.sortino:SortinoRatio"
+calmar = "trademachine.tradingmonitor.metrics.plugins.calmar:CalmarRatio"
+var95 = "trademachine.tradingmonitor.metrics.plugins.var95:VaR95"
+cvar95 = "trademachine.tradingmonitor.metrics.plugins.cvar95:CVaR95"
+risk_reward = "trademachine.tradingmonitor.metrics.plugins.risk_reward:RiskRewardRatio"
 
 [tool.setuptools.packages.find]
 where = ["src"]

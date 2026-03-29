@@ -131,6 +131,28 @@ a { color: inherit; text-decoration: none; }
 }
 .page-header h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
 
+.drawdown-alert-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    border-left: 4px solid;
+}
+.drawdown-alert-critical {
+    background: rgba(239,68,68,0.12);
+    border-left-color: #ef4444;
+    color: #fca5a5;
+    animation: zombie-pulse 2s ease-in-out infinite;
+}
+.drawdown-alert-warning {
+    background: rgba(249,115,22,0.1);
+    border-left-color: #f97316;
+    color: #fdba74;
+}
+
 .back-link {
     color: var(--text-muted);
     font-size: 0.8rem;
@@ -365,6 +387,7 @@ a { color: inherit; text-decoration: none; }
 .badge-inactive   { background: var(--red-glow);     color: var(--red);    border: 1px solid rgba(239,68,68,0.3); }
 .badge-active     { background: var(--green-glow);   color: var(--green);  border: 1px solid rgba(16,185,129,0.3); }
 .badge-neutral    { background: var(--surface-2);    color: var(--text-muted); border: 1px solid var(--border); }
+.badge-zombie     { background: rgba(239,68,68,0.12); color: #f97316; border: 1px solid rgba(249,115,22,0.4); animation: zombie-pulse 2.5s ease-in-out infinite; }
 
 /* ── Profit / loss colors ── */
 .profit-positive { color: var(--green); font-weight: 600; }
@@ -835,6 +858,14 @@ a { color: inherit; text-decoration: none; }
 }
 .period-tab:hover  { color: var(--text); background: var(--surface-hover); }
 .period-tab.active { background: var(--surface-hover); color: var(--text); }
+.period-tab.disabled { opacity: 0.38; cursor: not-allowed; }
+.period-tab.disabled:hover { background: transparent; color: var(--text-muted); }
+
+/* ── Signal dot (stale data indicator) ── */
+.signal-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:0.3rem; vertical-align:middle; flex-shrink:0; }
+.signal-ok      { background:#22c55e; }
+.signal-stale   { background:#f59e0b; }
+.signal-unknown { background:var(--text-muted,#6b7280); }
 
 /* ── Heatmap table ── */
 .heatmap-scroll {
@@ -1049,6 +1080,41 @@ th.sortable:hover { color: var(--accent); }
     gap: 0.5rem;
 }
 
+/* ── Copy ID button ── */
+.btn-copy-id {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 0 0.3rem;
+    font-size: 0.8rem;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+    vertical-align: middle;
+    line-height: 1;
+}
+tr:hover .btn-copy-id,
+.btn-copy-id:focus { opacity: 1; }
+.btn-copy-id:hover { color: var(--accent); }
+.btn-copy-id.copy-id-success { color: var(--green); opacity: 1; }
+
+/* ── WebSocket pulse LED ── */
+#ws-pulse {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border);
+    flex-shrink: 0;
+}
+@keyframes ws-led-flash {
+    0%   { background: #10b981; box-shadow: 0 0 0 0   rgba(16,185,129,0.9); }
+    60%  { background: #10b981; box-shadow: 0 0 0 5px rgba(16,185,129,0);   }
+    100% { background: var(--border); box-shadow: none; }
+}
+#ws-pulse.ws-pulse-flash {
+    animation: ws-led-flash 0.6s ease-out forwards;
+}
+
 /* ── Live badge pulse ── */
 @keyframes live-pulse {
     0%   { box-shadow: 0 0 0 0   rgba(16,185,129,0.7); }
@@ -1056,6 +1122,11 @@ th.sortable:hover { color: var(--accent); }
     100% { box-shadow: 0 0 0 0   rgba(16,185,129,0);   }
 }
 .badge-live { animation: live-pulse 2.2s ease-out infinite; }
+
+@keyframes zombie-pulse {
+    0%, 100% { box-shadow: 0 0 0 0   rgba(249,115,22,0.6); }
+    50%       { box-shadow: 0 0 0 5px rgba(249,115,22,0);   }
+}
 
 /* ── Updated-at label ── */
 .updated-at {

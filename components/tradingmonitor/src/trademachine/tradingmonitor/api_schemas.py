@@ -39,6 +39,10 @@ class StrategyResponse(BaseModel):
     backtest_net_profit: float | None = None
     trades_count: int | None = None
     max_drawdown: float | None = None  # 0-1 fraction
+    last_seen_at: datetime | None = None
+    last_trade_at: datetime | None = None
+    zombie_alert: bool = False
+    max_allowed_drawdown: float | None = None  # % limit, e.g. 20.0 = 20%
 
 
 class DealResponse(BaseModel):
@@ -191,3 +195,60 @@ class PaginatedBacktestDeals(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ── Request / write schemas ───────────────────────────────────────────────────
+
+
+class AccountUpdate(BaseModel):
+    name: str | None = None
+    account_type: str | None = None
+    currency: str | None = None
+
+
+class StrategyUpdate(BaseModel):
+    name: str | None = None
+    symbol: str | None = None
+    timeframe: str | None = None
+    operational_style: str | None = None
+    trade_duration: str | None = None
+    description: str | None = None
+    live: bool | None = None
+    real_account: bool | None = None
+    max_allowed_drawdown: float | None = None
+
+
+class PortfolioCreate(BaseModel):
+    name: str
+    description: str | None = None
+    live: bool = False
+    real_account: bool = False
+    strategy_ids: list[str] = []
+    initial_balance: float | None = None
+
+
+class PortfolioUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    live: bool | None = None
+    real_account: bool | None = None
+    strategy_ids: list[str] | None = None
+    initial_balance: float | None = None
+
+
+class SymbolCreate(BaseModel):
+    name: str
+    market: str | None = None
+    lot: float | None = None
+
+
+class SymbolUpdate(BaseModel):
+    name: str | None = None
+    market: str | None = None
+    lot: float | None = None
+
+
+class TelegramSettings(BaseModel):
+    bot_token: str | None = None
+    chat_id: str | None = None
+    var_95_threshold: float | None = None

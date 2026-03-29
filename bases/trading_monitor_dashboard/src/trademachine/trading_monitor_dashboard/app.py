@@ -1,11 +1,14 @@
 import asyncio
 import logging
+import os
+import tempfile
 import threading
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from trademachine.core.logger import LOGGER_NAME, setup_logger
@@ -23,7 +26,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 def create_app(
     with_ingestion: bool = False,
     server_host: str = "127.0.0.1",
-    server_port: int = 5555,
+    server_port: int = settings.server_port,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -111,6 +114,46 @@ def create_app(
             "correlation.html",
             {"request": request, "portfolio_id": portfolio_id, **_ctx},
         )
+
+    @app.get("/strategy/{strategy_id}/quantstats-report", response_class=HTMLResponse)
+    async def strategy_quantstats_report(strategy_id: str):
+        from trademachine.tradingmonitor.metrics.calculator import generate_qs_report
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".html")
+        os.close(fd)
+        try:
+            result = generate_qs_report(strategy_id=strategy_id, output_path=tmp_path)
+            if result is None:
+                return HTMLResponse(
+                    content="<h1>Not enough data to generate report.</h1>",
+                    status_code=404,
+                )
+            with open(tmp_path) as f:
+                html_content = f.read()
+            return HTMLResponse(content=html_content)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    @app.get("/portfolio/{portfolio_id}/quantstats-report", response_class=HTMLResponse)
+    async def portfolio_quantstats_report(portfolio_id: int):
+        from trademachine.tradingmonitor.metrics.calculator import generate_qs_report
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".html")
+        os.close(fd)
+        try:
+            result = generate_qs_report(portfolio_id=portfolio_id, output_path=tmp_path)
+            if result is None:
+                return HTMLResponse(
+                    content="<h1>Not enough data to generate report.</h1>",
+                    status_code=404,
+                )
+            with open(tmp_path) as f:
+                html_content = f.read()
+            return HTMLResponse(content=html_content)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):

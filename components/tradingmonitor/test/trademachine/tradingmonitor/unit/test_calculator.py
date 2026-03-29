@@ -234,12 +234,14 @@ class TestRiskRewardRatio:
     def test_risk_reward_ratio_all_wins_returns_none(self):
         deals = _make_deals([{"type": "BUY", "profit": 100.0}])
         result = calculate_metrics_from_df(deals, pd.DataFrame(), advanced=True)
-        assert "Risk-Reward Ratio" in result
+        # Risk-Reward Ratio requires both wins and losses to calculate
+        assert "Risk-Reward Ratio" not in result
 
     def test_risk_reward_ratio_all_losses_returns_none(self):
         deals = _make_deals([{"type": "SELL", "profit": -100.0}])
         result = calculate_metrics_from_df(deals, pd.DataFrame(), advanced=True)
-        assert "Risk-Reward Ratio" in result
+        # Risk-Reward Ratio requires both wins and losses to calculate
+        assert "Risk-Reward Ratio" not in result
 
     def test_risk_reward_ratio_not_in_basic_metrics(self):
         deals = _make_deals([{"type": "BUY", "profit": 100.0}])

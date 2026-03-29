@@ -4,9 +4,9 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from trademachine.core.logger import LOGGER_NAME
-from trademachine.tradingmonitor.config import settings
+from trademachine.tradingmonitor.config import Settings, get_settings
 from trademachine.tradingmonitor.db.database import SessionLocal
-from trademachine.tradingmonitor.db.models import Backtest, Setting
+from trademachine.tradingmonitor.db.models import Backtest, Strategy
 from trademachine.tradingmonitor.metrics.calculator import calculate_metrics_from_df
 from trademachine.tradingmonitor.metrics.repository import (
     get_backtest_deals,
@@ -17,6 +17,8 @@ from trademachine.tradingmonitor.metrics.repository import (
 from trademachine.tradingmonitor.utils.notifications import notifier
 
 logger = logging.getLogger(LOGGER_NAME)
+DRAWDOWN_WARNING_THRESHOLD = 0.8
+settings = get_settings()
 
 
 @dataclass
@@ -51,19 +53,25 @@ def _compute_var(equity_series: pd.Series, percentile: float = 95) -> float | No
     return float(var)
 
 
-def check_performance_drift(strategy_id: str) -> DriftReport | None:
-    """Compare live performance against the best available backtest and check risk limits."""
+def check_performance_drift(
+    strategy_id: str, settings: Settings | None = None
+) -> DriftReport | None:
+    """Compare live performance against the best available backtest and check risk limits.
+
+    Args:
+        strategy_id: The strategy identifier to check.
+        settings: Optional Settings instance for dependency injection (testing).
+                 If not provided, uses the cached production settings.
+    """
     # We always check VaR even if drift alerts are disabled, as it's a hard risk limit
+    resolved_settings = settings or globals()["settings"]
 
     db = SessionLocal()
     try:
-        # Load dynamic threshold from DB settings if available, else use config default
-        db_var_limit = db.query(Setting).filter(Setting.key == "var_95_limit").first()
-        var_limit = (
-            float(db_var_limit.value)
-            if db_var_limit and db_var_limit.value
-            else settings.var_95_threshold
-        )
+        strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+
+        # VaR limit from config (env var VAR_95_THRESHOLD)
+        var_limit = resolved_settings.var_95_threshold
 
         # 1. Fetch live data
         live_deals = get_strategy_deals(strategy_id)
@@ -83,14 +91,27 @@ def check_performance_drift(strategy_id: str) -> DriftReport | None:
                 f"VaR 95% Breach: {var_95 * 100:.2f}% (Limit: {var_limit:.2f}%)"
             )
 
+        # 2b. Drawdown Limit Check (per-strategy hard limit set by user)
+        live_metrics = calculate_metrics_from_df(live_deals, live_equity_df)
+        if strategy and strategy.max_allowed_drawdown is not None:
+            live_dd = live_metrics.get("Max Drawdown (%)", 0) or 0
+            limit_pct = float(strategy.max_allowed_drawdown)
+            if limit_pct > 0 and live_dd >= limit_pct * DRAWDOWN_WARNING_THRESHOLD:
+                is_drifting = True
+                pct_used = (live_dd / limit_pct) * 100
+                severity = "CRITICAL" if live_dd >= limit_pct else "WARNING"
+                reasons.append(
+                    f"Drawdown Limit [{severity}]: {live_dd:.1f}% / {limit_pct:.1f}%"
+                    f" ({pct_used:.0f}% of limit)"
+                )
+
         # 3. Performance Drift Check (requires backtest)
         backtest = None
         bt_metrics = None
-        live_metrics = calculate_metrics_from_df(live_deals, live_equity_df)
 
         if (
-            settings.enable_drift_alerts
-            and len(live_deals) >= settings.drift_min_trades
+            resolved_settings.enable_drift_alerts
+            and len(live_deals) >= resolved_settings.drift_min_trades
         ):
             backtest = (
                 db.query(Backtest)
@@ -111,7 +132,7 @@ def check_performance_drift(strategy_id: str) -> DriftReport | None:
                 live_wr = live_metrics.get("Win Rate (%)", 0)
                 if bt_wr > 0:
                     wr_drop = (bt_wr - live_wr) / bt_wr * 100
-                    if wr_drop > settings.drift_win_rate_threshold:
+                    if wr_drop > resolved_settings.drift_win_rate_threshold:
                         is_drifting = True
                         reasons.append(
                             f"Win Rate drop: {wr_drop:.1f}% (BT: {bt_wr:.1f}%, Live: {live_wr:.1f}%)"
@@ -122,7 +143,7 @@ def check_performance_drift(strategy_id: str) -> DriftReport | None:
                 live_pf = live_metrics.get("Profit Factor", 0)
                 if bt_pf > 0:
                     pf_drop = (bt_pf - live_pf) / bt_pf * 100
-                    if pf_drop > settings.drift_profit_factor_threshold:
+                    if pf_drop > resolved_settings.drift_profit_factor_threshold:
                         is_drifting = True
                         reasons.append(
                             f"Profit Factor drop: {pf_drop:.1f}% (BT: {bt_pf:.2f}, Live: {live_pf:.2f})"
@@ -132,10 +153,12 @@ def check_performance_drift(strategy_id: str) -> DriftReport | None:
                 bt_dd = bt_metrics.get("Max Drawdown (%)", 0)
                 live_dd = live_metrics.get("Max Drawdown (%)", 0)
                 if bt_dd > 0:
-                    if live_dd > (bt_dd * settings.drift_max_drawdown_multiplier):
+                    if live_dd > (
+                        bt_dd * resolved_settings.drift_max_drawdown_multiplier
+                    ):
                         is_drifting = True
                         reasons.append(
-                            f"Max Drawdown breach: {live_dd:.1f}% (BT Limit: {bt_dd * settings.drift_max_drawdown_multiplier:.1f}%)"
+                            f"Max Drawdown breach: {live_dd:.1f}% (BT Limit: {bt_dd * resolved_settings.drift_max_drawdown_multiplier:.1f}%)"
                         )
 
         report = DriftReport(
@@ -153,7 +176,10 @@ def check_performance_drift(strategy_id: str) -> DriftReport | None:
 
         return report
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
+        # Broad catch needed: DB errors (SQLAlchemy), network issues,
+        # plus any unexpected errors from calculate_metrics_from_df which
+        # itself has resilient plugin handling.
         logger.error(
             "Error checking drift/risk for strategy %s: %s",
             strategy_id,
@@ -165,7 +191,7 @@ def check_performance_drift(strategy_id: str) -> DriftReport | None:
         db.close()
 
 
-def _notify_drift(report: DriftReport):
+def _notify_drift(report: DriftReport) -> None:
     """Send alert via notifier."""
     reasons_text = "\n".join([f"• {r}" for r in report.reasons])
     msg = (

@@ -15,6 +15,11 @@
     </div>
 </div>
 
+<div id="drawdown-alert-banner" class="drawdown-alert-banner" style="display:none">
+    <strong id="drawdown-alert-title"></strong>
+    <span id="drawdown-alert-detail"></span>
+</div>
+
 <div class="dashboard-grid">
 
     <!-- Backtest Run Selector (shown only in backtest mode) -->
@@ -70,6 +75,10 @@
                         <input class="field-input" type="text" id="edit-description" placeholder="Short description…">
                     </div>
                 </div>
+                <div class="field-group">
+                    <span class="field-label">Max Drawdown Limit (%)</span>
+                    <input class="field-input" type="number" id="edit-max-dd" min="0" max="100" step="0.1" placeholder="e.g. 20 (leave empty to disable)">
+                </div>
                 <div class="edit-toggles">
                     <label class="toggle-group">
                         <input type="checkbox" id="edit-live">
@@ -95,6 +104,7 @@
             <h2>Performance Metrics</h2>
             <span id="updated-metrics" class="updated-at"></span>
             <a href="/strategy/{{ strategy_id }}/advanced-metrics" class="btn btn-ghost btn-sm" style="margin-left:auto">Advanced Metrics</a>
+            <a href="/strategy/{{ strategy_id }}/quantstats-report" class="btn btn-ghost btn-sm" target="_blank">Full Report</a>
         </div>
         <div id="metrics-container" class="metrics-grid">
             <div class="skel skel-metric"></div><div class="skel skel-metric"></div>
@@ -119,6 +129,16 @@
         </div>
         <div class="chart-wrapper">
             <canvas id="equity-chart"></canvas>
+        </div>
+    </section>
+
+    <!-- Underwater (Drawdown) Chart -->
+    <section class="card full-width" id="underwater-section">
+        <div class="section-header">
+            <h2>Drawdown Underwater</h2>
+        </div>
+        <div class="chart-wrapper" style="height:150px">
+            <canvas id="underwater-chart"></canvas>
         </div>
     </section>
 
@@ -172,7 +192,7 @@
 
         <div style="padding:0.5rem 0 0.5rem;display:flex;align-items:center;gap:0.75rem">
             <input type="text" id="deals-search" class="field-input" placeholder="Search…" style="max-width:280px" oninput="filterDeals()">
-            <select id="deals-page-size" class="field-input" style="width:auto" onchange="loadDeals(1)">
+            <select id="deals-page-size" class="field-input" style="width:auto" onchange="localStorage.setItem('tm-deals-page-size',this.value);loadDeals(1)">
                 <option value="25">25</option>
                 <option value="50">50</option>
                 <option value="100">100</option>
@@ -200,11 +220,13 @@
 const STRATEGY_ID = "{{ strategy_id }}";
 let equityChart = null;
 let _currentStrategy = null;
+let _currentMetrics = null;
 let _allEquityPoints = [];
-let _equityPeriod = "all";
+let _equityPeriod = localStorage.getItem("tm-equity-period") || "all";
+let underwaterChart = null;
 let _distHourChart = null;
 let _distDowChart  = null;
-let _dealsTab = "real";
+let _dealsTab = localStorage.getItem("tm-deals-tab") || "real";
 let _dealsSearchTimer = null;
 const PAGE_SIZE = 25;
 let _dealsSortCol = "timestamp";
@@ -215,7 +237,22 @@ let _pageMode = "incubation";
 let _selectedBtId = null;
 let _backtests = [];
 
+function updateTabAvailability() {
+    const incubationBtn = document.querySelector('.period-tab[data-sm="incubation"]');
+    const realBtn       = document.querySelector('.period-tab[data-sm="real"]');
+    const backtestBtn   = document.querySelector('.period-tab[data-sm="backtest"]');
+
+    if (_currentStrategy) {
+        const isReal = !!_currentStrategy.real_account;
+        incubationBtn?.classList.toggle("disabled", isReal);
+        realBtn?.classList.toggle("disabled", !isReal);
+    }
+    backtestBtn?.classList.toggle("disabled", _backtests.length === 0);
+}
+
 function setPageMode(mode) {
+    const btn = document.querySelector(`.period-tab[data-sm="${mode}"]`);
+    if (btn && btn.classList.contains("disabled")) return;
     _pageMode = mode;
     document.querySelectorAll(".period-tab[data-sm]").forEach(b =>
         b.classList.toggle("active", b.dataset.sm === mode));
@@ -241,6 +278,10 @@ function setPageMode(mode) {
         if (equityChart) { equityChart.destroy(); equityChart = null; }
         const wrapper = document.querySelector("#chart-section .chart-wrapper");
         if (wrapper) wrapper.innerHTML = '<canvas id="equity-chart"></canvas>';
+        // Reset underwater chart
+        if (underwaterChart) { underwaterChart.destroy(); underwaterChart = null; }
+        const uwWrapper = document.querySelector("#underwater-section .chart-wrapper");
+        if (uwWrapper) uwWrapper.innerHTML = '<canvas id="underwater-chart"></canvas>';
         // Reset P&L and distribution charts
         if (_monthlyChart) { _monthlyChart.destroy(); _monthlyChart = null; }
         if (_annualChart)  { _annualChart.destroy();  _annualChart  = null; }
@@ -423,6 +464,7 @@ function toggleEdit() {
         document.getElementById("edit-style").value = s.operational_style || "";
         document.getElementById("edit-duration").value = s.trade_duration || "";
         document.getElementById("edit-description").value = s.description || "";
+        document.getElementById("edit-max-dd").value = s.max_allowed_drawdown != null ? s.max_allowed_drawdown : "";
         document.getElementById("edit-live").checked = s.live || false;
         document.getElementById("edit-real").checked = s.real_account || false;
     }
@@ -433,6 +475,7 @@ function toggleEdit() {
 async function saveStrategy() {
     const status = document.getElementById("edit-status");
     status.textContent = "Saving...";
+    const rawMaxDd = document.getElementById("edit-max-dd").value.trim();
     const payload = {
         name: document.getElementById("edit-name").value || null,
         symbol: document.getElementById("edit-symbol").value || null,
@@ -440,6 +483,7 @@ async function saveStrategy() {
         operational_style: document.getElementById("edit-style").value || null,
         trade_duration: document.getElementById("edit-duration").value || null,
         description: document.getElementById("edit-description").value || null,
+        max_allowed_drawdown: rawMaxDd !== "" ? parseFloat(rawMaxDd) : null,
         live: document.getElementById("edit-live").checked,
         real_account: document.getElementById("edit-real").checked,
     };
@@ -467,9 +511,10 @@ async function loadInfo() {
         if (!res.ok) return;
         const s = await res.json();
         _currentStrategy = s;
+        checkDrawdownAlert();
 
         document.getElementById("strategy-title").innerHTML =
-            `${s.name || "Strategy"} <span class="mono" style="font-size:0.75em;color:var(--text-muted)">#${s.id}</span>`;
+            `${s.name || "Strategy"} <span class="mono" style="font-size:0.75em;color:var(--text-muted)">#${s.id}</span><button class="btn-copy-id" style="opacity:1;font-size:0.9em;margin-left:0.25rem" onclick="copyId('${s.id}',this)" title="Copy Magic Number">⎘</button>`;
 
         const badge = document.getElementById("strategy-status-badge");
         badge.textContent = s.live ? "Live" : "Incubation";
@@ -497,6 +542,7 @@ async function loadInfo() {
                 </div>`).join("");
 
         // Set initial page mode based on strategy type
+        updateTabAvailability();
         if (s.real_account === true) {
             setPageMode("real");
         } else {
@@ -543,10 +589,30 @@ async function loadMetrics() {
                 <span class="${cls}">${displayVal}</span>
             </div>`;
         }).join("");
+        _currentMetrics = data;
+        checkDrawdownAlert();
         markUpdated("metrics");
     } catch(e) {
         document.getElementById("metrics-container").innerHTML = '<p class="error">Error loading metrics.</p>';
     }
+}
+
+function checkDrawdownAlert() {
+    const banner = document.getElementById("drawdown-alert-banner");
+    if (!banner || !_currentStrategy || !_currentMetrics) return;
+    const limit = _currentStrategy.max_allowed_drawdown;
+    if (!limit || limit <= 0) { banner.style.display = "none"; return; }
+    const liveDd = _currentMetrics["Max Drawdown (%)"];
+    if (liveDd == null) { banner.style.display = "none"; return; }
+    const pctUsed = (liveDd / limit) * 100;
+    if (liveDd < limit * 0.8) { banner.style.display = "none"; return; }
+    const isCritical = liveDd >= limit;
+    banner.className = `drawdown-alert-banner ${isCritical ? "drawdown-alert-critical" : "drawdown-alert-warning"}`;
+    document.getElementById("drawdown-alert-title").textContent =
+        isCritical ? "CRITICAL: Drawdown limit reached!" : "WARNING: Drawdown approaching limit";
+    document.getElementById("drawdown-alert-detail").textContent =
+        ` Current: ${liveDd.toFixed(1)}% / Limit: ${limit.toFixed(1)}% (${pctUsed.toFixed(0)}% used)`;
+    banner.style.display = "flex";
 }
 
 async function loadEquity() {
@@ -568,6 +634,7 @@ function filterEquityPoints(pts, period) {
 
 function setEquityPeriod(period) {
     _equityPeriod = period;
+    localStorage.setItem("tm-equity-period", period);
     document.querySelectorAll(".period-tab[data-ep]").forEach(b =>
         b.classList.toggle("active", b.dataset.ep === period));
     renderEquityChart(filterEquityPoints(_allEquityPoints, period));
@@ -627,6 +694,79 @@ function renderEquityChart(points) {
             },
         },
     });
+    renderUnderwaterChart(points);
+}
+
+function renderUnderwaterChart(points) {
+    const canvasId = "underwater-chart";
+    if (!document.getElementById(canvasId)) {
+        const wrapper = document.querySelector("#underwater-section .chart-wrapper");
+        if (wrapper) wrapper.innerHTML = `<canvas id="${canvasId}"></canvas>`;
+    }
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    if (!points || points.length === 0) {
+        canvas.parentElement.innerHTML = '<p class="empty-state" style="padding:1rem 0">No data yet.</p>';
+        if (underwaterChart) { underwaterChart.destroy(); underwaterChart = null; }
+        return;
+    }
+
+    // Compute running drawdown: (peak - equity) / peak * 100, shown as negative
+    let peak = -Infinity;
+    const ddValues = points.map(p => {
+        const eq = p.equity ?? p.balance ?? 0;
+        if (eq > peak) peak = eq;
+        return peak > 0 ? -((peak - eq) / peak * 100) : 0;
+    });
+
+    const labels = points.map(p => {
+        const d = new Date(p.timestamp);
+        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
+    });
+
+    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+    const tickColor = isDark ? "#64748b" : "#94a3b8";
+    const gridColor = isDark ? "#334155" : "#e2e8f0";
+
+    if (underwaterChart) underwaterChart.destroy();
+    underwaterChart = new Chart(canvas.getContext("2d"), {
+        type: "line",
+        data: {
+            labels,
+            datasets: [{
+                label: "Drawdown %",
+                data: ddValues,
+                borderColor: "#ef4444",
+                backgroundColor: "rgba(239,68,68,0.18)",
+                fill: true,
+                tension: 0.2,
+                pointRadius: 0,
+                borderWidth: 1.5,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ` DD: ${fmt(ctx.parsed.y)}%` } },
+                zoom: {
+                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
+                    pan:  { enabled: true, mode: "x" },
+                },
+            },
+            scales: {
+                x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
+                y: {
+                    ticks: { color: tickColor, callback: v => `${v.toFixed(1)}%` },
+                    grid: { color: gridColor },
+                    max: 0,
+                },
+            },
+        },
+    });
 }
 
 /* ── Monthly P&L ── */
@@ -634,7 +774,7 @@ let _monthlyChart = null;
 let _annualChart = null;
 let _monthlyRawLabels = [];
 let _monthlyValues   = [];
-let _monthlyView = "bar";
+let _monthlyView = localStorage.getItem("tm-monthly-view") || "bar";
 
 async function loadMonthlyPnL() {
     try {
@@ -654,6 +794,7 @@ async function loadMonthlyPnL() {
 
 function setMonthlyView(v) {
     _monthlyView = v;
+    localStorage.setItem("tm-monthly-view", v);
     document.querySelectorAll(".period-tab[data-mp]").forEach(b =>
         b.classList.toggle("active", b.dataset.mp === v));
     renderMonthlyChart();
@@ -818,6 +959,7 @@ function renderDistChart(canvasId, chartVar, labels, _counts, profits) {
 /* ── Deals (Demo / Real) ── */
 function setDealsTab(tab) {
     _dealsTab = tab;
+    localStorage.setItem("tm-deals-tab", tab);
     document.querySelectorAll(".period-tab[data-dt]").forEach(b =>
         b.classList.toggle("active", b.dataset.dt === tab));
     document.getElementById("deals-search").value = "";
@@ -967,6 +1109,7 @@ async function loadBacktests() {
     try {
         const res = await fetch(`/api/strategies/${STRATEGY_ID}/backtests`);
         _backtests = await res.json();
+        updateTabAvailability();
         renderBacktestsList();
     } catch(e) { console.error("Backtests load error:", e); }
 }
@@ -1059,6 +1202,17 @@ window.addEventListener("tm-theme-change", function() {
         loadBtEquityInMain(_selectedBtId);
     }
 });
+
+// ── Restore persisted UI preferences ──────────────────────────────────────
+document.querySelectorAll(".period-tab[data-ep]").forEach(b =>
+    b.classList.toggle("active", b.dataset.ep === _equityPeriod));
+document.querySelectorAll(".period-tab[data-mp]").forEach(b =>
+    b.classList.toggle("active", b.dataset.mp === _monthlyView));
+const _savedPs = localStorage.getItem("tm-deals-page-size");
+if (_savedPs) {
+    const _psSel = document.getElementById("deals-page-size");
+    if (_psSel) _psSel.value = _savedPs;
+}
 
 loadInfo();       // sets _currentStrategy, then calls setPageMode based on strategy type
 loadBacktests();  // always load backtests list in background

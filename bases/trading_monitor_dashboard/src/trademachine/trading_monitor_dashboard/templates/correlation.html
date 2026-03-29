@@ -23,6 +23,22 @@
     <div id="corr-insights" class="insights-row" style="margin-top:1.25rem"></div>
 </div>
 
+<!-- Dynamic Correlation (Rolling) -->
+<div class="card" style="margin-bottom:1rem">
+    <div class="section-header">
+        <h2>Dynamic Correlation (Rolling Window)</h2>
+        <div class="period-tabs">
+            <button class="period-tab"        data-window="7"  onclick="setWindow(7)">Last 7 Days</button>
+            <button class="period-tab active" data-window="30" onclick="setWindow(30)">Last 30 Days</button>
+            <button class="period-tab"        data-window="90" onclick="setWindow(90)">Last 90 Days</button>
+        </div>
+    </div>
+    <p class="text-muted" style="font-size:0.8rem;margin-top:0.25rem">
+        Short-term correlation check to identify recent strategy drift or regime changes.
+    </p>
+    <div id="dynamic-corr-container" style="margin-top:1rem"><div class="loading">Loading...</div></div>
+</div>
+
 <!-- Concurrent Operations -->
 <div class="card">
     <div class="section-header">
@@ -50,6 +66,7 @@ let _concData    = null;
 let _stratNames  = {};
 let _corrPeriod  = "daily";
 let _concMode    = "same_day";
+let _windowDays  = 30;
 
 /* ── Bootstrap ── */
 (async () => {
@@ -63,7 +80,11 @@ let _concMode    = "same_day";
     const p = await pRes.json();
     document.getElementById("portfolio-name").textContent = p.name || "";
 
-    await Promise.all([loadCorrelation("daily"), loadConcurrency()]);
+    await Promise.all([
+        loadCorrelation("daily"), 
+        loadDynamicCorrelation(30),
+        loadConcurrency()
+    ]);
 })();
 
 /* ── Correlation ── */
@@ -146,6 +167,34 @@ function renderCorrInsights(data) {
     if (riskMsg) html += `<div class="insight-card insight-full ${riskCls}"><span>${riskMsg}</span></div>`;
 
     document.getElementById("corr-insights").innerHTML = html;
+}
+
+/* ── Dynamic Correlation ── */
+async function loadDynamicCorrelation(days) {
+    _windowDays = days;
+    const container = document.getElementById("dynamic-corr-container");
+    container.innerHTML = '<div class="loading">Computing…</div>';
+    
+    try {
+        const res = await fetch(`/api/portfolios/${PORTFOLIO_ID}/correlation/dynamic?window_days=${days}`);
+        const data = await res.json();
+        
+        if (data.error) {
+            container.innerHTML = `<p class="empty-state">${data.error}</p>`;
+            return;
+        }
+
+        container.innerHTML = buildHeatmap(data.strategies, data.matrix, v => corrColor(v));
+    } catch(e) {
+        container.innerHTML = '<p class="error">Failed to load dynamic correlation data.</p>';
+    }
+}
+
+function setWindow(days) {
+    document.querySelectorAll(".period-tabs .period-tab[data-window]").forEach(b => {
+        b.classList.toggle("active", parseInt(b.dataset.window) === days);
+    });
+    loadDynamicCorrelation(days);
 }
 
 /* ── Concurrency ── */

@@ -3,9 +3,7 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
-import quantstats as qs
 from trademachine.tradingmonitor.metrics.calculator import (
-    _compute_qs_stats,
     calculate_concurrency,
     calculate_correlation_matrix,
     calculate_metrics,
@@ -32,24 +30,6 @@ def mock_equity_df():
     data = {"equity": [1000.0, 1010.0, 1005.0, 1020.0]}
     index = [base_time + timedelta(days=i) for i in range(4)]
     return pd.DataFrame(data, index=pd.DatetimeIndex(index, tz="UTC"))
-
-
-class TestComputeQsStatsExceptionHandling:
-    """Tests for exception handling in _compute_qs_stats.
-
-    Note: Some quantstats functions (recovery_factor, sharpe, sortino, calmar)
-    internally call max_drawdown which can throw TypeError with certain inputs.
-    These tests only cover functions that can be directly tested without
-    triggering internal quantstats issues.
-    """
-
-    def test_max_drawdown_valueerror_caught(self):
-        """Test that max_drawdown ValueError is caught (line 30-31)."""
-        bad_returns = pd.Series([0.0, 0.0, 0.0])
-        with patch.object(qs.stats, "max_drawdown", side_effect=ValueError("test")):
-            result = _compute_qs_stats(bad_returns, advanced=False)
-            assert "Max Drawdown (%)" in result
-            assert result["Max Drawdown (%)"] is None
 
 
 class TestCalculateMetricsWrapper:

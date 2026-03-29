@@ -27,7 +27,6 @@ dependencies = [
 "trademachine/mt5" = "components"
 "trademachine/trading_monitor_dashboard" = "bases"
 "trademachine/trading_monitor_cli" = "bases"
-"trademachine/trading_monitor_ingestion" = "bases"
 
 [tool.uv.sources]
 trademachine = { path = "../../components/trademachine" }

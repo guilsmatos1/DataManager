@@ -35,3 +35,12 @@ def init_db():
         except Exception as e:
             conn.rollback()
             print(f"Hypertable creation error: {e}")
+    # Idempotent column migrations for existing tables
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE strategies ADD COLUMN IF NOT EXISTS"
+                " max_allowed_drawdown NUMERIC(6, 2);"
+            )
+        )
+        conn.commit()

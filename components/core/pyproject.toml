@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "trademachine-core"
 version = "0.1.0"
 description = "Core utilities component"
-dependencies = []
+dependencies = ["numpy>=1.26"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -4,6 +4,7 @@ import io
 import logging
 import math
 from datetime import UTC, datetime
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -20,7 +21,6 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
-from pydantic import BaseModel
 from sqlalchemy import cast, extract, func, or_, text
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.types import Date, String
@@ -28,8 +28,9 @@ from trademachine.mt5.parser import (
     _EN_TO_PT_COLUMNS,
     MT5ReportParser,
 )
-from trademachine.trading_monitor_dashboard.serializers import (
+from trademachine.tradingmonitor.api_schemas import (
     AccountResponse,
+    AccountUpdate,
     BacktestDealResponse,
     BacktestEquityPointResponse,
     BacktestResponse,
@@ -37,10 +38,16 @@ from trademachine.trading_monitor_dashboard.serializers import (
     EquityPointResponse,
     PaginatedBacktestDeals,
     PaginatedDeals,
+    PortfolioCreate,
     PortfolioResponse,
+    PortfolioUpdate,
     StrategyResponse,
+    StrategyUpdate,
     SummaryResponse,
+    SymbolCreate,
     SymbolResponse,
+    SymbolUpdate,
+    TelegramSettings,
 )
 from trademachine.tradingmonitor.config import settings
 from trademachine.tradingmonitor.db.database import get_db
@@ -63,6 +70,7 @@ from trademachine.tradingmonitor.ingestion.tcp_server import (
 )
 
 logger = logging.getLogger(__name__)
+REAL_OVERVIEW_MAX_POINTS_PER_STRATEGY = 2_000
 
 # ── Authentication ────────────────────────────────────────────────────────────
 
@@ -78,60 +86,13 @@ def get_api_key(api_key: str = Security(api_key_header)):
 
 def _sanitize_metrics(metrics: dict) -> dict:
     """Replace NaN/Inf float values with None so JSON serialization doesn't fail."""
-    result = {}
+    result: dict[str, float | None] = {}
     for k, v in metrics.items():
         if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
             result[k] = None
         else:
             result[k] = v
     return result
-
-
-class AccountUpdate(BaseModel):
-    name: str | None = None
-    account_type: str | None = None
-    currency: str | None = None
-
-
-class StrategyUpdate(BaseModel):
-    name: str | None = None
-    symbol: str | None = None
-    timeframe: str | None = None
-    operational_style: str | None = None
-    trade_duration: str | None = None
-    description: str | None = None
-    live: bool | None = None
-    real_account: bool | None = None
-
-
-class PortfolioCreate(BaseModel):
-    name: str
-    description: str | None = None
-    live: bool = False
-    real_account: bool = False
-    strategy_ids: list[str] = []
-    initial_balance: float | None = None
-
-
-class PortfolioUpdate(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    live: bool | None = None
-    real_account: bool | None = None
-    strategy_ids: list[str] | None = None
-    initial_balance: float | None = None
-
-
-class SymbolCreate(BaseModel):
-    name: str
-    market: str | None = None
-    lot: float | None = None
-
-
-class SymbolUpdate(BaseModel):
-    name: str | None = None
-    market: str | None = None
-    lot: float | None = None
 
 
 def _compute_max_drawdown(equity_series: list[float]) -> float | None:
@@ -230,12 +191,34 @@ def _get_latest_equity(db: Session, sids: list[str]) -> dict[str, EquityCurve]:
 
 
 def _get_equity_by_sid(
-    db: Session, sids: list[str]
+    db: Session,
+    sids: list[str],
+    max_points_per_strategy: int = REAL_OVERVIEW_MAX_POINTS_PER_STRATEGY,
 ) -> dict[str, list[dict[str, object]]]:
-    rows = (
-        db.query(EquityCurve)
+    if not sids:
+        return {}
+
+    ranked_rows = (
+        db.query(
+            EquityCurve.strategy_id.label("strategy_id"),
+            EquityCurve.timestamp.label("timestamp"),
+            EquityCurve.balance.label("balance"),
+            EquityCurve.equity.label("equity"),
+            func.row_number()
+            .over(
+                partition_by=EquityCurve.strategy_id,
+                order_by=EquityCurve.timestamp.desc(),
+            )
+            .label("rn"),
+        )
         .filter(EquityCurve.strategy_id.in_(sids))
-        .order_by(EquityCurve.timestamp)
+        .subquery()
+    )
+
+    rows = (
+        db.query(ranked_rows)
+        .filter(ranked_rows.c.rn <= max_points_per_strategy)
+        .order_by(ranked_rows.c.strategy_id, ranked_rows.c.timestamp)
         .all()
     )
     result: dict[str, list[dict[str, object]]] = {sid: [] for sid in sids}
@@ -251,8 +234,17 @@ def _get_equity_by_sid(
 
 
 @router.get("/real")
-def get_real_overview(db: Session = Depends(get_db)):
-    """Aggregated view of all real-account strategies: metrics, equity curve, floating P&L."""
+def get_real_overview(
+    max_points_per_strategy: int = Query(
+        default=REAL_OVERVIEW_MAX_POINTS_PER_STRATEGY, ge=100, le=10_000
+    ),
+    db: Session = Depends(get_db),
+):
+    """Aggregated view of all real-account strategies.
+
+    Caps equity history per strategy so the overview endpoint stays bounded as
+    time-series data grows.
+    """
     real_strategies = db.query(Strategy).filter(Strategy.real_account.is_(True)).all()  # noqa: E712
     if not real_strategies:
         return {"strategies": [], "totals": {"net_profit": 0.0, "floating_pnl": 0.0}}
@@ -260,7 +252,9 @@ def get_real_overview(db: Session = Depends(get_db)):
     sids = [str(s.id) for s in real_strategies]
     np_map = _get_net_profits(db, sids)
     latest_eq_map = _get_latest_equity(db, sids)
-    equity_by_sid = _get_equity_by_sid(db, sids)
+    equity_by_sid = _get_equity_by_sid(
+        db, sids, max_points_per_strategy=max_points_per_strategy
+    )
 
     result = []
     total_np = 0.0
@@ -282,7 +276,8 @@ def get_real_overview(db: Session = Depends(get_db)):
         ret_dd = None
         ib = float(s.initial_balance) if s.initial_balance else None
         if max_dd and max_dd > 0 and ib and ib > 0:
-            ret_dd = round(np_val / (max_dd * ib), 3)
+            # Ensure sign follows net profit and use absolute drawdown
+            ret_dd = round(np_val / (abs(max_dd) * ib), 3)
 
         result.append(
             {
@@ -317,7 +312,7 @@ def get_real_overview(db: Session = Depends(get_db)):
 @router.get("/accounts", response_model=list[AccountResponse])
 def list_accounts(db: Session = Depends(get_db)):
     accounts = db.query(Account).all()
-    net_profits = dict(
+    net_profits: dict[str | None, float] = dict(
         db.query(
             Strategy.account_id, func.sum(Deal.profit + Deal.commission + Deal.swap)
         )
@@ -325,7 +320,7 @@ def list_accounts(db: Session = Depends(get_db)):
         .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
         .filter(Strategy.account_id.isnot(None))
         .group_by(Strategy.account_id)
-        .all()
+        .all()  # type: ignore[arg-type]
     )
     result = []
     for a in accounts:
@@ -362,13 +357,15 @@ def update_account(
 
 @router.get("/strategies", response_model=list[StrategyResponse])
 def list_strategies(db: Session = Depends(get_db)):
-    net_profits = dict(
+    from collections import defaultdict
+
+    net_profits: dict[str, float] = dict(
         db.query(Deal.strategy_id, func.sum(Deal.profit + Deal.commission + Deal.swap))
         .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
         .group_by(Deal.strategy_id)
-        .all()
+        .all()  # type: ignore[arg-type]
     )
-    bt_net_profits = dict(
+    bt_net_profits: dict[str, float] = dict(
         db.query(
             Backtest.strategy_id,
             func.sum(BacktestDeal.profit + BacktestDeal.commission + BacktestDeal.swap),
@@ -376,26 +373,44 @@ def list_strategies(db: Session = Depends(get_db)):
         .join(BacktestDeal, BacktestDeal.backtest_id == Backtest.id)
         .filter(BacktestDeal.type.in_([DealType.BUY, DealType.SELL]))
         .group_by(Backtest.strategy_id)
-        .all()
+        .all()  # type: ignore[arg-type]
     )
-    trades_counts = dict(
+    trades_counts: dict[str, int] = dict(
         db.query(Deal.strategy_id, func.count(Deal.ticket))
+        .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
+        .group_by(Deal.strategy_id)
+        .all()  # type: ignore[arg-type]
+    )
+    # Last and first trade timestamps per strategy (for zombie detection)
+    deal_range_rows = (
+        db.query(
+            Deal.strategy_id,
+            func.max(Deal.timestamp).label("last_trade_at"),
+            func.min(Deal.timestamp).label("first_trade_at"),
+        )
         .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
         .group_by(Deal.strategy_id)
         .all()
     )
-    # Fetch equity data for max drawdown computation
+    last_trade_map: dict = {}
+    first_trade_map: dict = {}
+    for row in deal_range_rows:
+        last_trade_map[row.strategy_id] = row.last_trade_at
+        first_trade_map[row.strategy_id] = row.first_trade_at
+
+    # Fetch equity data for max drawdown computation and last_seen_at
     equity_rows = (
-        db.query(EquityCurve.strategy_id, EquityCurve.equity)
+        db.query(EquityCurve.strategy_id, EquityCurve.equity, EquityCurve.timestamp)
         .order_by(EquityCurve.strategy_id, EquityCurve.timestamp)
         .all()
     )
-    from collections import defaultdict
-
     equity_by_strat: dict = defaultdict(list)
+    last_seen_map: dict = {}
     for row in equity_rows:
         equity_by_strat[row.strategy_id].append(float(row.equity))
+        last_seen_map[row.strategy_id] = row.timestamp
 
+    now_utc = datetime.now(UTC)
     strategies = db.query(Strategy).options(joinedload(Strategy.account)).all()
     result = []
     for s in strategies:
@@ -408,6 +423,30 @@ def list_strategies(db: Session = Depends(get_db)):
         r.backtest_net_profit = float(raw_bt) if raw_bt is not None else None
         r.trades_count = trades_counts.get(s.id)
         r.max_drawdown = _compute_max_drawdown(equity_by_strat.get(s.id, []))
+        r.last_seen_at = last_seen_map.get(s.id)
+        r.last_trade_at = last_trade_map.get(s.id)
+
+        # Zombie alert: live strategy that has gone silent relative to its historical pace
+        r.zombie_alert = False
+        if s.live and r.last_trade_at and r.trades_count:
+            first_trade = first_trade_map.get(s.id)
+            days_active = (
+                max(1, (now_utc - first_trade.replace(tzinfo=UTC)).days)
+                if first_trade
+                else 1
+            )
+            avg_trades_per_day = r.trades_count / days_active
+            # Only flag strategies with meaningful trading frequency (≥1 trade per 5 days)
+            if avg_trades_per_day >= 0.2:
+                expected_interval_h = 24.0 / avg_trades_per_day
+                last_trade_aware = (
+                    r.last_trade_at.replace(tzinfo=UTC)
+                    if r.last_trade_at.tzinfo is None
+                    else r.last_trade_at
+                )
+                hours_since = (now_utc - last_trade_aware).total_seconds() / 3600
+                r.zombie_alert = hours_since > max(48.0, expected_interval_h * 2)
+
         result.append(r)
     return result
 
@@ -545,7 +584,7 @@ def get_strategy_advanced_metrics(
             ) * 100
         return _sanitize_metrics(metrics)
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/strategies/{strategy_id}/trade-stats")
@@ -645,7 +684,7 @@ def get_strategy_deals(
     base = db.query(Deal).filter(Deal.strategy_id == strategy_id)
     if q:
         term = f"%{q}%"
-        conditions = [
+        conditions: list[Any] = [
             Deal.symbol.ilike(term),
             cast(Deal.ticket, String).ilike(term),
         ]
@@ -717,7 +756,13 @@ def list_portfolios(db: Session = Depends(get_db)):
                         pd.Series({ts: eq for ts, eq in pts}, name=sid, dtype=float)
                     )
             if frames:
-                combined = pd.concat(frames, axis=1).sort_index().ffill().sum(axis=1)
+                combined = (
+                    pd.concat(frames, axis=1)
+                    .sort_index()
+                    .ffill(limit=5)
+                    .fillna(0)
+                    .sum(axis=1)
+                )
                 peak = combined.cummax()
                 dd_series = (peak - combined) / peak.replace(0, float("nan"))
                 r.max_drawdown = (
@@ -797,13 +842,22 @@ def get_portfolio_daily(portfolio_id: int, db: Session = Depends(get_db)):
         db.query(
             cast(Deal.timestamp, Date).label("date"),
             func.sum(Deal.profit + Deal.commission + Deal.swap).label("net_profit"),
+            func.count(Deal.id).label("trades_count"),
         )
         .filter(Deal.strategy_id.in_(strategy_ids))
+        .filter(Deal.type != "BALANCE")
         .group_by(cast(Deal.timestamp, Date))
         .order_by(cast(Deal.timestamp, Date))
         .all()
     )
-    return [{"date": str(r.date), "net_profit": float(r.net_profit)} for r in rows]
+    return [
+        {
+            "date": str(r.date),
+            "net_profit": float(r.net_profit),
+            "trades_count": int(r.trades_count),
+        }
+        for r in rows
+    ]
 
 
 @router.get("/portfolios/{portfolio_id}/equity")
@@ -850,7 +904,9 @@ def get_portfolio_correlation(
         raise HTTPException(status_code=404, detail="Portfolio not found")
     strategy_ids = [s.id for s in p.strategies]
     if len(strategy_ids) < 2:
-        return {"error": "Need at least 2 strategies in this portfolio."}
+        raise HTTPException(
+            status_code=422, detail="Need at least 2 strategies in this portfolio."
+        )
     from trademachine.tradingmonitor.metrics.calculator import (
         calculate_correlation_matrix,
     )
@@ -869,7 +925,9 @@ def get_portfolio_dynamic_correlation(
         raise HTTPException(status_code=404, detail="Portfolio not found")
     strategy_ids = [s.id for s in p.strategies]
     if len(strategy_ids) < 2:
-        return {"error": "Need at least 2 strategies in this portfolio."}
+        raise HTTPException(
+            status_code=422, detail="Need at least 2 strategies in this portfolio."
+        )
     from trademachine.tradingmonitor.metrics.calculator import (
         calculate_dynamic_correlation,
     )
@@ -888,7 +946,9 @@ def get_portfolio_concurrency(
         raise HTTPException(status_code=404, detail="Portfolio not found")
     strategy_ids = [s.id for s in p.strategies]
     if len(strategy_ids) < 2:
-        return {"error": "Need at least 2 strategies in this portfolio."}
+        raise HTTPException(
+            status_code=422, detail="Need at least 2 strategies in this portfolio."
+        )
     from trademachine.tradingmonitor.metrics.calculator import calculate_concurrency
 
     return calculate_concurrency(strategy_ids, since=_ensure_utc(since))
@@ -901,7 +961,7 @@ def get_portfolio_metrics(portfolio_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Portfolio not found")
     strategy_ids = [s.id for s in portfolio.strategies]
     if not strategy_ids:
-        return {"error": "No strategies in this portfolio"}
+        raise HTTPException(status_code=422, detail="No strategies in this portfolio")
     from trademachine.tradingmonitor.metrics.calculator import (
         calculate_portfolio_metrics,
     )
@@ -929,7 +989,7 @@ def get_portfolio_advanced_metrics(
         raise HTTPException(status_code=404, detail="Portfolio not found")
     strategy_ids = [s.id for s in portfolio.strategies]
     if not strategy_ids:
-        return {"error": "No strategies in this portfolio"}
+        raise HTTPException(status_code=422, detail="No strategies in this portfolio")
 
     from trademachine.tradingmonitor.metrics.calculator import calculate_metrics_from_df
     from trademachine.tradingmonitor.metrics.repository import (
@@ -979,7 +1039,7 @@ def get_portfolio_advanced_metrics(
             ) * 100
         return _sanitize_metrics(metrics)
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Backtest endpoints ────────────────────────────────────────────────────────
@@ -1039,7 +1099,7 @@ def list_strategy_backtests(strategy_id: str, db: Session = Depends(get_db)):
 
     # Fetch all net_profits in a single query instead of N+1 calls.
     bt_ids = [bt.id for bt in backtests]
-    net_profit_map: dict[int, object] = dict(
+    net_profit_map: dict[int, float] = dict(
         db.query(
             BacktestDeal.backtest_id,
             func.sum(BacktestDeal.profit + BacktestDeal.commission + BacktestDeal.swap),
@@ -1049,7 +1109,7 @@ def list_strategy_backtests(strategy_id: str, db: Session = Depends(get_db)):
             BacktestDeal.type.in_([DealType.BUY, DealType.SELL]),
         )
         .group_by(BacktestDeal.backtest_id)
-        .all()
+        .all()  # type: ignore[arg-type]
     )
 
     result = []
@@ -1134,7 +1194,7 @@ def get_backtest_deals_endpoint(
         .all()
     )
     return PaginatedBacktestDeals(
-        items=[BacktestDealResponse.from_orm(d) for d in deals],
+        items=[BacktestDealResponse.model_validate(d) for d in deals],
         total=total,
         page=page,
         page_size=page_size,
@@ -1272,12 +1332,6 @@ def get_backtest_trade_stats(backtest_id: int, db: Session = Depends(get_db)):
     return {"by_hour": by_hour, "by_dow": by_dow}
 
 
-class TelegramSettings(BaseModel):
-    bot_token: str | None = None
-    chat_id: str | None = None
-    var_95_threshold: float | None = None
-
-
 # ── Settings ──────────────────────────────────────────────────────────────────
 
 
@@ -1307,6 +1361,86 @@ def update_telegram_settings(payload: TelegramSettings, db: Session = Depends(ge
     _set("telegram_chat_id", payload.chat_id)
     _set("var_95_limit", payload.var_95_threshold)
     db.commit()
+
+
+# ── Ingestion Errors (Dead Letters) ──────────────────────────────────────────
+
+
+@router.get("/ingestion-errors")
+def list_ingestion_errors(
+    limit: int = Query(default=50, ge=1, le=200), db: Session = Depends(get_db)
+):
+    from trademachine.tradingmonitor.db.models import IngestionError
+
+    rows = (
+        db.query(IngestionError)
+        .order_by(IngestionError.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+            "topic": r.topic,
+            "error_message": r.error_message,
+            "raw_message": r.raw_message,
+        }
+        for r in rows
+    ]
+
+
+@router.delete("/ingestion-errors", status_code=204)
+def clear_ingestion_errors(db: Session = Depends(get_db)):
+    from trademachine.tradingmonitor.db.models import IngestionError
+
+    db.query(IngestionError).delete()
+    db.commit()
+
+
+# ── Portfolio Equity Breakdown ────────────────────────────────────────────────
+
+
+@router.get("/portfolios/{portfolio_id}/equity/breakdown")
+def get_portfolio_equity_breakdown(portfolio_id: int, db: Session = Depends(get_db)):
+    p = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    strategies = {s.id: s.name or s.id for s in p.strategies}
+    if not strategies:
+        return {"total": [], "strategies": {}}
+    from trademachine.tradingmonitor.metrics.repository import get_strategy_equity_curve
+
+    series = {}
+    for sid in strategies:
+        df = get_strategy_equity_curve(sid)
+        if not df.empty:
+            series[sid] = df["equity"].rename(sid)
+
+    if not series:
+        return {"total": [], "strategies": {}}
+
+    combined_df = pd.concat(series.values(), axis=1).sort_index().ffill().fillna(0)
+    total = combined_df.sum(axis=1)
+
+    result_strategies = {}
+    for sid, name in strategies.items():
+        if sid in series:
+            col = combined_df[sid]
+            result_strategies[sid] = {
+                "name": name,
+                "points": [
+                    {"timestamp": ts.isoformat(), "equity": float(v)}
+                    for ts, v in col.items()
+                ],
+            }
+
+    return {
+        "total": [
+            {"timestamp": ts.isoformat(), "equity": float(v)} for ts, v in total.items()
+        ],
+        "strategies": result_strategies,
+    }
 
 
 # ── Health check (item 8) ─────────────────────────────────────────────────────

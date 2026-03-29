@@ -38,13 +38,6 @@ portfolio_strategy = Table(
 )
 
 
-class Setting(Base):
-    __tablename__ = "settings"
-
-    key: Mapped[str] = mapped_column(String, primary_key=True)
-    value: Mapped[str | None] = mapped_column(Text)
-
-
 class Account(Base):
     __tablename__ = "accounts"
 
@@ -78,6 +71,9 @@ class Strategy(Base):
     description: Mapped[str | None] = mapped_column(String)
     live: Mapped[bool] = mapped_column(default=False)  # False = Incubação
     real_account: Mapped[bool] = mapped_column(default=False)  # False = Demo
+    max_allowed_drawdown: Mapped[float | None] = mapped_column(
+        Numeric(6, 2), nullable=True
+    )  # % limit, e.g. 20.0 = 20%
 
     account_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"))
 
@@ -180,6 +176,13 @@ class IngestionError(Base):
     topic: Mapped[str | None] = mapped_column(String(32))
     raw_message: Mapped[str | None] = mapped_column(Text)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class Setting(Base):
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(256), default="")
 
 
 class Backtest(Base):

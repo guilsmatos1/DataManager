@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "trademachine-trading-monitor-cli brick"
 dependencies = []
 
+[project.scripts]
+trading-monitor = "trademachine.trading_monitor_cli.main:app"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["trademachine*"]
