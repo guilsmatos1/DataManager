@@ -15,13 +15,13 @@ uv run datamanager -i
 uv run datamanager download dukascopy EURUSD 2024-01-01 2024-12-31
 
 # Start the REST API server (port 8686)
-uv run uvicorn trademachine.datamanager_api.router:app --reload
+uv run uvicorn trademachine.datamanager_api.router:app --host 0.0.0.0 --port 8686
 
 # Run all tests
-uv run pytest tests/
+uv run pytest components/datamanager/test/
 
 # Run a single test file
-uv run pytest tests/unit/test_processor.py -v
+uv run pytest components/datamanager/test/trademachine/datamanager/test_processor.py -v
 
 # Lint (with auto-fix) and format
 uv run ruff check --fix . && uv run ruff format .
@@ -93,7 +93,7 @@ metadata/
 metadata/dukas_assets.csv      # ~3,000 valid Dukascopy asset symbols
 ```
 
-Use `DataManager.update_stats()` / CLI `rebuild` command to recalculate asset statistics after bulk loads.
+Use `update all` CLI command to recalculate asset statistics after bulk loads.
 
 ### Adding a New Fetcher
 
@@ -128,14 +128,32 @@ Se houver nova feature, execute os dois passos abaixo **em sequência**:
 ### 1. Gemini Tests
 
 ```bash
-gemini -p "Voce e um Engenheiro de QA senior do projeto DataManager (Python, uv, src/datamanager/). Crie ou atualize testes unitarios em tests/unit/ para cobrir a seguinte nova feature: <descreva a feature>. Use pytest e unittest.mock, siga os padroes de tests/unit/ (fixtures, mocks, tmp_path). Execute 'uv run pytest tests/ -v' para verificar que todos os testes passam. Se algum teste falhar, corrija-o. Apos escrever os testes, pare imediatamente." --yolo
+gemini -p "Voce e um Engenheiro de QA senior do projeto DataManager (Python, uv, components/datamanager/src/trademachine/datamanager/). Crie ou atualize testes unitarios em components/datamanager/test/ para cobrir a seguinte nova feature: <descreva a feature>. Use pytest e unittest.mock, siga os padroes de components/datamanager/test/ (fixtures, mocks, tmp_path). Execute 'uv run pytest components/datamanager/test/ -v' para verificar que todos os testes passam. Se algum teste falhar, corrija-o. Apos escrever os testes, pare imediatamente." --yolo
 ```
 
 ### 2. Gemini Docs
 
 ```bash
-gemini -p "Voce e um Engenheiro de Documentacao senior do projeto DataManager (Python, uv, src/datamanager/). DIFF: $(git diff HEAD -- src/ 2>/dev/null | head -300). Leia apenas README.md e docs/ para entender o que ja esta documentado — NAO leia arquivos em src/ nem em tests/. Atualize README.md e/ou docs/ refletindo as mudancas tecnicas — documente comportamento e arquitetura, nunca codigo linha por linha. Em seguida execute 'git add' em todos os arquivos modificados neste pipeline (docs/** + README.md + tests/**) e faca um unico 'git commit' com prefixo 'chore:' e rodape 'Pipeline-by: Gemini CLI'. Se nao houver mudancas pendentes, responda apenas SKIP. Apos o commit, pare imediatamente." --yolo
+gemini -p "Voce e um Engenheiro de Documentacao senior do projeto DataManager (Python, uv, components/datamanager/src/trademachine/datamanager/). DIFF: $(git diff HEAD -- components/ 2>/dev/null | head -300). Leia apenas README.md e docs/ para entender o que ja esta documentado — NAO leia arquivos em components/ nem em tests/. Atualize README.md e/ou docs/ refletindo as mudancas tecnicas — documente comportamento e arquitetura, nunca codigo linha por linha. Em seguida execute 'git add' em todos os arquivos modificados neste pipeline (docs/** + README.md + tests/**) e faca um unico 'git commit' com prefixo 'chore:' e rodape 'Pipeline-by: Gemini CLI'. Se nao houver mudancas pendentes, responda apenas SKIP. Apos o commit, pare imediatamente." --yolo
 ```
+
+## REST API Endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/` | GET | No | Dashboard and instance statistics |
+| `/health` | GET | No | Health check |
+| `/download` | POST | Yes | Download asset data (background) |
+| `/update` | POST | Yes | Update existing database (background) |
+| `/delete` | POST | Yes | Delete database(s) |
+| `/list` | GET | Yes | List all databases (paginated) |
+| `/info/{source}/{asset}/{timeframe}` | GET | Yes | Database metadata |
+| `/search` | GET | Yes | Search assets by source/query |
+| `/data/{source}/{asset}/{timeframe}` | GET | Yes | Download data as Parquet |
+| `/data/{source}/{asset}/{timeframe}/stream` | GET | Yes | Stream data as CSV |
+| `/schedule` | GET | Yes | List scheduled jobs |
+| `/schedule` | POST | Yes | Create scheduled job |
+| `/schedule/{job_id}` | DELETE | Yes | Remove scheduled job |
 
 ## Ruff Workflow
 
@@ -160,3 +178,12 @@ uv run ruff check --fix . && uv run ruff format .
 ### REST API Auth
 
 Set `DATAMANAGER_API_KEY` in `.env` (see `.env.example`). All API requests require the header `X-API-Key: <value>`.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | — | PostgreSQL connection string with TimescaleDB |
+| `DATAMANAGER_API_KEY` | — | Secret key for API authentication |
+| `DATAMANAGER_HOST` | `0.0.0.0` | API server host |
+| `DATAMANAGER_PORT` | `8686` | API server port |

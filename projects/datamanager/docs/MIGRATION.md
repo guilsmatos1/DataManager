@@ -1,6 +1,6 @@
 # Migration Guide: Version 1.2.0
 
-This document outlines the major technical changes introduced in DataManager v1.2.0, including the Polylith restructuring, TimescaleDB migration, and API modernization.
+This document outlines the major technical changes introduced in DataManager v0.1.0, including the Polylith restructuring, TimescaleDB migration, and API modernization.
 
 ---
 
@@ -117,6 +117,7 @@ Version 1.2.0 introduces several internal improvements.
 - **SchedulerService**: Integrated background task manager (APScheduler).
 - **CLI Commands**: `schedule add`, `schedule list`, `schedule remove`.
 - **API Endpoints**: `/schedule` (POST, GET, DELETE).
+- **Persistence**: Jobs are stored in TimescaleDB via SQLAlchemyJobStore, surviving service restarts.
 
 ### Network Resiliency
 - **Exponential Backoff**: Fetchers now automatically retry failed network requests (3 attempts with 1s, 2s, 4s delays).

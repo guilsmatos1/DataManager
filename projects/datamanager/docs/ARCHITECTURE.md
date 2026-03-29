@@ -1,6 +1,6 @@
 # DataManager — Codebase Technical Documentation
 
-> **Version:** v1.2.0
+> **Version:** v0.1.0
 > **Python:** 3.12
 > **Purpose:** Tool for downloading, storing, and managing OHLCV (Open, High, Low, Close, Volume) data of financial assets, with support for multiple data sources, timeframe resampling, and a network API.
 
@@ -82,7 +82,7 @@ DataManager uses **Polylith Architecture** with three directory types:
 - **`projects/`** — Build configurations combining bases + components
 
 ```
-DataManager/
+projects/datamanager/          # This Polylith project (build config)
 │
 ├── pyproject.toml             # Project config: dependencies, entry points (uv)
 ├── uv.lock                    # Locked dependency versions (managed by uv)
@@ -90,51 +90,36 @@ DataManager/
 ├── docker-compose.yml         # Deployment configuration (API mode)
 ├── .env.example               # Environment variables example
 │
-├── components/
-│   └── datamanager/
-│       └── src/
-│           └── trademachine/
-│               └── datamanager/
-│                   ├── client.py          # Python client for consuming the API
-│                   ├── core/
-│                   │   └── config.py      # Pydantic Settings (env vars / .env)
-│                   ├── db/
-│                   │   ├── database.py    # SQLAlchemy async engine + session
-│                   │   ├── models.py      # ORM models (OHLCV, assets, sources)
-│                   │   ├── processor.py   # DataProcessor: OHLCV resampling + Gap filling
-│                   │   └── storage.py     # StorageManager: TimescaleDB I/O (hypertable + upsert)
-│                   ├── fetchers/
-│                   │   ├── __init__.py    # Auto-discovery via pkgutil
-│                   │   ├── base.py        # BaseFetcher: abstract interface (ABC)
-│                   │   ├── dukascopy.py   # Dukascopy integration (forex, commodities)
-│                   │   ├── openbb.py      # OpenBB/YFinance (stocks, ETFs)
-│                   │   └── ccxt.py        # CCXT (crypto, 100+ exchanges)
-│                   ├── schemas/
-│                   │   └── __init__.py    # Pydantic request/response models
-│                   └── services/
-│                       ├── manager.py     # DataManager: central orchestrator
-│                       └── scheduler.py   # SchedulerService: APScheduler jobs
-│
-├── bases/
-│   ├── datamanager_api/
-│   │   └── src/
-│   │       └── trademachine/
-│   │           └── datamanager_api/
-│   │               └── router.py          # FastAPI REST API (port 8686)
-│   └── datamanager_cli/
-│       └── src/
-│           └── trademachine/
-│               └── datamanager_cli/
-│                   └── cli.py              # Interactive CLI shell (cmd.Cmd)
-│
-├── tests/                               # Shared test infrastructure
-│
-├── metadata/
-│   └── dukas_assets.csv                 # List of ~3,000 valid Dukascopy assets
-│
-└── alembic/
-    ├── alembic.ini                       # Alembic configuration
-    └── versions/                          # Migration scripts (TimescaleDB schema)
+├── alembic/                   # Database migrations
+│   ├── alembic.ini            # Alembic configuration
+│   └── versions/              # Migration scripts (TimescaleDB schema)
+└── metadata/
+    └── dukas_assets.csv        # List of ~3,000 valid Dukascopy assets
+
+# Polylith workspace (at workspace root — outside projects/datamanager/)
+components/datamanager/src/trademachine/datamanager/
+│   ├── client.py              # Python client for consuming the API
+│   ├── core/config.py         # Pydantic Settings (env vars / .env)
+│   ├── db/
+│   │   ├── database.py        # SQLAlchemy async engine + session
+│   │   ├── models.py          # ORM models (OHLCV, assets, sources)
+│   │   ├── processor.py       # DataProcessor: OHLCV resampling + Gap filling
+│   │   └── storage.py         # StorageManager: TimescaleDB I/O (hypertable + upsert)
+│   ├── fetchers/
+│   │   ├── base.py            # BaseFetcher: abstract interface (ABC)
+│   │   ├── ccxt.py            # CCXT (crypto, 100+ exchanges)
+│   │   ├── dukascopy.py       # Dukascopy integration (forex, commodities)
+│   │   └── openbb.py          # OpenBB/YFinance (stocks, ETFs)
+│   ├── schemas/               # Pydantic request/response models
+│   └── services/
+│       ├── manager.py        # DataManager: central orchestrator
+│       └── scheduler.py      # SchedulerService: APScheduler jobs (persisted to TimescaleDB)
+
+bases/datamanager_api/src/trademachine/datamanager_api/
+└── router.py                  # FastAPI REST API (port 8686)
+
+bases/datamanager_cli/src/trademachine/datamanager_cli/
+└── cli.py                     # Interactive CLI shell (cmd.Cmd)
 ```
 
 ---
@@ -154,13 +139,11 @@ DataManager/
 | Method | Command | Description |
 |--------|---------|-------------|
 | `do_download` | `download` | Downloads new data for one or more assets |
-| `do_update` | `update` | Updates existing databases with recent data |
-| `do_delete` | `delete` | Removes databases from disk |
+| `do_update` | `update` | Updates existing databases with recent data (or `update all`) |
+| `do_delete` | `delete` | Removes databases from disk (or `delete all`) |
 | `do_info` | `info` | Displays metadata for a specific database |
 | `do_list` | `list` | Lists all saved databases in a formatted table |
-| `do_rebuild` | `rebuild` | Recalculates asset statistics (min/max date, row count) from TimescaleDB |
 | `do_search` | `search` | Searches for available assets in sources |
-| `do_resample` | `resample` | Converts M1 to other timeframes |
 | `do_quality` | `quality` | Data integrity report |
 | `do_schedule` | `schedule` | Manages background update jobs |
 | `do_exit` / `do_quit` | `exit` / `quit` | Exits the program |
@@ -202,7 +185,7 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 **Features:**
 - Supports **Cron** expressions (5 fields) and **Intervals** (minutes).
 - Jobs run in background daemon threads.
-- In-memory job storage (does not persist across restarts).
+- Jobs are **persisted to TimescaleDB** via SQLAlchemyJobStore, surviving service restarts.
 
 ---
 
@@ -368,7 +351,7 @@ Asset metadata (sources, tickers, date ranges, row counts) is stored in SQL tabl
 - **`sources`**: Source name (Dukascopy, CCXT, OpenBB).
 - **`assets`**: Ticker, `source_id`, `min_date`, `max_date`, `row_count`.
 
-Use `DataManager.update_stats()` / CLI `rebuild` command to recalculate statistics after bulk loads.
+Use `update all` CLI command to recalculate asset statistics after bulk loads.
 
 ---
 
@@ -384,10 +367,27 @@ Use `DataManager.update_stats()` / CLI `rebuild` command to recalculate statisti
 
 ## 8. Supported Timeframes
 
-Standard OHLCV resampling rules:
-- **Intraday:** `M1` (base), `M2`, `M5`, `M10`, `M15`, `M30`.
-- **Hourly:** `H1`, `H2`, `H3`, `H4`, `H6`.
-- **Daily/Weekly:** `D1`, `W1`.
+**TimescaleDB native (continuous aggregates):** `M1` (hypertable), `M5`, `M15`, `H1`, `H4`, `D1`.
+
+**Derived via resampling (DataProcessor.resample_ohlc):** `M2`, `M10`, `M30`, `H2`, `H3`, `H6`, `W1`.
+
+Mapping to pandas resample strings is defined in `DataProcessor.TF_MAPPING`.
+
+| Timeframe | Rule | Type |
+|-----------|------|------|
+| M1 | 1min | Native (hypertable) |
+| M2 | 2min | Resampled |
+| M5 | 5min | Native (continuous aggregate) |
+| M10 | 10min | Resampled |
+| M15 | 15min | Native (continuous aggregate) |
+| M30 | 30min | Resampled |
+| H1 | 1h | Native (continuous aggregate) |
+| H2 | 2h | Resampled |
+| H3 | 3h | Resampled |
+| H4 | 4h | Native (continuous aggregate) |
+| H6 | 6h | Resampled |
+| D1 | D | Native (continuous aggregate) |
+| W1 | W | Resampled |
 
 ---
 
@@ -421,29 +421,35 @@ Standard OHLCV resampling rules:
 
 | Command | Usage Example |
 |---------|---------------|
-| `download` | `download CCXT binance:BTC/USDT 2024-01-01` |
+| `download` | `download CCXT binance:BTC/USDT 2024-01-01 2024-12-31` |
 | `update` | `update DUKASCOPY EURUSD M1` |
-| `resample` | `resample OPENBB AAPL H1` |
-| `search` | `search --source dukascopy --query gold` |
+| `update all` | `update all` (updates all M1s and rebuilds higher TFs) |
+| `delete` | `delete DUKASCOPY EURUSD M1` |
+| `delete all` | `delete all` (deletes all databases after confirmation) |
+| `info` | `info DUKASCOPY EURUSD M1` |
 | `list` | `list` |
-| `schedule` | `schedule add CCXT BTC/USDT --interval 60` |
+| `search` | `search --source dukascopy --query gold` |
 | `quality` | `quality DUKASCOPY EURUSD M1` |
+| `schedule add` | `schedule add DUKASCOPY EURUSD M1 --interval 60` |
+| `schedule list` | `schedule list` |
+| `schedule remove` | `schedule remove <job_id>` |
 
 ---
 
 ## 13. REST API Reference
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | `GET` | Dashboard and instance statistics |
-| `/health` | `GET` | Basic instance health check |
-| `/list` | `GET` | List all databases (with pagination) |
-| `/info/{s}/{a}/{t}` | `GET` | Metadata for a specific database |
-| `/search` | `GET` | Search for assets in OpenBB, Dukascopy, or CCXT |
-| `/download` | `POST` | Trigger a background download task |
-| `/update` | `POST` | Trigger a background update task |
-| `/resample` | `POST` | Trigger a background resample task |
-| `/delete` | `POST` | Delete specific or all databases |
-| `/schedule` | `GET` | List all active scheduled jobs |
-| `/schedule` | `POST` | Create a new recurring update job |
-| `/schedule/{job_id}` | `DELETE` | Remove a scheduled job by its ID |
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/` | `GET` | No | Dashboard and instance statistics |
+| `/health` | `GET` | No | Basic instance health check |
+| `/list` | `GET` | Yes | List all databases (with pagination) |
+| `/info/{source}/{asset}/{timeframe}` | `GET` | Yes | Metadata for a specific database |
+| `/search` | `GET` | Yes | Search for assets in OpenBB, Dukascopy, or CCXT |
+| `/download` | `POST` | Yes | Trigger a background download task |
+| `/update` | `POST` | Yes | Trigger a background update task |
+| `/delete` | `POST` | Yes | Delete specific or all databases |
+| `/data/{source}/{asset}/{timeframe}` | `GET` | Yes | Download data as Parquet |
+| `/data/{source}/{asset}/{timeframe}/stream` | `GET` | Yes | Stream data as CSV |
+| `/schedule` | `GET` | Yes | List all active scheduled jobs |
+| `/schedule` | `POST` | Yes | Create a new recurring update job |
+| `/schedule/{job_id}` | `DELETE` | Yes | Remove a scheduled job by its ID |
