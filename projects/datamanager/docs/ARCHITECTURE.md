@@ -11,21 +11,18 @@
 1. [Architecture Overview](#1-architecture-overview)
 2. [Directory Structure](#2-directory-structure)
 3. [Modules and Files](#3-modules-and-files)
-   - [main.py](#31-mainpy--entry-point)
-   - [cli.py](#32-clipy--command-line-interface)
-   - [services/manager.py](#33-servicesmanagerpy--central-controller)
-   - [services/scheduler.py](#34-servicesschedulerpy--background-job-manager)
-   - [core/config.py](#35-coreconfigpy--centralized-settings)
-   - [db/storage.py](#36-dbstoragepy--persistence-layer)
-   - [db/processor.py](#37-dbprocessorpy--timeframe-resampling)
-   - [fetchers/base.py](#38-fetchersbasepy--abstract-interface)
-   - [fetchers/dukascopy.py](#39-fetchersdukascopypy)
-   - [fetchers/openbb.py](#310-fetchersopenbbpy)
-   - [api/router.py](#311-apirouterpy--fastapi-rest-api)
-   - [schemas/](#312-schemas--data-validation)
-   - [client.py](#313-clientpy--python-client-for-the-api)
-   - [utils/logger.py](#314-utilsloggerpy--centralized-logging)
-   - [utils/retry.py](#315-utilsretrypy--exponential-backoff)
+   - [cli.py](#31-basedatamanager_cliclipy--command-line-interface)
+   - [services/manager.py](#32-componentsdatamanager/servicesmanagerpy--central-controller)
+   - [services/scheduler.py](#33-componentsdatamanager/servicesschedulerpy--background-job-manager)
+   - [core/config.py](#34-componentsdatamanagercoreconfigpy--centralized-settings)
+   - [db/storage.py](#35-componentsdatamanagerdbstoragepy--persistence-layer)
+   - [db/processor.py](#36-componentsdatamanagerdbprocessorpy--timeframe-resampling)
+   - [fetchers/](#37-componentsdatamanagerfetchers--data-integration)
+   - [fetchers/dukascopy.py](#38-componentsdatamanagerfetchersdukascopypy--forex--commodities)
+   - [fetchers/openbb.py](#39-componentsdatamanagerfetchersopenbbpy--stocks--etfs)
+   - [api/router.py](#310-basesdatamanager_apirouterpy--fastapi-rest-api)
+   - [schemas/](#311-componentsdatamanagerschemas--data-validation)
+   - [client.py](#312-componentsdatamanagerclientpy--python-client-for-the-api)
 4. [Data Flow](#4-data-flow)
 5. [Storage System](#5-storage-system)
 6. [Metadata Catalog](#6-metadata-catalog)
@@ -41,33 +38,35 @@
 
 ## 1. Architecture Overview
 
-DataManager has **two independent operation modes** that share the same core (`services/manager.py`):
+DataManager follows **Polylith Architecture** with three layers: components (business logic), bases (entry points), and projects (build configs). The CLI and API are **independent entry points** that share the same `DataManager` orchestrator component.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        USAGE MODES                          │
-│                                                             │
-│  ┌──────────────────┐          ┌──────────────────────────┐ │
-│  │    Local CLI     │          │    REST API (FastAPI)    │ │
-│  │    main.py       │          │    api/router.py         │ │
-│  │    cli.py        │          │    client.py             │ │
-│  └────────┬─────────┘          └──────────┬───────────────┘ │
-│           │                               │                  │
-│           └──────────────┬────────────────┘                  │
-│                          ▼                                   │
-│               ┌─────────────────────────┐                   │
-│               │   services/manager.py   │                   │
-│               │       DataManager       │                   │
-│               └────────┬────────────────┘                   │
-│                        │                                     │
-│         ┌──────────────┼──────────────┐                      │
-│         ▼              ▼              ▼                      │
-│  ┌─────────────┐ ┌──────────┐ ┌────────────┐                │
-│  │  Fetchers   │ │ Storage  │ │ Processor  │                │
-│  │ (Dukascopy) │ │ Manager  │ │ (Resample) │                │
-│  │ (OpenBB)    │ │          │ │            │                │
-│  └─────────────┘ └──────────┘ └────────────┘                │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        POLYLITH LAYERS                              │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │                        BASES (Entry Points)                  │ │
+│  │  ┌───────────────────────┐       ┌─────────────────────────┐  │ │
+│  │  │  datamanager_cli     │       │   datamanager_api      │  │ │
+│  │  │  DataManagerCLI      │       │   FastAPI REST API     │  │ │
+│  │  │  (cmd.Cmd shell)     │       │   (port 8686)           │  │ │
+│  │  └──────────┬──────────┘       └────────────┬────────────┘  │ │
+│  └─────────────┼────────────────────────────────┼──────────────┘ │
+│                │                                │                  │
+│  ┌─────────────▼────────────────────────────────▼──────────────┐  │
+│  │              COMPONENTS (shared business logic)              │  │
+│  │                                                               │  │
+│  │   ┌─────────────────────────────────────────────────────┐   │  │
+│  │   │              trademachine.datamanager                │   │  │
+│  │   │  ┌──────────┐  ┌──────────┐  ┌────────────┐        │   │  │
+│  │   │  │ Fetchers │  │ Storage  │  │ Processor  │        │   │  │
+│  │   │  │ Dukascopy│  │ Manager  │  │ Resample   │        │   │  │
+│  │   │  │ OpenBB   │  │          │  │            │        │   │  │
+│  │   │  │ CCXT     │  │          │  │            │        │   │  │
+│  │   │  └──────────┘  └──────────┘  └────────────┘        │   │  │
+│  │   └─────────────────────────────────────────────────────┘   │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 **Fundamental Principle:** All data is always downloaded and stored in **M1 (1 minute)** first. Higher timeframes (H1, D1, etc.) are generated via **resampling** from the base M1 data.
@@ -76,89 +75,79 @@ DataManager has **two independent operation modes** that share the same core (`s
 
 ## 2. Directory Structure
 
+DataManager uses **Polylith Architecture** with three directory types:
+
+- **`components/`** — Reusable business logic (no base dependencies)
+- **`bases/`** — Entry points (CLI, API)
+- **`projects/`** — Build configurations combining bases + components
+
 ```
 DataManager/
 │
-├── pyproject.toml             # Project config: dependencies, build, ruff, pytest
+├── pyproject.toml             # Project config: dependencies, entry points (uv)
 ├── uv.lock                    # Locked dependency versions (managed by uv)
 ├── Dockerfile                 # Application Docker image (uses uv)
 ├── docker-compose.yml         # Deployment configuration (API mode)
 ├── .env.example               # Environment variables example
 │
-├── src/
-│   └── datamanager/           # Main package (src layout)
-│       ├── main.py            # Application entry point (CLI)
-│       ├── cli.py             # Interactive command interface (cmd.Cmd)
-│       ├── client.py          # Python client for consuming the API
-│       │
-│       ├── api/
-│       │   └── router.py      # FastAPI HTTP server (API mode, port 8686)
-│       │
-│       ├── core/
-│       │   └── config.py      # Pydantic Settings (env vars / .env loading)
-│       │
-│       ├── db/
-│       │   ├── storage.py     # StorageManager: Parquet read/write + SQLite catalog + Versioning
-│       │   └── processor.py   # DataProcessor: OHLCV resampling + Gap filling
-│       │
-│       ├── fetchers/
-│       │   ├── __init__.py    # Auto-discovery of fetcher classes via pkgutil
-│       │   ├── base.py        # BaseFetcher: abstract interface (ABC)
-│       │   ├── dukascopy.py   # Integration with dukascopy-python
-│       │   ├── openbb.py      # Integration with OpenBB (yfinance as backend)
-│       │   └── ccxt.py        # Crypto support across multiple exchanges
-│       │
-│       ├── schemas/
-│       │   └── __init__.py    # Pydantic models for the API
-│       │
-│       ├── services/
-│       │   ├── manager.py     # DataManager: central logic controller
-│       │   └── scheduler.py   # SchedulerService: background job manager
-│       │
-│       └── utils/
-│           ├── logger.py      # Structured logging (Console + JSON)
-│           └── retry.py       # Exponential backoff retry logic
+├── components/
+│   └── datamanager/
+│       └── src/
+│           └── trademachine/
+│               └── datamanager/
+│                   ├── client.py          # Python client for consuming the API
+│                   ├── core/
+│                   │   └── config.py      # Pydantic Settings (env vars / .env)
+│                   ├── db/
+│                   │   ├── database.py    # SQLAlchemy async engine + session
+│                   │   ├── models.py      # ORM models (OHLCV, assets, sources)
+│                   │   ├── processor.py   # DataProcessor: OHLCV resampling + Gap filling
+│                   │   └── storage.py     # StorageManager: TimescaleDB I/O (hypertable + upsert)
+│                   ├── fetchers/
+│                   │   ├── __init__.py    # Auto-discovery via pkgutil
+│                   │   ├── base.py        # BaseFetcher: abstract interface (ABC)
+│                   │   ├── dukascopy.py   # Dukascopy integration (forex, commodities)
+│                   │   ├── openbb.py      # OpenBB/YFinance (stocks, ETFs)
+│                   │   └── ccxt.py        # CCXT (crypto, 100+ exchanges)
+│                   ├── schemas/
+│                   │   └── __init__.py    # Pydantic request/response models
+│                   └── services/
+│                       ├── manager.py     # DataManager: central orchestrator
+│                       └── scheduler.py   # SchedulerService: APScheduler jobs
 │
-├── tests/
-│   ├── conftest.py            # Shared pytest fixtures
-│   └── unit/                  # Isolated unit tests
+├── bases/
+│   ├── datamanager_api/
+│   │   └── src/
+│   │       └── trademachine/
+│   │           └── datamanager_api/
+│   │               └── router.py          # FastAPI REST API (port 8686)
+│   └── datamanager_cli/
+│       └── src/
+│           └── trademachine/
+│               └── datamanager_cli/
+│                   └── cli.py              # Interactive CLI shell (cmd.Cmd)
+│
+├── tests/                               # Shared test infrastructure
 │
 ├── metadata/
-│   ├── catalog.db             # SQLite index of all saved databases (WAL mode)
-│   └── dukas_assets.csv       # List of ~3,000 valid Dukascopy assets
+│   └── dukas_assets.csv                 # List of ~3,000 valid Dukascopy assets
 │
-└── database/
-    ├── .versions/             # Timestamped backups for asset recovery
-    └── {source}/
-        └── {ASSET}/
-            └── {TIMEFRAME}/
-                └── data.parquet   # OHLCV data file
+└── alembic/
+    ├── alembic.ini                       # Alembic configuration
+    └── versions/                          # Migration scripts (TimescaleDB schema)
 ```
 
 ---
 
 ## 3. Modules and Files
 
-### 3.1 `main.py` — Entry Point
-
-**Responsibility:** Parses command-line arguments and decides the execution mode.
-
-**Logic:**
-- `uv run datamanager -i` → Opens the interactive shell (`cli.cmdloop()`)
-- `uv run datamanager download DUKASCOPY EURUSD` → Executes a command directly (`cli.onecmd()`)
-- `uv run datamanager` (no arguments) → Displays argparse help
-
-**Special Handling:** `KeyboardInterrupt` (Ctrl+C) is caught globally and exits with `sys.exit(0)`.
-
----
-
-### 3.2 `cli.py` — Command Line Interface
+### 3.1 `bases/datamanager_cli/cli.py` — Command Line Interface
 
 **Responsibility:** Defines all commands available to the user using Python stdlib's `cmd.Cmd`.
 
 **Class:** `DataManagerCLI(cmd.Cmd)`
 
-**Internally Instantiates:** `DataManager` (from `services/manager.py`)
+**Internally Instantiates:** `DataManager` (from `components/datamanager/src/trademachine/datamanager/services/manager.py`)
 
 #### Available Commands:
 
@@ -169,7 +158,7 @@ DataManager/
 | `do_delete` | `delete` | Removes databases from disk |
 | `do_info` | `info` | Displays metadata for a specific database |
 | `do_list` | `list` | Lists all saved databases in a formatted table |
-| `do_rebuild` | `rebuild` | Rebuilds the SQLite `catalog.db` by scanning the disk |
+| `do_rebuild` | `rebuild` | Recalculates asset statistics (min/max date, row count) from TimescaleDB |
 | `do_search` | `search` | Searches for available assets in sources |
 | `do_resample` | `resample` | Converts M1 to other timeframes |
 | `do_quality` | `quality` | Data integrity report |
@@ -178,9 +167,11 @@ DataManager/
 
 ---
 
-### 3.3 `services/manager.py` — Central Controller
+### 3.2 `components/datamanager/.../services/manager.py` — Central Controller
 
 **Responsibility:** Orchestrates all business operations, coordinating Fetchers, Storage, and Processor.
+
+**Path:** `components/datamanager/src/trademachine/datamanager/services/manager.py`
 
 **Class:** `DataManager`
 
@@ -204,7 +195,7 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 ---
 
-### 3.4 `services/scheduler.py` — Background Job Manager
+### 3.3 `components/datamanager/.../services/scheduler.py` — Background Job Manager
 
 **Responsibility:** Manages recurring data update tasks using APScheduler.
 
@@ -215,7 +206,9 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 ---
 
-### 3.5 `core/config.py` — Centralized Settings
+### 3.4 `components/datamanager/.../core/config.py` — Centralized Settings
+
+**Path:** `components/datamanager/src/trademachine/datamanager/core/config.py`
 
 **Responsibility:** Manages application configuration via Pydantic Settings.
 
@@ -226,25 +219,29 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 ---
 
-### 3.6 `db/storage.py` — Persistence Layer
+### 3.5 `components/datamanager/.../db/storage.py` — Persistence Layer
 
-**Responsibility:** Parquet I/O, SQLite catalog management, and data versioning.
+**Path:** `components/datamanager/src/trademachine/datamanager/db/storage.py`
+
+**Responsibility:** TimescaleDB I/O, hypertable management, and continuous aggregate queries.
 
 **Class:** `StorageManager`
 
-#### Concurrency & Safety:
-- **File Locking:** Sidecar `.lock` files with platform-specific locking.
-- **Atomic Writes:** Saves to `.tmp.parquet` before atomic rename.
-- **SQLite Catalog:** Replaces `catalog.json` with `catalog.db` using WAL mode for concurrent read/write.
+#### TimescaleDB Architecture:
+- **Hypertable:** `ohlcv_m1` — partitioned by `timestamp`, stores raw M1 OHLCV data.
+- **Continuous Aggregates:** `ohlcv_m5`, `ohlcv_m15`, `ohlcv_h1`, `ohlcv_h4`, `ohlcv_d1` — automatically refreshed materialized views.
+- **Upsert Logic:** Uses PostgreSQL `ON CONFLICT DO UPDATE` to avoid duplicates.
+- **Batch Inserts:** Saves in batches of 5,000 rows to stay under PostgreSQL's parameter limit.
 
-#### Data Versioning:
-- **Automatic Backups:** Every `save_data` call creates a timestamped backup in `database/.versions/`.
-- **Rotation:** Keeps the last 5 versions for each asset/timeframe combination.
-- **Restoration:** Supports restoring the latest or a specific version (internal method).
+#### Catalog Tables:
+- **`sources`**: Data source names (Dukascopy, CCXT, OpenBB).
+- **`assets`**: Ticker symbols per source with `min_date`, `max_date`, `row_count`.
 
 ---
 
-### 3.7 `db/processor.py` — Timeframe Resampling & Gap Filling
+### 3.6 `components/datamanager/.../db/processor.py` — Timeframe Resampling & Gap Filling
+
+**Path:** `components/datamanager/src/trademachine/datamanager/db/processor.py`
 
 **Responsibility:** Converts OHLCV timeframes and repairs data gaps.
 
@@ -258,9 +255,11 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 ---
 
-### 3.8 `fetchers/` — Data Integration
+### 3.7 `components/datamanager/.../fetchers/` — Data Integration
 
-**`CcxtFetcher` (new):**
+**Path:** `components/datamanager/src/trademachine/datamanager/fetchers/`
+
+**`CcxtFetcher`:**
 - Support for 100+ crypto exchanges via `ccxt` library.
 - Syntax: `exchange:SYMBOL` (e.g., `binance:BTC/USDT`). Defaults to binance.
 - Automatically handles rate limits and chunked OHLCV fetching.
@@ -270,7 +269,9 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 ---
 
-### 3.9 `fetchers/dukascopy.py` — Forex & Commodities
+### 3.8 `components/datamanager/.../fetchers/dukascopy.py` — Forex & Commodities
+
+**Path:** `components/datamanager/src/trademachine/datamanager/fetchers/dukascopy.py`
 
 **Responsibility:** Interface with the `dukascopy-python` library.
 
@@ -280,7 +281,9 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 ---
 
-### 3.10 `fetchers/openbb.py` — Stocks & ETFs
+### 3.9 `components/datamanager/.../fetchers/openbb.py` — Stocks & ETFs
+
+**Path:** `components/datamanager/src/trademachine/datamanager/fetchers/openbb.py`
 
 **Responsibility:** Interface with the `OpenBB` platform.
 
@@ -290,7 +293,9 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 ---
 
-### 3.11 `api/router.py` — REST API (FastAPI)
+### 3.10 `bases/datamanager_api/.../router.py` — REST API (FastAPI)
+
+**Path:** `bases/datamanager_api/src/trademachine/datamanager_api/router.py`
 
 **Responsibility:** Exposes functionalities via HTTP with enhanced security and performance.
 
@@ -298,17 +303,16 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - **Dashboard (`GET /`)**: Overview of instance status and storage statistics.
 - **Health Check (`GET /health`)**: Basic connectivity and database count.
 - **Asset Search (`GET /search`)**: Discover available assets via source/query/exchange.
-- **Data Management**: API endpoints for `/download`, `/update`, `/resample`, and `/delete`.
-- **Flexible Retrieval**:
-  - `GET /data/...`: Download the full Parquet file.
-  - `GET /data/.../stream`: High-performance line-by-line CSV streaming.
+- **Data Management**: API endpoints for `/download`, `/update`, and `/delete`.
 - **Automated Scheduling**: REST interface for managing recurring update tasks (`/schedule`).
 - **Rate Limiting**: Sliding window protection (60 requests per 60 seconds per IP).
-- **Background Tasks**: Long-running operations (download, update, resample) are offloaded to avoid blocking the server.
+- **Background Tasks**: Long-running operations (download, update) are offloaded to avoid blocking the server.
 
 ---
 
-### 3.12 `schemas/` — Data Validation
+### 3.11 `components/datamanager/.../schemas/` — Data Validation
+
+**Path:** `components/datamanager/src/trademachine/datamanager/schemas/`
 
 **Responsibility:** Defines Pydantic models for structured API communication.
 
@@ -317,7 +321,9 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 ---
 
-### 3.13 `client.py` — Python Client for the API
+### 3.12 `components/datamanager/.../client.py` — Python Client for the API
+
+**Path:** `components/datamanager/src/trademachine/datamanager/client.py`
 
 **Responsibility:** High-level library to consume the REST API from other Python applications.
 
@@ -329,55 +335,40 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 
 ---
 
-### 3.14 `utils/logger.py` — Centralized Logging
-
-**Responsibility:** Standardizes output across CLI and API.
-
-- **Console:** Colorized, human-readable logs.
-- **File (`log.log`):** Structured JSON logs for machine analysis and persistence.
-
----
-
-### 3.15 `utils/retry.py` — Exponential Backoff
-
-**Responsibility:** Ensures network resiliency.
-
-- Utility function `with_retry` used by Fetchers.
-- Default: 3 attempts with increasing delays (1s, 2s, 4s).
-
----
-
 ## 4. Data Flow
 
 1. **Request:** User triggers a command (CLI) or endpoint (API).
 2. **Orchestration:** `DataManager` service identifies the required `Fetcher`.
 3. **Fetching:** `Fetcher` downloads `M1` data in chunks from the provider.
-4. **Storage:** `StorageManager` saves/appends data as `.parquet` and updates the SQLite catalog.
-5. **Post-processing:** If a higher timeframe was requested, `DataProcessor` resamples the `M1` file.
+4. **Storage:** `StorageManager` upserts data into the `ohlcv_m1` hypertable (batch inserts).
+5. **Post-processing:** TimescaleDB automatically refreshes continuous aggregates (M5, M15, H1, H4, D1). Other timeframes are derived via `DataProcessor.resample_ohlc()` on read.
 
 ---
 
 ## 5. Storage System
 
-### Directory Hierarchy:
+### TimescaleDB Schema:
 ```
-database/
-  .versions/                 # Internal: storage for backups
-  {source}/
-    {ASSET}/
-      {TIMEFRAME}/
-        data.parquet         # Fastparquet engine
+TimescaleDB (PostgreSQL)
+  ├── ohlcv_m1        — Hypertable: raw 1-minute OHLCV (primary write target)
+  ├── ohlcv_m5        — Continuous aggregate: 5-minute OHLCV
+  ├── ohlcv_m15       — Continuous aggregate: 15-minute OHLCV
+  ├── ohlcv_h1        — Continuous aggregate: 1-hour OHLCV
+  ├── ohlcv_h4        — Continuous aggregate: 4-hour OHLCV
+  ├── ohlcv_d1        — Continuous aggregate: 1-day OHLCV
+  ├── sources         — Catalog: data source names
+  └── assets         — Catalog: tickers per source with min/max/row_count
 ```
 
 ---
 
-## 6. Metadata Catalog (SQLite)
+## 6. Database Catalog
 
-**File:** `metadata/catalog.db`
+Asset metadata (sources, tickers, date ranges, row counts) is stored in SQL tables:
+- **`sources`**: Source name (Dukascopy, CCXT, OpenBB).
+- **`assets`**: Ticker, `source_id`, `min_date`, `max_date`, `row_count`.
 
-The catalog uses SQLite with **WAL (Write-Ahead Logging)** mode.
-- Table: `catalog` (source, asset, timeframe, rows, start_date, end_date, file_size_kb).
-- Primary Key: `(source, asset, timeframe)`.
+Use `DataManager.update_stats()` / CLI `rebuild` command to recalculate statistics after bulk loads.
 
 ---
 
@@ -412,14 +403,14 @@ Standard OHLCV resampling rules:
 
 - **Base Image:** `python:3.12-slim`.
 - **Package Manager:** `uv` (installs from `uv.lock`).
-- **Volumes:** `./database` and `./metadata` should be persisted for data durability.
+- **Volumes:** Only `./metadata` (for `dukas_assets.csv`) needs to be persisted. TimescaleDB data lives in the database container.
 
 ---
 
 ## 11. Main Dependencies
 
 - **FastAPI / Uvicorn**: Web server.
-- **Pandas / Fastparquet**: Data processing and storage.
+- **SQLAlchemy / TimescaleDB**: ORM and time-series database.
 - **APScheduler**: Background task scheduling.
 - **ccxt / openbb / dukascopy-python**: Data providers.
 - **Pydantic / Pydantic-Settings**: Validation and configuration.
@@ -453,8 +444,6 @@ Standard OHLCV resampling rules:
 | `/update` | `POST` | Trigger a background update task |
 | `/resample` | `POST` | Trigger a background resample task |
 | `/delete` | `POST` | Delete specific or all databases |
-| `/data/{s}/{a}/{t}` | `GET` | Download a Parquet data file |
-| `/data/.../stream` | `GET` | Stream data as CSV (chunked) |
 | `/schedule` | `GET` | List all active scheduled jobs |
 | `/schedule` | `POST` | Create a new recurring update job |
 | `/schedule/{job_id}` | `DELETE` | Remove a scheduled job by its ID |

@@ -4,24 +4,24 @@ This file provides foundational instructions and project context for Gemini CLI 
 
 ## Project Overview
 
-**DataManager** is a centralized financial data management system designed to fetch, store, update, and resample OHLCV (Open, High, Low, Close, Volume) candlestick data. It provides both a Command-Line Interface (CLI) and a REST API for managing local financial databases.
+**DataManager** is a centralized financial data management system designed to fetch, store, update, and resample OHLCV (Open, High, Low, Close, Volume) candlestick data. It provides both a Command-Line Interface (CLI) and a REST API for managing data in TimescaleDB.
 
 ### Core Technologies
 - **Language:** Python >= 3.12
 - **Package Manager:** [uv](https://docs.astral.sh/uv/)
-- **Data Processing:** Pandas, Fastparquet
-- **Data Sources:** OpenBB (yfinance), Dukascopy
+- **Data Processing:** Pandas
+- **Data Sources:** OpenBB (yfinance), Dukascopy, CCXT (crypto)
 - **Web Framework:** FastAPI, Uvicorn
-- **Storage:** Parquet (data files) and JSON (metadata catalog)
+- **Storage:** TimescaleDB (PostgreSQL) — hypertable `ohlcv_m1` + continuous aggregates
 - **Dev Tools:** Ruff (linting/formatting), Pytest (testing), Docker
 
 ### Key Architecture
-- **Source Layout:** `src/datamanager/`
-- **Core Orchestrator:** `src/datamanager/services/manager.py` (`DataManager` class) coordinates all sub-systems.
-- **M1-First Principle:** All data is fetched and stored at **1-minute (M1) resolution** first. Higher timeframes are always derived via resampling.
-- **Modular Fetchers:** Located in `src/datamanager/fetchers/`, extending `BaseFetcher`.
-- **Storage Management:** `src/datamanager/db/storage.py` handles I/O and the `metadata/catalog.json` index.
-- **Resampling Logic:** `src/datamanager/db/processor.py` handles OHLCV resampling using Pandas.
+- **Polylith Layout:** Components (`trademachine.datamanager.*`) + Bases (`datamanager_cli`, `datamanager_api`)
+- **Core Orchestrator:** `components/datamanager/src/trademachine/datamanager/services/manager.py` (`DataManager` class)
+- **M1-First Principle:** All data is fetched and stored at **1-minute (M1) resolution** first. Higher native timeframes (M5, M15, H1, H4, D1) are TimescaleDB continuous aggregates; others are derived via resampling.
+- **Modular Fetchers:** Located in `components/datamanager/src/trademachine/datamanager/fetchers/`, extending `BaseFetcher`.
+- **Storage Management:** `components/datamanager/src/trademachine/datamanager/db/storage.py` handles TimescaleDB I/O via SQLAlchemy.
+- **Resampling Logic:** `components/datamanager/src/trademachine/datamanager/db/processor.py` handles OHLCV resampling using Pandas.
 
 ## Building and Running
 
@@ -39,7 +39,7 @@ uv sync --dev
   - `uv run datamanager search --query <query>`
 
 ### REST API
-- **Start Server:** `uv run uvicorn datamanager.api.router:app --host 0.0.0.0 --port 8686 --reload`
+- **Start Server:** `uv run uvicorn trademachine.datamanager_api.router:app --host 0.0.0.0 --port 8686 --reload`
 - **Authentication:** Requires `X-API-Key` header (set `DATAMANAGER_API_KEY` in `.env`).
 
 ### Docker
@@ -52,19 +52,20 @@ uv sync --dev
 - **Linting & Formatting:** Use **Ruff**.
   - Check: `uv run ruff check .`
   - Fix & Format: `uv run ruff check --fix . && uv run ruff format .`
-- **Type Safety:** Use type hints and Pydantic models (found in `src/datamanager/schemas/`).
-- **Logging:** Use the custom logger in `src/datamanager/utils/logger.py` which outputs to both stdout and `log.log`.
+- **Type Safety:** Use type hints and Pydantic models (found in `components/datamanager/src/trademachine/datamanager/schemas/`).
+- **Logging:** Use the standard Python `logging` module.
 
 ### Testing
 - **Framework:** Pytest
-- **Run all tests:** `uv run pytest tests/`
-- **Run specific test:** `uv run pytest tests/unit/test_processor.py`
+- **Run all tests:** `uv run pytest components/datamanager/test/`
+- **Run specific test:** `uv run pytest components/datamanager/test/unit/test_processor.py`
 
 ### Adding New Features
-1. **New Fetcher:** Implement `BaseFetcher` in `src/datamanager/fetchers/`. Ensure it returns M1 DataFrames with capitalized OHLCV columns and a `datetime` index.
-2. **New Timeframe:** Add to `DataProcessor.TF_MAPPING` in `src/datamanager/db/processor.py`.
-3. **API Changes:** Update schemas in `src/datamanager/schemas/` and routes in `src/datamanager/api/router.py`.
+1. **New Fetcher:** Implement `BaseFetcher` in `components/datamanager/src/trademachine/datamanager/fetchers/`. Ensure it returns M1 DataFrames with capitalized OHLCV columns and a `datetime` index.
+2. **New Timeframe:** Add to `DataProcessor.TF_MAPPING` in `components/datamanager/src/trademachine/datamanager/db/processor.py`.
+3. **API Changes:** Update schemas in `components/datamanager/src/trademachine/datamanager/schemas/` and routes in `bases/datamanager_api/src/trademachine/datamanager_api/router.py`.
 
-### Data Integrity
-- Use `uv run datamanager rebuild` to resync the `catalog.json` with physical files on disk.
+### Database Schema
+- TimescaleDB hypertable: `ohlcv_m1` (partitioned by `timestamp`)
+- Continuous aggregates: `ohlcv_m5`, `ohlcv_m15`, `ohlcv_h1`, `ohlcv_h4`, `ohlcv_d1`
 - All fetched DataFrames must have: `Open`, `High`, `Low`, `Close`, `Volume` (Capitalized) and a timezone-naive `datetime` index.

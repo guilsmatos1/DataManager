@@ -15,7 +15,7 @@ uv run datamanager -i
 uv run datamanager download dukascopy EURUSD 2024-01-01 2024-12-31
 
 # Start the REST API server (port 8686)
-uv run uvicorn datamanager.api.router:app --reload
+uv run uvicorn trademachine.datamanager_api.router:app --reload
 
 # Run all tests
 uv run pytest tests/
@@ -41,49 +41,63 @@ All data is always fetched and stored at **M1 (1-minute) resolution first**. Hig
 ### Module Responsibilities
 
 ```
-src/datamanager/main.py              → CLI entry point; routes -i flag to interactive shell or executes single command
-src/datamanager/cli.py               → Interactive shell (cmd.Cmd); all user-facing CLI commands
-src/datamanager/api/router.py        → FastAPI REST API (port 8686); mirrors CLI capabilities + Dashboard/Stats/Streaming
-src/datamanager/client.py            → Python HTTP client for consuming api/router.py
-src/datamanager/services/manager.py → DataManager class: central orchestrator coordinating all subsystems
-src/datamanager/db/
-  storage.py                         → StorageManager: Parquet I/O + SQLite catalog + Data Versioning
-  processor.py                       → DataProcessor: OHLCV resampling + Gap filling logic
-src/datamanager/fetchers/
-  base.py                            → BaseFetcher ABC: interface all fetchers must implement
-  openbb.py                          → OpenBB/YFinance integration (equities, ETFs)
-  dukascopy.py                       → Dukascopy integration (forex, commodities)
-  ccxt.py                            → CCXT integration (crypto; supports exchange:SYMBOL)
-src/datamanager/core/config.py       → Pydantic settings (API key, host, port)
-src/datamanager/schemas/__init__.py  → Pydantic request/response models for the REST API
-src/datamanager/utils/logger.py      → Structured logging (Console + JSON)
+bases/datamanager_cli/src/trademachine/datamanager_cli/cli.py
+                                      → Interactive shell (cmd.Cmd); all user-facing CLI commands
+
+bases/datamanager_api/src/trademachine/datamanager_api/router.py
+                                      → FastAPI REST API (port 8686)
+
+components/datamanager/src/trademachine/datamanager/
+  ├── client.py                       → Python HTTP client for the API
+  ├── core/config.py                  → Pydantic settings (DATABASE_URL, DATAMANAGER_API_KEY)
+  ├── db/
+  │   ├── database.py                 → SQLAlchemy async engine + session
+  │   ├── models.py                  → ORM models (OHLCV, assets, sources)
+  │   ├── processor.py                → DataProcessor: OHLCV resampling + gap filling
+  │   └── storage.py                  → StorageManager: TimescaleDB I/O (hypertable + continuous aggregates)
+  ├── fetchers/
+  │   ├── base.py                    → BaseFetcher ABC
+  │   ├── ccxt.py                    → CCXT integration (crypto; exchange:SYMBOL)
+  │   ├── dukascopy.py               → Dukascopy integration (forex, commodities)
+  │   └── openbb.py                 → OpenBB/YFinance integration (equities, ETFs)
+  ├── schemas/                        → Pydantic request/response models
+  └── services/
+      ├── manager.py                  → DataManager: central orchestrator
+      └── scheduler.py                → Background job scheduler (APScheduler)
 ```
 
 ### Data Flow
 
 ```
-User (CLI/API)
-  → DataManager (src/datamanager/services/manager.py)
+User (CLI or API)
+  → DataManager (trademachine.datamanager.services.manager)
     → Fetcher.fetch_data() → M1 DataFrame
-    → StorageManager.save_data() → Parquet on disk + Automatic backup
-    → DataProcessor.resample_ohlc() → Higher timeframe DataFrames
-    → StorageManager.save_data() → Additional Parquet files
+    → StorageManager.save_data() → TimescaleDB hypertable (ohlcv_m1)
+    → TimescaleDB continuous aggregates → M5, M15, H1, H4, D1 (automatic refresh)
 ```
 
-### Storage Layout
+### Storage Layout (TimescaleDB)
 
 ```
-database/{source}/{ASSET}/{TIMEFRAME}/data.parquet
-database/.versions/            # Timestamped backups (last 5 per asset/TF)
-metadata/catalog.db            # SQLite index of all stored databases (WAL mode)
+TimescaleDB (PostgreSQL):
+  ├── ohlcv_m1        — Hypertable: raw 1-minute OHLCV data (primary write target)
+  ├── ohlcv_m5        — Continuous aggregate: 5-minute OHLCV
+  ├── ohlcv_m15       — Continuous aggregate: 15-minute OHLCV
+  ├── ohlcv_h1        — Continuous aggregate: 1-hour OHLCV
+  ├── ohlcv_h4        — Continuous aggregate: 4-hour OHLCV
+  ├── ohlcv_d1        — Continuous aggregate: 1-day OHLCV
+  ├── sources         — Catalog: data source names
+  └── assets         — Catalog: tickers per source with min/max/row_count
+
+metadata/
 metadata/dukas_assets.csv      # ~3,000 valid Dukascopy asset symbols
 ```
 
-`catalog.db` (SQLite) stores metadata for every database entry (source, asset, timeframe, date range, row count, size). Use `DataManager.rebuild_catalog()` / CLI `rebuild` command if catalog drifts out of sync with disk.
+Use `DataManager.update_stats()` / CLI `rebuild` command to recalculate asset statistics after bulk loads.
 
 ### Adding a New Fetcher
 
-Create a class in `src/datamanager/fetchers/` that extends `BaseFetcher` and implements:
+Create a class in `components/datamanager/src/trademachine/datamanager/fetchers/` that extends `BaseFetcher` and implements:
 - `source_name` property (string identifier)
 - `fetch_data(asset, start_date, end_date) -> pd.DataFrame` (must return M1 OHLCV data)
 - `search(query) -> pd.DataFrame` (optional; raises `NotImplementedError` by default)
@@ -92,13 +106,16 @@ The DataFrame returned by `fetch_data` must have:
 - Index: `datetime` timezone-naive
 - Columns: `Open`, `High`, `Low`, `Close`, `Volume` (capitalized)
 
-The fetcher is auto-discovered via `pkgutil`/`importlib` in `src/datamanager/fetchers/__init__.py` — no registration required. Modules that fail to import (e.g. missing optional dependencies) are skipped with a warning.
+The fetcher is auto-discovered via `pkgutil`/`importlib` in `trademachine.datamanager.fetchers` — no registration required. Modules that fail to import (e.g. missing optional dependencies) are skipped with a warning.
 
 **Important**: `download_data` raises an exception if an M1 database for that asset/source already exists. Use the `update` command to append newer data to an existing database.
 
 ### Supported Timeframes
 
 `M1, M2, M5, M10, M15, M30, H1, H2, H3, H4, H6, D1, W1`
+
+- **TimescaleDB native (continuous aggregates):** M1 (hypertable), M5, M15, H1, H4, D1
+- **Derived via resampling:** M2, M10, M30, H2, H3, H6, W1 (via `DataProcessor` from M1 data)
 
 Mapping to pandas resample strings is defined in `DataProcessor.TF_MAPPING`.
 
