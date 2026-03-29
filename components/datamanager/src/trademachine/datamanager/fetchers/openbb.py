@@ -1,8 +1,14 @@
 from datetime import datetime
+from typing import Any, cast
 
 import pandas as pd
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
-from ..utils.retry import with_retry
 from .base import BaseFetcher
 
 
@@ -16,30 +22,35 @@ class OpenBBFetcher(BaseFetcher):
         return "OpenBB"
 
     def fetch_data(
-        self, asset: str, start_date: datetime, end_date: datetime
+        self, asset: str, start_date: datetime, end_date: datetime, **kwargs
     ) -> pd.DataFrame:
         # Obb equity price history method (using yfinance provider as default for M1)
         # Note that in openbb V4 the syntax is struct: obb.equity.price.historical()
 
-        kwargs = {"symbol": asset, "interval": "1m", "provider": "yfinance"}
+        obb_kwargs = {"symbol": asset, "interval": "1m", "provider": "yfinance"}
 
         # If the year is > 2000, it means the user specified a range.
         # Otherwise (2000-01-01 absolute default of the CLI for Full History),
         # we omit start and end so the provider brings its own historical limit.
         if start_date.year > 2000:
-            kwargs["start_date"] = start_date.strftime("%Y-%m-%d")
-            kwargs["end_date"] = end_date.strftime("%Y-%m-%d")
+            obb_kwargs["start_date"] = start_date.strftime("%Y-%m-%d")
+            obb_kwargs["end_date"] = end_date.strftime("%Y-%m-%d")
 
         try:
             from openbb import obb
 
             equity_api = obb.equity  # type: ignore[union-attr]
-            res = with_retry(
-                equity_api.price.historical,
-                timeout_seconds=60,
-                exceptions=(OSError, ConnectionError, TimeoutError),
-                **kwargs,  # type: ignore[arg-type]
+
+            @retry(
+                stop=stop_after_attempt(3),
+                wait=wait_exponential_jitter(initial=1.0, max=10.0),
+                retry=retry_if_exception_type((OSError, ConnectionError, TimeoutError)),
+                reraise=True,
             )
+            def _fetch_historical() -> Any:
+                return cast(Any, equity_api.price.historical(**obb_kwargs))
+
+            res = cast(Any, _fetch_historical())
             df = res.to_df()
         except Exception as e:
             raise RuntimeError(f"Error fetching {asset} from OpenBB: {str(e)}")
@@ -54,11 +65,12 @@ class OpenBBFetcher(BaseFetcher):
             df.set_index("date", inplace=True)
 
         # Adjust timezone and columns to match the standard layout of the storage manager
-        if df.index.tz is not None:
-            df.index = df.index.tz_convert(None)
+        self._normalize_timezone(df)
+        self._normalize_columns(df)
 
-        col_map = {c.lower(): c.capitalize() for c in df.columns}
-        df.rename(columns=col_map, inplace=True)
+        pbar = kwargs.get("pbar")
+        if pbar is not None:
+            pbar.update((end_date - start_date).days)
 
         return df
 

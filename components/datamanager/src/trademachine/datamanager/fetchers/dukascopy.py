@@ -2,10 +2,15 @@ import logging
 from datetime import datetime, timedelta
 
 import pandas as pd
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 from tqdm import tqdm
 from trademachine.core.logger import LOGGER_NAME
 
-from ..utils.retry import with_retry
 from .base import BaseFetcher
 
 # Disable internal prints and info from dukascopy-python
@@ -25,9 +30,11 @@ class DukascopyFetcher(BaseFetcher):
         return "Dukascopy"
 
     def fetch_data(
-        self, asset: str, start_date: datetime, end_date: datetime
+        self, asset: str, start_date: datetime, end_date: datetime, **kwargs
     ) -> pd.DataFrame:
         asset_upper = asset.upper()
+
+        global_pbar = kwargs.get("pbar")
 
         from pathlib import Path
 
@@ -66,32 +73,69 @@ class DukascopyFetcher(BaseFetcher):
             1 if total_days % chunk_size != 0 else 0
         )
 
-        for i in tqdm(
-            range(total_chunks), desc=f"Fetching {asset_clean} (Dukascopy)", leave=False
-        ):
+        from dukascopy_python import INTERVAL_MIN_1, OFFER_SIDE_BID, fetch
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential_jitter(initial=1.0, max=10.0),
+            retry=retry_if_exception_type((OSError, ConnectionError, TimeoutError)),
+            reraise=True,
+        )
+        def _fetch_chunk(cs: datetime, ce: datetime) -> pd.DataFrame:
+            return fetch(
+                instrument=asset_clean,
+                interval=INTERVAL_MIN_1,
+                offer_side=OFFER_SIDE_BID,
+                start=cs,
+                end=ce,
+            )
+
+        # Early-abort: if the first N consecutive weekday chunks all return empty,
+        # the instrument is likely invalid — stop instead of running for hours.
+        EARLY_ABORT_THRESHOLD = 10
+        consecutive_empty = 0
+
+        local_pbar = None
+        if global_pbar is None:
+            local_pbar = tqdm(
+                total=total_chunks,
+                desc=f"Fetching {asset_clean} (Dukascopy)",
+                leave=False,
+            )
+
+        for i in range(total_chunks):
             chunk_start = start_date + timedelta(days=i * chunk_size)
             chunk_end = min(chunk_start + timedelta(days=chunk_size), end_date)
 
             try:
-                from dukascopy_python import INTERVAL_MIN_1, OFFER_SIDE_BID, fetch
-
-                df_chunk = with_retry(
-                    fetch,
-                    instrument=asset_clean,
-                    interval=INTERVAL_MIN_1,
-                    offer_side=OFFER_SIDE_BID,
-                    start=chunk_start,
-                    end=chunk_end,
-                    timeout_seconds=60,
-                    exceptions=(OSError, ConnectionError, TimeoutError),
-                )
+                df_chunk = _fetch_chunk(chunk_start, chunk_end)
                 if df_chunk is not None and not df_chunk.empty:
                     dfs.append(df_chunk)
+                    consecutive_empty = 0
+                else:
+                    consecutive_empty += 1
             except Exception as e:
-                # Weekends/holidays may return no data — log at DEBUG for diagnostics
+                consecutive_empty += 1
                 logger.debug(
                     f"[Dukascopy] Chunk {chunk_start.date()}–{chunk_end.date()} skipped: {e}"
                 )
+
+            if local_pbar is not None:
+                local_pbar.update(1)
+            if global_pbar is not None:
+                global_pbar.update((chunk_end - chunk_start).days)
+
+            # Early abort if no data received after many consecutive chunks —
+            # skips the remainder of this date range (e.g. years before data exists)
+            if consecutive_empty >= EARLY_ABORT_THRESHOLD and not dfs:
+                logger.debug(
+                    f"[Dukascopy] {consecutive_empty} consecutive chunks returned no data "
+                    f"for '{asset_clean}' in {start_date.date()}–{end_date.date()}. Skipping period."
+                )
+                break
+
+        if local_pbar is not None:
+            local_pbar.close()
 
         if not dfs:
             # Return empty instead of raising error to handle gaps in chunked download
@@ -104,11 +148,8 @@ class DukascopyFetcher(BaseFetcher):
         df = df[~df.index.duplicated(keep="last")]
 
         # Column and index processing
-        if df.index.tz is not None:
-            df.index = df.index.tz_convert(None)
-
-        col_map = {c.lower(): c.capitalize() for c in df.columns}
-        df.rename(columns=col_map, inplace=True)
+        self._normalize_timezone(df)
+        self._normalize_columns(df)
 
         df.index.name = "datetime"
         df.sort_index(inplace=True)

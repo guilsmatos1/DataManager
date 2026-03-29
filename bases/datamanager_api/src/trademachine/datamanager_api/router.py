@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Security
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from fastapi.security.api_key import APIKeyHeader
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -19,7 +19,6 @@ from trademachine.datamanager.schemas import (
     DeleteRequest,
     DownloadRequest,
     ListResponse,
-    ResampleRequest,
     ScheduleJobInfo,
     ScheduleListResponse,
     ScheduleRequest,
@@ -105,28 +104,10 @@ async def get_api_key(api_key: str = Security(api_key_header)):
 # --- SECURITY: 2. Asynchronous tasks (BackgroundTasks) to avoid blocking the server ---
 
 
-@app.post("/rebuild", response_model=TaskResponse)
-def rebuild_catalog(api_key: str = Depends(get_api_key)):
-    """Rebuild the SQLite catalog by scanning the database directory on disk.
-
-    Use this if the catalog drifts out of sync with physical files
-    (e.g., after manual operations or a crash during write).
-    """
-    try:
-        result = manager.storage.rebuild_catalog()
-        return {
-            "status": "success",
-            "message": f"Catalog rebuilt ({result['count']} databases indexed)",
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Rebuild failed: {e}")
-
-
 @app.post("/download", response_model=TaskResponse)
 def download_data(
     req: DownloadRequest,
     background_tasks: BackgroundTasks,
-    request: Request,
     api_key: str = Depends(get_api_key),
 ):
     try:
@@ -251,24 +232,6 @@ def search_assets(
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
 
 
-@app.post("/resample", response_model=TaskResponse)
-def resample_data(
-    req: ResampleRequest,
-    background_tasks: BackgroundTasks,
-    api_key: str = Depends(get_api_key),
-):
-    try:
-        background_tasks.add_task(
-            manager.resample_database, req.source, req.asset, req.target_timeframe
-        )
-        return {
-            "status": "success",
-            "message": f"Resample of {req.asset} to {req.target_timeframe} started in background",
-        }  # noqa: E501
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
 @app.get("/data/{source}/{asset}/{timeframe}")
 def get_data_file(
     source: str, asset: str, timeframe: str, api_key: str = Depends(get_api_key)
@@ -276,14 +239,24 @@ def get_data_file(
     if not all(re.match(r"^[a-zA-Z0-9_\-]+$", p) for p in [source, asset, timeframe]):
         raise HTTPException(status_code=400, detail="Invalid path parameters")
 
-    file_path = manager.storage._get_path(source, asset, timeframe)
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Data file not found")
+    try:
+        df = manager.storage.load_data(source, asset, timeframe)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Database not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    return FileResponse(
-        path=file_path,
+    # Convert to Parquet in memory
+    buf = io.BytesIO()
+    df.to_parquet(buf, engine="pyarrow")
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
         media_type="application/octet-stream",
-        filename=f"{source}_{asset}_{timeframe}.parquet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{source}_{asset}_{timeframe}.parquet"'
+        },
     )
 
 

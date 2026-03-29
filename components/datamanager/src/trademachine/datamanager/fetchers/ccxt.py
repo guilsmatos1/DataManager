@@ -1,9 +1,15 @@
 from datetime import UTC, datetime
+from typing import cast
 
 import pandas as pd
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 from tqdm import tqdm
 
-from ..utils.retry import with_retry
 from .base import BaseFetcher
 
 try:
@@ -60,7 +66,7 @@ class CcxtFetcher(BaseFetcher):
     # ------------------------------------------------------------------
 
     def fetch_data(
-        self, asset: str, start_date: datetime, end_date: datetime
+        self, asset: str, start_date: datetime, end_date: datetime, **kwargs
     ) -> pd.DataFrame:
         exchange_id, symbol = self._parse_asset(asset)
         exchange = self._get_exchange(exchange_id)
@@ -77,25 +83,33 @@ class CcxtFetcher(BaseFetcher):
         all_rows: list[list] = []
         current_ms = since_ms
 
+        global_pbar = kwargs.get("pbar")
+
         # Estimate total candles for progress bar (approximate)
         total_minutes = max(1, int((end_ms - since_ms) / 60_000))
-        pbar = tqdm(
-            total=total_minutes,
-            desc=f"[ccxt/{exchange_id}] {symbol} M1",
-            unit=" candles",
+        local_pbar = None
+        if global_pbar is None:
+            local_pbar = tqdm(
+                total=total_minutes,
+                desc=f"[ccxt/{exchange_id}] {symbol} M1",
+                unit=" candles",
+            )
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential_jitter(initial=1.0, max=10.0),
+            retry=retry_if_exception_type((OSError, ConnectionError, TimeoutError)),
+            reraise=True,
         )
+        def _fetch_batch() -> list:
+            return cast(
+                list,
+                exchange.fetch_ohlcv(symbol, "1m", since=current_ms, limit=_CHUNK_SIZE),
+            )
 
         try:
             while current_ms < end_ms:
-                batch = with_retry(
-                    exchange.fetch_ohlcv,
-                    symbol,
-                    timeframe="1m",
-                    since=current_ms,
-                    limit=_CHUNK_SIZE,
-                    timeout_seconds=60,
-                    exceptions=(OSError, ConnectionError, TimeoutError),
-                )
+                batch = _fetch_batch()
                 if not batch:
                     break
 
@@ -105,10 +119,14 @@ class CcxtFetcher(BaseFetcher):
                     break
 
                 all_rows.extend(batch)
-                pbar.update(len(batch))
+                if local_pbar is not None:
+                    local_pbar.update(len(batch))
+                if global_pbar is not None:
+                    global_pbar.update(len(batch) / (24 * 60))
                 current_ms = batch[-1][0] + 60_000  # advance by 1 minute
         finally:
-            pbar.close()
+            if local_pbar is not None:
+                local_pbar.close()
 
         if not all_rows:
             raise ValueError(

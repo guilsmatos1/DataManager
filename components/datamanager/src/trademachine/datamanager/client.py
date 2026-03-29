@@ -5,12 +5,13 @@ from io import BytesIO
 from typing import Any
 
 import pandas as pd
-import requests
+import requests  # type: ignore[import-untyped]
 
 
 class DataManagerClient:
     """
     Python client to connect to DataManager Network API protected with API Key.
+    Data is served as Parquet over HTTP from TimescaleDB.
     """
 
     def __init__(
@@ -70,25 +71,6 @@ class DataManagerClient:
         if timeframe:
             payload["timeframe"] = timeframe
         res = self.session.post(f"{self.base_url}/delete", json=payload)
-        return self._handle_response(res)
-
-    def resample(self, source: str, asset: str, target_timeframe: str) -> dict:
-        """Regenerates or creates a timeframe from the original M1 database."""
-        payload = {
-            "source": source,
-            "asset": asset,
-            "target_timeframe": target_timeframe,
-        }
-        res = self.session.post(f"{self.base_url}/resample", json=payload)
-        return self._handle_response(res)
-
-    def rebuild(self) -> dict:
-        """Rebuilds the server-side SQLite catalog by scanning the database directory.
-
-        Use this if the catalog drifts out of sync with the physical files
-        (e.g., after manual file operations or a crash during write).
-        """
-        res = self.session.post(f"{self.base_url}/rebuild")
         return self._handle_response(res)
 
     def list_databases(self) -> list[dict[str, Any]]:
@@ -171,7 +153,7 @@ class DataManagerClient:
         timezone: str | None = None,
     ) -> pd.DataFrame | str:
         """
-        Downloads the `.parquet` file from the server.
+        Downloads data from the server as a Parquet file.
         If save_path is provided, saves to disk and returns the path.
         You can define 'save_format' as 'parquet' or 'csv'.
         Otherwise, loads directly into the client's local memory as a DataFrame.

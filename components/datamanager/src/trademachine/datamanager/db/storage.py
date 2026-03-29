@@ -1,462 +1,369 @@
-import shutil
-import sqlite3
-import sys
-from contextlib import contextmanager
-from datetime import UTC, datetime
-from pathlib import Path
+from typing import cast
 
 import pandas as pd
-import pyarrow.parquet as pq
-
-
-def _pyarrow_to_datetime(val) -> datetime:
-    """Convert a pyarrow scalar or Python value to a datetime."""
-    if val is None:
-        return datetime.min
-    if isinstance(val, datetime):
-        return val
-    if hasattr(val, "as_py"):
-        val = val.as_py()
-    if isinstance(val, datetime):
-        return val
-    # pyarrow timestamps stored as int64 ns since epoch
-    return datetime.fromtimestamp(val / 1e9, tz=UTC)
-
-
-@contextmanager
-def _file_lock(path: Path):
-    """Cross-platform exclusive file lock for Parquet files (sidecar .lock file)."""
-    lock_path = path.with_suffix(path.suffix + ".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_file = open(lock_path, "w")
-    try:
-        if sys.platform == "win32":
-            import msvcrt
-
-            lock_file.seek(0)
-            try:
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
-            except OSError:
-                pass
-        else:
-            import fcntl
-
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        yield
-    finally:
-        if sys.platform == "win32":
-            import msvcrt
-
-            lock_file.seek(0)
-            try:
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-            except OSError:
-                pass
-        else:
-            import fcntl
-
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-        lock_file.close()
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
+from trademachine.datamanager.db.database import SessionLocal, engine
+from trademachine.datamanager.db.models import Asset, OhlcvM1, Source
 
 
 class StorageManager:
-    """Manages hierarchical OHLCV storage with SQLite catalog and data versioning.
+    """Manages OHLCV storage using TimescaleDB (PostgreSQL) with Continuous Aggregates.
 
     Layout:
-        database/{source}/{asset}/{timeframe}/data.parquet
-        database/.versions/{source}/{asset}/{timeframe}/YYYYMMDD_HHMMSS.parquet
-        metadata/catalog.db   (SQLite — source of truth)
+        - Relational tables: sources, assets (metadata catalog)
+        - Hypertable: ohlcv_m1 (primary 1-minute data)
+        - Continuous Aggregates: ohlcv_m5, ohlcv_h1, etc. (derived timeframes)
 
     Note:
-        ``catalog_path`` is kept as a public attribute for backward compatibility
-        (e.g. tests that redirect the metadata directory).  The actual SQLite
-        database is always placed in the *same directory* as ``catalog_path``
-        under the fixed name ``catalog.db``, regardless of the JSON filename.
+        We only store M1 data explicitly. Higher timeframes are queried from
+        TimescaleDB materialized views.
     """
 
-    def __init__(self, base_dir: str = "database"):
-        self.base_dir = Path(base_dir)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.format = ".parquet"
-        # catalog_path is kept for backward-compat; the legacy JSON is no longer
-        # written by this class — SQLite (catalog.db) is the sole source of truth.
-        self.catalog_path = self.base_dir.parent / "metadata" / "catalog.json"
-        self.catalog_path.parent.mkdir(parents=True, exist_ok=True)
+    TF_VIEW_MAPPING = {
+        "M1": "ohlcv_m1",
+        "M5": "ohlcv_m5",
+        "M15": "ohlcv_m15",
+        "H1": "ohlcv_h1",
+        "H4": "ohlcv_h4",
+        "D1": "ohlcv_d1",
+    }
+
+    def __init__(self):
+        pass
+
+    def check_connection(self) -> None:
+        """Simple health check to verify DB connectivity on startup."""
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+
+    def _get_db(self) -> Session:
+        return cast(Session, SessionLocal())
 
     # ------------------------------------------------------------------
-    # Internal: SQLite helpers
+    # Catalog operations (SQLAlchemy)
     # ------------------------------------------------------------------
 
-    @property
-    def _db_path(self) -> Path:
-        """SQLite DB path — always ``catalog.db`` in the same dir as catalog_path."""
-        return self.catalog_path.parent / "catalog.db"
+    def get_or_create_source(self, db: Session, name: str) -> Source:
+        source = db.execute(
+            select(Source).where(Source.name == name.lower())
+        ).scalar_one_or_none()
+        if not source:
+            source = Source(name=name.lower())
+            db.add(source)
+            db.flush()
+        return source
 
-    def _get_conn(self) -> sqlite3.Connection:
-        """Open a WAL-mode SQLite connection and ensure schema exists."""
-        conn = sqlite3.connect(str(self._db_path), timeout=10, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS catalog (
-                source      TEXT NOT NULL,
-                asset       TEXT NOT NULL,
-                timeframe   TEXT NOT NULL,
-                rows        INTEGER,
-                start_date  TEXT,
-                end_date    TEXT,
-                file_size_kb REAL,
-                PRIMARY KEY (source, asset, timeframe)
+    def get_or_create_asset(self, db: Session, ticker: str, source_id: int) -> Asset:
+        asset = db.execute(
+            select(Asset).where(
+                Asset.ticker == ticker.upper(), Asset.source_id == source_id
             )
-        """)
-        conn.commit()
-        return conn
+        ).scalar_one_or_none()
+        if not asset:
+            asset = Asset(ticker=ticker.upper(), source_id=source_id)
+            db.add(asset)
+            db.flush()
+        return asset
 
-    # ------------------------------------------------------------------
-    # Internal: path helpers
-    # ------------------------------------------------------------------
+    def _update_asset_stats(self, db: Session, asset_id: int) -> None:
+        """Update min_date, max_date, and row_count for an asset based on M1 data."""
+        stats = db.execute(
+            select(
+                func.min(OhlcvM1.timestamp).label("min_ts"),
+                func.max(OhlcvM1.timestamp).label("max_ts"),
+                func.count(OhlcvM1.timestamp).label("count"),
+            ).where(OhlcvM1.asset_id == asset_id)
+        ).first()
 
-    def _get_path(self, source: str, asset: str, timeframe: str) -> Path:
-        asset_dir = self.base_dir / source.lower() / asset.upper() / timeframe.upper()
-        asset_dir.mkdir(parents=True, exist_ok=True)
-        return asset_dir / f"data{self.format}"
+        asset = db.get(Asset, asset_id)
+        if asset:
+            asset.min_date = stats.min_ts if stats else None
+            asset.max_date = stats.max_ts if stats else None
+            asset.row_count = stats.count if stats else 0
+            db.flush()
 
-    def _versions_dir(self, source: str, asset: str, timeframe: str) -> Path:
-        return (
-            self.base_dir
-            / ".versions"
-            / source.lower()
-            / asset.upper()
-            / timeframe.upper()
-        )
+    def list_databases(self) -> list[dict]:
+        """Return all catalog entries (Source/Asset/Timeframe combinations)."""
+        with self._get_db() as db:
+            query = select(
+                Source.name.label("source"),
+                Asset.ticker.label("asset"),
+                Asset.min_date,
+                Asset.max_date,
+                Asset.row_count.label("rows"),
+            ).join(Asset, Asset.source_id == Source.id)
 
-    # ------------------------------------------------------------------
-    # Catalog operations
-    # ------------------------------------------------------------------
+            results = db.execute(query).all()
 
-    def _update_catalog_entry(self, source: str, asset: str, timeframe: str):
-        """Upsert or delete the catalog entry for source/asset/timeframe."""
-        info = self.get_database_info(source, asset, timeframe)
-        with self._get_conn() as conn:
-            if info.get("status") == "Not Found":
-                conn.execute(
-                    "DELETE FROM catalog WHERE source=? AND asset=? AND timeframe=?",
-                    (source.lower(), asset.upper(), timeframe.upper()),
+            # TimescaleDB has fixed timeframes via views.
+            # We return M1 info for each asset as a baseline.
+            dbs = []
+            for r in results:
+                dbs.append(
+                    {
+                        "source": r.source,
+                        "asset": r.asset,
+                        "timeframe": "M1",
+                        "rows": r.rows,
+                        "start_date": str(r.min_date) if r.min_date else None,
+                        "end_date": str(r.max_date) if r.max_date else None,
+                    }
                 )
-            else:
-                conn.execute(
-                    """INSERT OR REPLACE INTO catalog
-                       (source, asset, timeframe, rows, start_date, end_date, file_size_kb)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        info["source"],
-                        info["asset"],
-                        info["timeframe"],
-                        info["rows"],
-                        info["start_date"],
-                        info["end_date"],
-                        info["file_size_kb"],
-                    ),
-                )
-
-    def rebuild_catalog(self) -> dict:
-        """Rebuild catalog by scanning disk (use if catalog drifts out of sync)."""
-        entries = []
-        for source_path in self.base_dir.iterdir():
-            if not source_path.is_dir() or source_path.name.startswith("."):
-                continue
-            for asset_path in source_path.iterdir():
-                if not asset_path.is_dir():
-                    continue
-                for time_path in asset_path.iterdir():
-                    if not time_path.is_dir():
-                        continue
-                    if (time_path / f"data{self.format}").exists():
-                        info = self.get_database_info(
-                            source_path.name, asset_path.name, time_path.name
-                        )
-                        if info.get("status") != "Not Found":
-                            entries.append(info)
-
-        with self._get_conn() as conn:
-            conn.execute("DELETE FROM catalog")
-            for info in entries:
-                conn.execute(
-                    """INSERT INTO catalog
-                       (source, asset, timeframe, rows, start_date, end_date, file_size_kb)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        info["source"],
-                        info["asset"],
-                        info["timeframe"],
-                        info["rows"],
-                        info["start_date"],
-                        info["end_date"],
-                        info["file_size_kb"],
-                    ),
-                )
-        return {"status": "success", "count": len(entries)}
-
-    def list_databases(self) -> list:
-        """Return all catalog entries (fast SQLite read, no disk scan)."""
-        with self._get_conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM catalog ORDER BY source, asset, timeframe"
-            ).fetchall()
-        return [dict(row) for row in rows]
+            return dbs
 
     def get_stats(self) -> dict:
         """Return aggregate statistics across all stored databases."""
-        dbs = self.list_databases()
-        sources: dict[str, int] = {}
-        total_rows = 0
-        total_kb = 0.0
-        for db in dbs:
-            sources[db["source"]] = sources.get(db["source"], 0) + 1
-            total_rows += db.get("rows", 0)
-            total_kb += db.get("file_size_kb", 0.0)
-        return {
-            "databases_count": len(dbs),
-            "sources": sources,
-            "total_rows": total_rows,
-            "total_size_kb": round(total_kb, 2),
-        }
+        with self._get_db() as db:
+            sources_count = db.execute(select(func.count(Source.id))).scalar()
+            assets_count = db.execute(select(func.count(Asset.id))).scalar()
+            total_rows = db.execute(select(func.sum(Asset.row_count))).scalar() or 0
+
+            sources_stats = db.execute(
+                select(Source.name, func.count(Asset.id))
+                .join(Asset)
+                .group_by(Source.name)
+            ).all()
+
+            return {
+                "sources_count": sources_count,
+                "assets_count": assets_count,
+                "sources": {name: count for name, count in sources_stats},
+                "total_rows": total_rows,
+            }
 
     # ------------------------------------------------------------------
-    # Data versioning
+    # Core I/O (TimescaleDB)
     # ------------------------------------------------------------------
 
-    def _backup_version(
+    # Maximum number of rows per INSERT statement to stay below
+    # PostgreSQL's per-statement parameter limit (~32 767).
+    # 5 000 rows × 7 columns = 35 000 params — well within bounds.
+    _INSERT_BATCH_SIZE = 5_000
+
+    def save_data(
         self,
-        file_path: Path,
+        df: pd.DataFrame,
         source: str,
         asset: str,
         timeframe: str,
-        max_versions: int = 5,
-    ):
-        """Create a timestamped backup before overwriting. Best-effort (never raises)."""
-        try:
-            vdir = self._versions_dir(source, asset, timeframe)
-            vdir.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-            shutil.copy2(file_path, vdir / f"{ts}.parquet")
-            # Prune oldest versions beyond max_versions
-            existing = sorted(vdir.glob("*.parquet"))
-            for old in existing[:-max_versions]:
-                old.unlink()
-        except Exception:
-            pass
+        update_stats: bool = True,
+    ) -> None:
+        """Save data to TimescaleDB. Supports only M1 for writes.
 
-    def list_versions(self, source: str, asset: str, timeframe: str) -> list[str]:
-        """Return available version timestamps (newest last)."""
-        vdir = self._versions_dir(source, asset, timeframe)
-        if not vdir.exists():
-            return []
-        return sorted(p.stem for p in vdir.glob("*.parquet"))
+        Upserts data into the ohlcv_m1 hypertable in batches to avoid
+        exceeding PostgreSQL's per-statement parameter limit.
+        """
+        if timeframe.upper() != "M1":
+            raise ValueError(
+                "TimescaleDB storage only supports direct writes to M1 timeframe."
+            )
 
-    def restore_version(
-        self, source: str, asset: str, timeframe: str, version_ts: str | None = None
-    ) -> bool:
-        """Restore a specific version (or latest if version_ts is None)."""
-        vdir = self._versions_dir(source, asset, timeframe)
-        if not vdir.exists():
-            return False
-        backups = sorted(vdir.glob("*.parquet"))
-        if not backups:
-            return False
-        target = (vdir / f"{version_ts}.parquet") if version_ts else backups[-1]
-        if not target.exists():
-            return False
-        shutil.copy2(target, self._get_path(source, asset, timeframe))
-        self._update_catalog_entry(source, asset, timeframe)
-        return True
+        if df.empty:
+            return
 
-    # ------------------------------------------------------------------
-    # Core I/O
-    # ------------------------------------------------------------------
+        with self._get_db() as db:
+            src = self.get_or_create_source(db, source)
+            ast = self.get_or_create_asset(db, asset, src.id)
 
-    def save_data(self, df: pd.DataFrame, source: str, asset: str, timeframe: str):
-        """Save data with atomic swap. Backs up previous version if file exists."""
-        file_path = self._get_path(source, asset, timeframe)
-        temp_path = file_path.with_suffix(f".tmp{self.format}")
+            # Ensure DatetimeIndex
+            if not isinstance(df.index, pd.DatetimeIndex):
+                for col in ["datetime", "date", "time"]:
+                    if col in df.columns:
+                        df[col] = pd.to_datetime(df[col])
+                        df.set_index(col, inplace=True)
+                        break
 
-        if file_path.exists():
-            self._backup_version(file_path, source, asset, timeframe)
+            # Prepare data for bulk insert
+            df_records = df.copy()
+            df_records.index.name = "timestamp"
+            df_records = df_records.reset_index()
 
-        if not isinstance(df.index, pd.DatetimeIndex):
-            for col in ["datetime", "date", "time"]:
-                if col in df.columns:
-                    df[col] = pd.to_datetime(df[col])
-                    df.set_index(col, inplace=True)
-                    break
+            # Normalize timestamp to UTC naive
+            if getattr(df_records["timestamp"].dt, "tz", None) is not None:
+                df_records["timestamp"] = df_records["timestamp"].dt.tz_convert(None)
 
-        df.sort_index(inplace=True)
-        if df.index.tz is not None:
-            df.index = df.index.tz_convert(None)
+            df_records["asset_id"] = ast.id
+            df_records.columns = df_records.columns.str.lower()
 
-        try:
-            if self.format == ".parquet":
-                df.to_parquet(temp_path, engine="pyarrow")
-            else:
-                df.to_csv(temp_path)
-            temp_path.replace(file_path)
-            self._update_catalog_entry(source, asset, timeframe)
-        except Exception as e:
-            if temp_path.exists():
-                temp_path.unlink()
-            raise e
+            # Type cast to ensure float
+            for col in ["open", "high", "low", "close", "volume"]:
+                df_records[col] = df_records[col].astype(float)
 
-    def append_data(self, df: pd.DataFrame, source: str, asset: str, timeframe: str):
-        """Append new data, deduplicating by index (thread/process-safe)."""
-        file_path = self._get_path(source, asset, timeframe)
-        if not file_path.exists():
-            return self.save_data(df, source, asset, timeframe)
+            records = df_records[
+                ["timestamp", "asset_id", "open", "high", "low", "close", "volume"]
+            ].to_dict(orient="records")
 
-        with _file_lock(file_path):
-            existing_df = self.load_data(source, asset, timeframe)
-            # Normalize timezone: strip tz from existing if df has tz, or vice-versa
-            if existing_df.index.tz is not None and df.index.tz is None:
-                df = df.copy()
-                df.index = df.index.tz_localize(existing_df.index.tz)
-            elif existing_df.index.tz is None and df.index.tz is not None:
-                existing_df = existing_df.copy()
-                existing_df.index = existing_df.index.tz_localize(df.index.tz)
-            combined_df = pd.concat([existing_df, df])
-            combined_df = combined_df[~combined_df.index.duplicated(keep="last")]
-            self.save_data(combined_df, source, asset, timeframe)
+            total_batches = (
+                len(records) + self._INSERT_BATCH_SIZE - 1
+            ) // self._INSERT_BATCH_SIZE
+            from tqdm import tqdm
+
+            with tqdm(
+                total=total_batches,
+                desc=f"Saving {asset} to DB",
+                unit="batch",
+                leave=False,
+            ) as pbar:
+                # Bulk upsert in batches using PostgreSQL's ON CONFLICT
+                for i in range(0, len(records), self._INSERT_BATCH_SIZE):
+                    batch = records[i : i + self._INSERT_BATCH_SIZE]
+                    stmt = pg_insert(OhlcvM1).values(batch)
+                    upsert_stmt = stmt.on_conflict_do_update(
+                        index_elements=[OhlcvM1.timestamp, OhlcvM1.asset_id],
+                        set_={
+                            "open": stmt.excluded.open,
+                            "high": stmt.excluded.high,
+                            "low": stmt.excluded.low,
+                            "close": stmt.excluded.close,
+                            "volume": stmt.excluded.volume,
+                        },
+                    )
+                    db.execute(upsert_stmt)
+                    pbar.update(1)
+
+            db.commit()
+
+            if update_stats:
+                # Update asset metadata
+                self._update_asset_stats(db, ast.id)
+                db.commit()
+
+    def append_data(
+        self,
+        df: pd.DataFrame,
+        source: str,
+        asset: str,
+        timeframe: str,
+        update_stats: bool = True,
+    ) -> None:
+        """Append data (same as save_data due to ON CONFLICT logic)."""
+        return self.save_data(df, source, asset, timeframe, update_stats=update_stats)
+
+    def update_stats(self, source: str, asset: str) -> None:
+        """Manually trigger asset statistics recalculation. Useful after bulk uploads."""
+        with self._get_db() as db:
+            src = self.get_or_create_source(db, source)
+            ast = self.get_or_create_asset(db, asset, src.id)
+            self._update_asset_stats(db, ast.id)
+            db.commit()
 
     def load_data(self, source: str, asset: str, timeframe: str) -> pd.DataFrame:
-        """Load data from a Parquet file."""
-        file_path = self._get_path(source, asset, timeframe)
-        if not file_path.exists():
-            raise FileNotFoundError(
-                f"Database not found: {source} -> {asset} ({timeframe})"
+        """Load data from TimescaleDB (hypertable or continuous aggregate)."""
+        table_name = self.TF_VIEW_MAPPING.get(timeframe.upper())
+        if not table_name:
+            raise ValueError(
+                f"Timeframe {timeframe} not supported by TimescaleDB storage."
             )
-        if self.format == ".parquet":
-            return pd.read_parquet(file_path, engine="pyarrow")
-        return pd.read_csv(file_path, index_col=0, parse_dates=True)
+
+        with self._get_db() as db:
+            src = db.execute(
+                select(Source).where(Source.name == source.lower())
+            ).scalar_one_or_none()
+            if not src:
+                raise FileNotFoundError(f"Source not found: {source}")
+
+            ast = db.execute(
+                select(Asset).where(
+                    Asset.ticker == asset.upper(), Asset.source_id == src.id
+                )
+            ).scalar_one_or_none()
+
+            if not ast:
+                raise FileNotFoundError(f"Asset not found: {source} -> {asset}")
+
+            # Use pandas read_sql for efficiency
+            # We must use literal table name as it's a dynamic view.
+            # Safety: table_name is strictly mapped from TF_VIEW_MAPPING.
+            query = f"SELECT timestamp, open, high, low, close, volume FROM {table_name} WHERE asset_id = :aid ORDER BY timestamp ASC"  # noqa: S608
+
+            df = pd.read_sql(
+                text(query),
+                con=engine,
+                params={"aid": ast.id},
+                index_col="timestamp",
+                parse_dates=["timestamp"],
+            )
+
+            # Capitalize columns to maintain compatibility with DataManager expectations
+            df.columns = ["Open", "High", "Low", "Close", "Volume"]
+            return df
 
     def delete_database(
         self, source: str, asset: str, timeframe: str | None = None
     ) -> bool:
-        """Delete a specific timeframe or all timeframes for an asset."""
-        if timeframe:
-            file_path = self._get_path(source, asset, timeframe)
-            if file_path.exists():
-                file_path.unlink()
-                self._update_catalog_entry(source, asset, timeframe)
-                self._cleanup_empty_dirs(self.base_dir)
-                return True
-        else:
-            asset_dir = self.base_dir / source.lower() / asset.upper()
-            if asset_dir.exists():
-                shutil.rmtree(asset_dir)
-                with self._get_conn() as conn:
-                    conn.execute(
-                        "DELETE FROM catalog WHERE source=? AND asset=?",
-                        (source.lower(), asset.upper()),
-                    )
-                self._cleanup_empty_dirs(self.base_dir)
-                return True
-        return False
+        """Delete data for an asset.
+
+        Note: timeframe specific deletion is only supported for M1 (as views are derived).
+        Deleting timeframe=None removes the entire asset metadata and its M1 data.
+        """
+        with self._get_db() as db:
+            src = db.execute(
+                select(Source).where(Source.name == source.lower())
+            ).scalar_one_or_none()
+            if not src:
+                return False
+
+            ast = db.execute(
+                select(Asset).where(
+                    Asset.ticker == asset.upper(), Asset.source_id == src.id
+                )
+            ).scalar_one_or_none()
+
+            if not ast:
+                return False
+
+            if timeframe and timeframe.upper() != "M1":
+                raise ValueError(
+                    "Deletion of specific timeframe data is only supported for M1."
+                )
+
+            # Delete M1 data (this will automatically affect views)
+            db.execute(delete(OhlcvM1).where(OhlcvM1.asset_id == ast.id))
+
+            if not timeframe:
+                # Delete asset metadata too
+                db.delete(ast)
+            else:
+                # Just update stats if only data was deleted
+                self._update_asset_stats(db, ast.id)
+
+            db.commit()
+            return True
 
     def delete_all(self) -> bool:
-        """Delete all databases from all sources."""
-        try:
-            for item in self.base_dir.iterdir():
-                if item.is_dir():
-                    shutil.rmtree(item)
-            with self._get_conn() as conn:
-                conn.execute("DELETE FROM catalog")
+        """Delete all sources, assets and data."""
+        with self._get_db() as db:
+            db.execute(delete(OhlcvM1))
+            db.execute(delete(Asset))
+            db.execute(delete(Source))
+            db.commit()
             return True
-        except OSError:
-            return False
-
-    def _get_parquet_stats(self, file_path: Path) -> dict:
-        """Extract row count and date range from Parquet metadata without loading data.
-
-        Uses pyarrow ParquetFile metadata (row group statistics) to get min/max
-        values of the datetime index without reading the full column into memory.
-        """
-        pf = pq.ParquetFile(file_path)
-        num_rows = pf.metadata.num_rows
-
-        # Find the datetime index column in the schema
-        schema = pf.schema_arrow
-        dt_col_idx = None
-        for i, field in enumerate(schema):
-            field_name = field.name.lower()
-            if field_name in ("datetime", "date", "time", "index"):
-                dt_col_idx = i
-                break
-        if dt_col_idx is None:
-            # Fallback: first column is typically the index
-            dt_col_idx = 0
-
-        # Read min/max from row group statistics (never loads full column)
-        row_group = pf.metadata.row_group(0)
-        col_meta = row_group.column(dt_col_idx)
-        stats = col_meta.statistics
-
-        if stats and stats.has_min_max:
-            start_ts = _pyarrow_to_datetime(stats.min)
-            end_ts = _pyarrow_to_datetime(stats.max)
-            start_date = str(start_ts)
-            end_date = str(end_ts)
-        else:
-            # Fallback: read only the datetime column (still cheaper than full df)
-            table = pf.read_row_group(0, columns=[schema.field(dt_col_idx).name])
-            dt_values = table.column(0)
-            start_date = str(dt_values[0].as_py())
-            end_date = str(dt_values[-1].as_py())
-
-        return {"rows": num_rows, "start_date": start_date, "end_date": end_date}
 
     def get_database_info(self, source: str, asset: str, timeframe: str) -> dict:
         """Return metadata for a specific database."""
-        file_path = self._get_path(source, asset, timeframe)
-        if not file_path.exists():
-            return {"status": "Not Found"}
+        with self._get_db() as db:
+            src = db.execute(
+                select(Source).where(Source.name == source.lower())
+            ).scalar_one_or_none()
+            if not src:
+                return {"status": "Not Found"}
 
-        file_size_kb = round(file_path.stat().st_size / 1024, 2)
+            ast = db.execute(
+                select(Asset).where(
+                    Asset.ticker == asset.upper(), Asset.source_id == src.id
+                )
+            ).scalar_one_or_none()
 
-        if self.format == ".parquet":
-            stats = self._get_parquet_stats(file_path)
+            if not ast:
+                return {"status": "Not Found"}
+
             return {
                 "source": source.lower(),
                 "asset": asset.upper(),
                 "timeframe": timeframe.upper(),
-                "rows": stats["rows"],
-                "start_date": stats["start_date"],
-                "end_date": stats["end_date"],
-                "file_size_kb": file_size_kb,
+                "rows": ast.row_count if timeframe.upper() == "M1" else None,
+                "start_date": str(ast.min_date) if ast.min_date else None,
+                "end_date": str(ast.max_date) if ast.max_date else None,
             }
-
-        # Fallback for CSV (or if parquet stats fail)
-        df = self.load_data(source, asset, timeframe)
-        return {
-            "source": source.lower(),
-            "asset": asset.upper(),
-            "timeframe": timeframe.upper(),
-            "rows": len(df),
-            "start_date": str(df.index.min()),
-            "end_date": str(df.index.max()),
-            "file_size_kb": file_size_kb,
-        }
-
-    # ------------------------------------------------------------------
-    # Housekeeping
-    # ------------------------------------------------------------------
-
-    def _cleanup_empty_dirs(self, directory: Path):
-        """Recursively remove empty directories (skips .versions)."""
-        if not directory.is_dir() or directory.name.startswith("."):
-            return
-        for entry in directory.iterdir():
-            if entry.is_dir():
-                self._cleanup_empty_dirs(entry)
-        if directory != self.base_dir and not any(directory.iterdir()):
-            try:
-                directory.rmdir()
-            except OSError:
-                pass

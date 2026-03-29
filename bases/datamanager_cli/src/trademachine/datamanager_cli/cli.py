@@ -2,6 +2,7 @@ import argparse
 import cmd
 import logging
 import shlex
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from colorama import Fore, Style, init
@@ -34,7 +35,7 @@ class DataManagerCLI(cmd.Cmd):
  {Fore.YELLOW}● INTERACTIVE MODE ●{Fore.WHITE}
 
  {Style.BRIGHT}COMMANDS:{Style.NORMAL}
- {Fore.CYAN}download{Fore.WHITE} | {Fore.CYAN}update{Fore.WHITE} | {Fore.CYAN}search{Fore.WHITE} | {Fore.CYAN}list{Fore.WHITE} | {Fore.CYAN}resample{Fore.WHITE} | {Fore.CYAN}delete{Fore.WHITE} | {Fore.CYAN}quality{Fore.WHITE} | {Fore.CYAN}schedule{Fore.WHITE} | {Fore.CYAN}info{Fore.WHITE} | {Fore.CYAN}rebuild{Fore.WHITE}
+ {Fore.CYAN}download{Fore.WHITE} | {Fore.CYAN}update{Fore.WHITE} | {Fore.CYAN}search{Fore.WHITE} | {Fore.CYAN}list{Fore.WHITE} | {Fore.CYAN}delete{Fore.WHITE} | {Fore.CYAN}quality{Fore.WHITE} | {Fore.CYAN}schedule{Fore.WHITE} | {Fore.CYAN}info{Fore.WHITE}
 
  {Fore.WHITE}Type {Fore.YELLOW}'help'{Fore.WHITE} for the full manual or {Fore.YELLOW}'exit'{Fore.WHITE} to quit.
 ════════════════════════════════════════════════════════════════════════
@@ -66,9 +67,28 @@ class DataManagerCLI(cmd.Cmd):
 
     def __init__(self):
         super().__init__()
-        self.server = DataManager()
+        try:
+            self.server = DataManager()
+            # Win #5: Quick health check
+            self.server.storage.check_connection()
+        except Exception as e:
+            print(
+                f"\n{Fore.RED}{Style.BRIGHT}ERROR: Could not connect to the Database."
+            )
+            print(
+                f"{Fore.WHITE}Ensure your TimescaleDB (Postgres) is running and your .env credentials are correct."
+            )
+            print(f"{Fore.YELLOW}Details: {e}\n")
+            import sys
+
+            sys.exit(1)
+
         self.scheduler = SchedulerService(self.server)
         self.scheduler.start()
+
+    def emptyline(self):
+        """Overrides cmd.Cmd default behavior, which repeats the last command."""
+        pass
 
     def do_download(self, arg):
         """
@@ -112,7 +132,7 @@ class DataManagerCLI(cmd.Cmd):
             if len(args) == 4:
                 end_date = parse(args[3])
             else:
-                end_date = datetime.now(UTC)
+                end_date = datetime.now(UTC).replace(tzinfo=None)
                 if len(args) < 4:
                     logger.info(
                         f"End date omitted. Going up to the current date ({end_date.date()})."
@@ -214,14 +234,13 @@ class DataManagerCLI(cmd.Cmd):
 
         print(f"\n{Fore.CYAN}{Style.BRIGHT}DATABASE INFO:")
         print(f"{Fore.WHITE}{'=' * 50}")
-        labels = {
+        labels: dict[str, tuple[str, Callable[[object], str]]] = {
             "source": ("Source", str),
             "asset": ("Asset", str),
             "timeframe": ("Timeframe", str),
-            "rows": ("Rows", lambda v: f"{v:,}"),
+            "rows": ("Rows", lambda v: f"{v:,}" if isinstance(v, int) else str(v)),
             "start_date": ("Start Date", str),
             "end_date": ("End Date", str),
-            "file_size_kb": ("File Size", lambda v: f"{v} KB"),
         }
         for key, (label, fmt) in labels.items():
             if key in info:
@@ -236,33 +255,24 @@ class DataManagerCLI(cmd.Cmd):
             return
 
         print(f"\n{Fore.CYAN}{Style.BRIGHT}PERSISTED DATABASES:")
-        print(f"{Fore.WHITE}=" * 95)
-        header = f"{'ID':<3} | {'SOURCE':<10} | {'ASSET':<8} | {'TF':<4} | {'ROWS':<8} | {'START':<16} | {'END':<16} | {'SIZE'}"
+        print(f"{Fore.WHITE}=" * 85)
+        header = f"{'ID':<3} | {'SOURCE':<10} | {'ASSET':<8} | {'TF':<4} | {'ROWS':<8} | {'START':<16} | {'END':<16}"
         print(f"{Fore.YELLOW}{header}")
-        print(f"{Fore.WHITE}-" * 95)
+        print(f"{Fore.WHITE}-" * 85)
 
         for idx, db in enumerate(dbs):
             # Date formatting, removing seconds if necessary
-            start = db["start_date"][:16]
-            end = db["end_date"][:16]
+            start = (db["start_date"] or "")[:16]
+            end = (db["end_date"] or "")[:16]
+            rows = db["rows"] if db["rows"] is not None else "N/A"
             row = (
                 f"{idx + 1:<3} | {db['source'].upper()[:10]:<10} | {db['asset'].upper()[:8]:<8} | "
-                f"{db['timeframe'].upper()[:4]:<4} | {db['rows']:<8} | {start:<16} | "
-                f"{end:<16} | {db['file_size_kb']} KB"
+                f"{db['timeframe'].upper()[:4]:<4} | {str(rows):<8} | {start:<16} | "
+                f"{end:<16}"
             )
             print(f"{Fore.WHITE}{row}")
 
-        print(f"{Fore.WHITE}=" * 95)
-        print(
-            f"{Fore.CYAN}Tip: Use 'rebuild' command to resync this list if you manually changed files.\n"
-        )
-
-    def do_rebuild(self, arg):
-        """Rebuilds the database catalog index. Usage: rebuild"""
-        logger.info("Rebuilding catalog. This might take a few seconds...")
-        result = self.server.storage.rebuild_catalog()
-        count = result.get("count", 0)
-        logger.info(f"✓ Catalog rebuilt successfully! ({count} databases indexed)")
+        print(f"{Fore.WHITE}=" * 85 + "\n")
 
     def do_search(self, arg):
         """
@@ -339,32 +349,6 @@ class DataManagerCLI(cmd.Cmd):
             pass
         except Exception as e:
             logger.error(f"Internal parse error: {e}")
-
-    def do_resample(self, arg):
-        """
-        Converts an existing M1 database to other timeframe(s).
-        Usage: resample <source> <asset1,asset2,...> <new_timeframe1,new_timeframe2,...>
-
-        Supported timeframes: M2, M5, M10, M15, M30, H1, H2, H3, H4, H6, D1, W1
-        Example: resample OPENBB AAPL,MSFT H1,H2
-        """
-        args = arg.split()
-        if len(args) != 3:
-            logger.error(
-                "Correct usage: resample <source> <assets,comma,separated> <new_timeframes,separated>"
-            )
-            return
-
-        source = args[0]
-        assets = [a.strip() for a in args[1].split(",") if a.strip()]
-        target_timeframes = [tf.strip() for tf in args[2].split(",") if tf.strip()]
-
-        for asset in assets:
-            for tf in target_timeframes:
-                try:
-                    self.server.resample_database(source, asset, tf)
-                except Exception as e:
-                    logger.error(f"Error converting {asset} to {tf}: {e}")
 
     def do_quality(self, arg):
         """
@@ -485,5 +469,11 @@ class DataManagerCLI(cmd.Cmd):
 
 
 if __name__ == "__main__":
+    setup_logger()
+    DataManagerCLI().cmdloop()
+
+
+def main() -> None:
+    """Entry point for the datamanager CLI."""
     setup_logger()
     DataManagerCLI().cmdloop()

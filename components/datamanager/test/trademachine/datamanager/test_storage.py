@@ -1,238 +1,212 @@
-"""Unit tests for StorageManager."""
+"""Unit tests for StorageManager with TimescaleDB."""
 
-from pathlib import Path
+from datetime import UTC
 
 import pandas as pd
 import pytest
+from sqlalchemy import create_engine, text
 from trademachine.datamanager.db.storage import StorageManager
 
 
 @pytest.fixture
-def storage(tmp_path: Path) -> StorageManager:
-    """StorageManager backed by a temporary directory."""
-    return StorageManager(base_dir=str(tmp_path / "database"))
+def storage() -> StorageManager:
+    """StorageManager instance."""
+    return StorageManager()
 
 
 @pytest.fixture
 def ohlcv_df() -> pd.DataFrame:
-    """Sample OHLCV DataFrame with 5 daily bars."""
-    dates = pd.date_range("2024-01-01", periods=5, freq="D", tz="UTC")
+    """Sample OHLCV DataFrame with 5 minute bars."""
+    dates = pd.date_range("2024-01-01 12:00:00", periods=5, freq="min", tz=UTC)
     return pd.DataFrame(
         {
             "Open": [100.0, 101.0, 102.0, 103.0, 104.0],
             "High": [101.0, 102.0, 103.0, 104.0, 105.0],
             "Low": [99.0, 100.0, 101.0, 102.0, 103.0],
             "Close": [101.0, 102.0, 103.0, 104.0, 105.0],
-            "Volume": [1000, 1100, 1200, 1300, 1400],
+            "Volume": [1000.0, 1100.0, 1200.0, 1300.0, 1400.0],
         },
         index=dates,
     )
 
 
 class TestSaveAndLoad:
-    """Tests for save_data and load_data round-trip."""
+    """Tests for save_data and load_data round-trip with TimescaleDB."""
 
-    def test_save_load_roundtrip_parquet(
-        self, storage: StorageManager, ohlcv_df: pd.DataFrame
+    def test_save_load_roundtrip(
+        self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
     ):
-        """Data saved and loaded should be identical."""
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")
-        loaded = storage.load_data("binance", "BTCUSD", "D1")
+        """Data saved to Postgres and loaded should be identical."""
+        storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
+        loaded = storage.load_data("binance", "BTCUSD", "M1")
 
         assert len(loaded) == 5
         assert loaded["Open"].tolist() == [100.0, 101.0, 102.0, 103.0, 104.0]
-        assert loaded["Volume"].sum() == 6000
+        assert loaded["Volume"].sum() == 6000.0
+        # Postgres returns timezone-aware timestamps if we requested them or if stored as TIMESTAMPTZ
+        assert isinstance(loaded.index, pd.DatetimeIndex)
 
-    def test_save_data_unknown_format(
-        self, storage: StorageManager, ohlcv_df: pd.DataFrame
-    ):
-        """Saving with unknown format should raise."""
-        storage.format = ".csv"
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")
-        loaded = storage.load_data("binance", "BTCUSD", "D1")
-        assert len(loaded) == 5
-
-    def test_load_nonexistent_raises(self, storage: StorageManager):
-        """Loading a non-existent database should raise FileNotFoundError."""
+    def test_load_nonexistent_raises(self, storage: StorageManager, db_session):
+        """Loading a non-existent database should raise FileNotFoundError or similar."""
+        # Source doesn't exist
         with pytest.raises(FileNotFoundError):
-            storage.load_data("binance", "BTCUSD", "D1")
+            storage.load_data("nonexistent", "BTCUSD", "M1")
 
-    def test_save_and_get_info(self, storage: StorageManager, ohlcv_df: pd.DataFrame):
-        """get_database_info should return correct metadata without loading full data."""
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")
-        info = storage.get_database_info("binance", "BTCUSD", "D1")
+    def test_save_and_get_info(
+        self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
+    ):
+        """get_database_info should return correct metadata from the database."""
+        storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
+        info = storage.get_database_info("binance", "BTCUSD", "M1")
 
         assert info["source"] == "binance"
         assert info["asset"] == "BTCUSD"
-        assert info["timeframe"] == "D1"
+        assert info["timeframe"] == "M1"
         assert info["rows"] == 5
-        assert info["file_size_kb"] > 0
         assert "start_date" in info
         assert "end_date" in info
 
-    def test_get_info_nonexistent(self, storage: StorageManager):
+    def test_get_info_nonexistent(self, storage: StorageManager, db_session):
         """get_database_info for non-existent DB should return Not Found status."""
-        info = storage.get_database_info("binance", "BTCUSD", "D1")
-        assert info["status"] == "Not Found"
+        info = storage.get_database_info("binance", "BTCUSD", "M1")
+        assert info.get("status") == "Not Found"
 
 
 class TestAppendData:
-    """Tests for append_data with deduplication."""
+    """Tests for append_data (which uses UPSERT)."""
 
-    def test_append_to_new_file(self, storage: StorageManager, ohlcv_df: pd.DataFrame):
-        """Appending when file doesn't exist should save the data."""
-        storage.append_data(ohlcv_df, "binance", "ETHUSD", "D1")
-        loaded = storage.load_data("binance", "ETHUSD", "D1")
-        assert len(loaded) == 5
-
-    def test_append_deduplicates_by_index(self, storage: StorageManager):
-        """Appending rows with duplicate index should keep only the last."""
-        dates1 = pd.date_range("2024-01-01", periods=3, freq="D", tz="UTC")
+    def test_append_deduplicates_by_timestamp(
+        self, storage: StorageManager, db_session
+    ):
+        """Appending rows with duplicate timestamp should update existing records."""
+        dates1 = pd.date_range("2024-01-01 10:00:00", periods=3, freq="min", tz=UTC)
         df1 = pd.DataFrame(
-            {"Open": [100.0, 101.0, 102.0], "Close": [101.0, 102.0, 103.0]},
+            {
+                "Open": [100.0, 101.0, 102.0],
+                "High": [101.0, 102.0, 103.0],
+                "Low": [99.0, 100.0, 101.0],
+                "Close": [101.0, 102.0, 103.0],
+                "Volume": [100.0, 100.0, 100.0],
+            },
             index=dates1,
         )
 
-        dates2 = pd.date_range("2024-01-03", periods=3, freq="D", tz="UTC")
-        # Row at 2024-01-03 is duplicated (102.0 in df1, 200.0 in df2)
+        # Row at 10:02 is duplicated but with different Close
+        dates2 = pd.date_range("2024-01-01 10:02:00", periods=2, freq="min", tz=UTC)
         df2 = pd.DataFrame(
-            {"Open": [102.0, 103.0, 104.0], "Close": [200.0, 103.0, 105.0]},
+            {
+                "Open": [102.0, 103.0],
+                "High": [103.0, 104.0],
+                "Low": [101.0, 102.0],
+                "Close": [200.0, 104.0],
+                "Volume": [100.0, 100.0],
+            },
             index=dates2,
         )
 
-        storage.save_data(df1, "binance", "ETHUSD", "D1")
-        storage.append_data(df2, "binance", "ETHUSD", "D1")
+        storage.save_data(df1, "binance", "ETHUSD", "M1")
+        storage.append_data(df2, "binance", "ETHUSD", "M1")
 
-        loaded = storage.load_data("binance", "ETHUSD", "D1")
-        assert len(loaded) == 5  # 3 + 3 - 1 (duplicate at Jan 3) = 5
-        # The duplicate at Jan 3 should have Close=200.0 (last appended wins)
-        assert float(loaded.loc["2024-01-03"]["Close"]) == 200.0
+        loaded = storage.load_data("binance", "ETHUSD", "M1")
+        assert len(loaded) == 4  # 3 original + 1 new (the other was updated)
+
+        # Normalize the target_ts to be UTC aware for comparison if needed,
+        # or ensure loaded index matches.
+        target_ts = pd.Timestamp("2024-01-01 10:02:00", tz=UTC)
+        # Check if index is TZ aware or naive
+        if loaded.index.tz is None:
+            target_ts = target_ts.tz_localize(None)
+
+        assert float(loaded.loc[target_ts]["Close"]) == 200.0
 
 
 class TestCatalog:
-    """Tests for catalog (SQLite) operations."""
+    """Tests for catalog (Postgres) operations."""
 
-    def test_list_databases_empty(self, storage: StorageManager):
+    def test_list_databases_empty(self, storage: StorageManager, db_session):
         """list_databases should return empty list when nothing is saved."""
         assert storage.list_databases() == []
 
     def test_list_databases_after_save(
-        self, storage: StorageManager, ohlcv_df: pd.DataFrame
+        self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
     ):
-        """list_databases should return all saved databases."""
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")
-        storage.save_data(ohlcv_df, "binance", "ETHUSD", "H1")
+        """list_databases should return entries for all TFs (since they are views)."""
+        storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
 
         dbs = storage.list_databases()
-        assert len(dbs) == 2
+        # Filter for the specific asset we just saved
+        asset_dbs = [d for d in dbs if d["asset"] == "BTCUSD"]
 
-    def test_get_stats(self, storage: StorageManager, ohlcv_df: pd.DataFrame):
-        """get_stats should aggregate across all databases."""
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")
-        storage.save_data(ohlcv_df, "binance", "ETHUSD", "D1")
+        # We now only return explicitly saved M1 entries to avoid cluttering the list
+        assert len(asset_dbs) == 1
+        assert asset_dbs[0]["timeframe"] == "M1"
+
+        # Verify one entry
+        m1_entry = next(d for d in asset_dbs if d["timeframe"] == "M1")
+        assert m1_entry["asset"] == "BTCUSD"
+        assert m1_entry["rows"] == 5
+
+    def test_get_stats(
+        self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
+    ):
+        """get_stats should aggregate across all assets in Postgres."""
+        storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
+        storage.save_data(ohlcv_df, "binance", "ETHUSD", "M1")
 
         stats = storage.get_stats()
-        assert stats["databases_count"] == 2
+        assert stats["assets_count"] == 2
         assert stats["sources"]["binance"] == 2
         assert stats["total_rows"] == 10
 
-    def test_delete_database_specific_timeframe(
-        self, storage: StorageManager, ohlcv_df: pd.DataFrame
+    def test_delete_database(
+        self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
     ):
-        """Deleting a specific timeframe should only remove that TF."""
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "H1")
-
-        result = storage.delete_database("binance", "BTCUSD", "D1")
-        assert result is True
-
-        # H1 should still exist
-        storage.load_data("binance", "BTCUSD", "H1")
-        # D1 should be gone
-        with pytest.raises(FileNotFoundError):
-            storage.load_data("binance", "BTCUSD", "D1")
-
-    def test_delete_database_all_timeframes(
-        self, storage: StorageManager, ohlcv_df: pd.DataFrame
-    ):
-        """Deleting without timeframe removes all TFs for that asset."""
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "H1")
+        """Deleting an asset should remove its data and metadata."""
+        storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
 
         result = storage.delete_database("binance", "BTCUSD")
         assert result is True
+        assert storage.list_databases() == []
 
-        with pytest.raises(FileNotFoundError):
-            storage.load_data("binance", "BTCUSD", "D1")
-        with pytest.raises(FileNotFoundError):
-            storage.load_data("binance", "BTCUSD", "H1")
-
-    def test_delete_all(self, storage: StorageManager, ohlcv_df: pd.DataFrame):
-        """delete_all should remove everything."""
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")
-        storage.save_data(ohlcv_df, "binance", "ETHUSD", "D1")
+    def test_delete_all(
+        self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
+    ):
+        """delete_all should truncate everything."""
+        storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
+        storage.save_data(ohlcv_df, "binance", "ETHUSD", "M1")
 
         result = storage.delete_all()
         assert result is True
         assert storage.list_databases() == []
 
 
-class TestDataVersioning:
-    """Tests for backup/restore versioning."""
+class TestContinuousAggregates:
+    """Tests for TimescaleDB Continuous Aggregates (M1 -> higher TFs)."""
 
-    def test_list_versions_empty(self, storage: StorageManager):
-        """list_versions should return empty list when no versions exist."""
-        assert storage.list_versions("binance", "BTCUSD", "D1") == []
-
-    def test_save_creates_backup(self, storage: StorageManager, ohlcv_df: pd.DataFrame):
-        """Saving twice should create a version backup."""
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")  # overwrite
-
-        versions = storage.list_versions("binance", "BTCUSD", "D1")
-        assert len(versions) == 1
-
-    def test_restore_version(self, storage: StorageManager):
-        """restore_version should restore the backup and update catalog."""
-        dates1 = pd.date_range("2024-01-01", periods=3, freq="D", tz="UTC")
-        df1 = pd.DataFrame(
-            {"Open": [100.0, 101.0, 102.0], "Close": [101.0, 102.0, 103.0]},
-            index=dates1,
+    def test_continuous_aggregate_read(self, storage: StorageManager, db_session):
+        """Data inserted in M1 should be visible in M5 view (after refresh)."""
+        # Create 10 minutes of data (2 bars of M5)
+        dates = pd.date_range("2024-01-01 00:00:00", periods=10, freq="min", tz=UTC)
+        df = pd.DataFrame(
+            {"Open": 100.0, "High": 110.0, "Low": 90.0, "Close": 105.0, "Volume": 10.0},
+            index=dates,
         )
+        storage.save_data(df, "binance", "BTCUSD", "M1")
 
-        dates2 = pd.date_range("2024-01-01", periods=3, freq="D", tz="UTC")
-        df2 = pd.DataFrame(
-            {"Open": [200.0, 201.0, 202.0], "Close": [201.0, 202.0, 203.0]},
-            index=dates2,
-        )
+        # TimescaleDB continuous aggregates are refreshed in the background or manually.
+        # refresh_continuous_aggregate() cannot run inside a transaction block.
+        # We use a separate engine with autocommit.
+        from trademachine.datamanager.db.database import DATABASE_URL
 
-        storage.save_data(df1, "binance", "BTCUSD", "D1")
-        storage.save_data(df2, "binance", "BTCUSD", "D1")  # creates backup
+        autocommit_engine = create_engine(DATABASE_URL, isolation_level="AUTOCOMMIT")
+        with autocommit_engine.connect() as conn:
+            conn.execute(
+                text("CALL refresh_continuous_aggregate('ohlcv_m5', NULL, NULL);")
+            )
 
-        result = storage.restore_version("binance", "BTCUSD", "D1")
-        assert result is True
+        # Load from M5
+        df_m5 = storage.load_data("binance", "BTCUSD", "M5")
 
-        loaded = storage.load_data("binance", "BTCUSD", "D1")
-        # Restored to first version
-        assert loaded["Open"].iloc[0] == 100.0
-
-    def test_restore_nonexistent_returns_false(self, storage: StorageManager):
-        """Restoring with no versions should return False."""
-        result = storage.restore_version("binance", "BTCUSD", "D1")
-        assert result is False
-
-
-class TestCleanup:
-    """Tests for directory cleanup after deletions."""
-
-    def test_delete_removes_empty_parent_dirs(
-        self, storage: StorageManager, ohlcv_df: pd.DataFrame
-    ):
-        """After deleting the only timeframe, empty parent dirs should be removed."""
-        storage.save_data(ohlcv_df, "binance", "BTCUSD", "D1")
-        storage.delete_database("binance", "BTCUSD", "D1")
-
-        # Base dir should still exist but asset dir should be gone
-        assert storage.base_dir.exists()
-        asset_dir = storage.base_dir / "binance" / "BTCUSD"
-        assert not asset_dir.exists()
+        assert len(df_m5) == 2
+        # Use close to ensure indexing worked
+        assert df_m5["Volume"].iloc[0] == 50.0  # 5 minutes * 10.0 volume

@@ -1,101 +1,65 @@
-import json
 import logging
 import uuid
-from pathlib import Path
+from typing import Any
 
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from trademachine.core.logger import LOGGER_NAME
+from trademachine.datamanager.db.database import engine
+from trademachine.datamanager.services.manager import DataManager
 
 logger = logging.getLogger(LOGGER_NAME)
+
+
+def execute_update_job(source: str, asset: str, timeframe: str) -> None:
+    """Global task function for APScheduler so it can be safely pickled to the database."""
+    logger.info(f"[Scheduler] Running update: {source}/{asset}/{timeframe}")
+    try:
+        manager = DataManager()
+        manager.update_data(source, asset, timeframe)
+    except Exception as e:
+        logger.error(f"[Scheduler] Update failed for {source}/{asset}/{timeframe}: {e}")
 
 
 class SchedulerService:
     """Manages scheduled update jobs for DataManager databases.
 
     Runs jobs in a background daemon thread via APScheduler.
-    Jobs are persisted to ``persist_path`` (JSON) so they survive restarts.
+    Jobs are persisted to TimescaleDB (PostgreSQL) using SQLAlchemyJobStore
+    so they survive restarts and crashes natively.
     """
 
-    def __init__(self, manager, persist_path: Path | None = None):
-        self._manager = manager
-        self._scheduler = BackgroundScheduler(daemon=True)
-        self._jobs: dict[str, dict] = {}
-        self._persist_path = (
-            Path(persist_path) if persist_path else Path("metadata/scheduler_jobs.json")
+    def __init__(self, manager: Any = None, **kwargs: Any) -> None:
+        self._manager = (
+            manager  # kept for backward compatibility if instantiated with one
         )
+
+        jobstores = {
+            "default": SQLAlchemyJobStore(engine=engine, tablename="apscheduler_jobs")
+        }
+        self._scheduler = BackgroundScheduler(jobstores=jobstores, daemon=True)
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start(self):
-        """Start the background scheduler and restore any persisted jobs."""
+    def start(self) -> None:
+        """Start the background scheduler. Restores persisted jobs automatically."""
         if not self._scheduler.running:
             self._scheduler.start()
-            self._load_persisted_jobs()
-            logger.info("[Scheduler] Started.")
+            logger.info("[Scheduler] Started database-backed scheduler.")
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Gracefully stop the scheduler (idempotent)."""
         if self._scheduler.running:
             self._scheduler.shutdown(wait=False)
             logger.info("[Scheduler] Stopped.")
 
     # ------------------------------------------------------------------
-    # Persistence helpers
+    # Job Management
     # ------------------------------------------------------------------
-
-    def _save_jobs(self):
-        """Persist all current jobs to disk as JSON (atomic write via temp-file swap)."""
-        jobs_data = [
-            {
-                "source": meta["source"],
-                "asset": meta["asset"],
-                "timeframe": meta["timeframe"],
-                "cron": meta.get("cron"),
-                "interval_minutes": meta.get("interval_minutes"),
-            }
-            for meta in self._jobs.values()
-        ]
-        tmp = self._persist_path.with_suffix(".tmp.json")
-        try:
-            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tmp, "w") as f:
-                json.dump(jobs_data, f, indent=2)
-            tmp.replace(self._persist_path)  # atomic on the same filesystem
-        except Exception as e:
-            logger.warning(f"[Scheduler] Failed to save jobs to disk: {e}")
-            tmp.unlink(missing_ok=True)
-
-    def _load_persisted_jobs(self):
-        """Load and reschedule jobs persisted from a previous run."""
-        if not self._persist_path.exists():
-            return
-        try:
-            with open(self._persist_path) as f:
-                jobs_data = json.load(f)
-        except Exception as e:
-            logger.warning(f"[Scheduler] Failed to read persisted jobs: {e}")
-            return
-
-        restored = 0
-        for job in jobs_data:
-            try:
-                self.add_job(
-                    source=job["source"],
-                    asset=job["asset"],
-                    timeframe=job.get("timeframe", "M1"),
-                    cron=job.get("cron"),
-                    interval_minutes=job.get("interval_minutes"),
-                )
-                restored += 1
-            except Exception as e:
-                logger.warning(f"[Scheduler] Could not restore job {job}: {e}")
-
-        if restored:
-            logger.info(f"[Scheduler] Restored {restored} job(s) from disk.")
 
     def add_job(
         self,
@@ -104,7 +68,7 @@ class SchedulerService:
         timeframe: str = "M1",
         cron: str | None = None,
         interval_minutes: int | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Schedule a recurring update_data call for source/asset/timeframe.
 
         Args:
@@ -125,62 +89,66 @@ class SchedulerService:
 
         job_id = str(uuid.uuid4())
 
-        def _task():
-            logger.info(f"[Scheduler] Running update: {source}/{asset}/{timeframe}")
-            try:
-                self._manager.update_data(source, asset, timeframe)
-            except Exception as e:
-                logger.error(
-                    f"[Scheduler] Update failed for {source}/{asset}/{timeframe}: {e}"
-                )
-
         trigger = (
             CronTrigger.from_crontab(cron)
             if cron
             else IntervalTrigger(minutes=interval_minutes)
         )
+
         apsjob = self._scheduler.add_job(
-            _task, trigger, id=job_id, name=f"{source}/{asset}/{timeframe}"
+            execute_update_job,
+            trigger=trigger,
+            args=[source, asset, timeframe],
+            id=job_id,
+            name=f"{source}/{asset}/{timeframe}",
+            replace_existing=True,
         )
 
-        meta = {
+        trigger_repr = cron if cron else f"every {interval_minutes}min"
+        logger.info(
+            f"[Scheduler] Job added/updated: {job_id} ({source}/{asset}/{timeframe}, trigger={trigger_repr})"
+        )
+
+        return {
             "job_id": job_id,
             "source": source,
             "asset": asset,
             "timeframe": timeframe,
-            "trigger": cron if cron else f"every {interval_minutes}min",
-            # Stored explicitly for persistence (re-scheduling on restart)
+            "trigger": trigger_repr,
             "cron": cron,
             "interval_minutes": interval_minutes,
             "next_run": str(apsjob.next_run_time),
         }
-        self._jobs[job_id] = meta
-        self._save_jobs()
-        logger.info(
-            f"[Scheduler] Job added: {job_id} ({source}/{asset}/{timeframe}, trigger={meta['trigger']})"
-        )
-        return meta
 
-    def list_jobs(self) -> list[dict]:
+    def list_jobs(self) -> list[dict[str, Any]]:
         """Return metadata for all active scheduled jobs."""
         result = []
-        for job_id, meta in list(self._jobs.items()):
-            apsjob = self._scheduler.get_job(job_id)
-            if apsjob:
-                entry = dict(meta)
-                entry["next_run"] = str(apsjob.next_run_time)
-                result.append(entry)
+        for apsjob in self._scheduler.get_jobs():
+            args = apsjob.args
+            source, asset, timeframe = "", "", "M1"
+            if args and len(args) == 3:
+                source, asset, timeframe = args
+
+            trigger_repr = str(apsjob.trigger)
+
+            result.append(
+                {
+                    "job_id": apsjob.id,
+                    "name": apsjob.name,
+                    "source": source,
+                    "asset": asset,
+                    "timeframe": timeframe,
+                    "trigger": trigger_repr,
+                    "next_run": str(apsjob.next_run_time),
+                }
+            )
         return result
 
     def remove_job(self, job_id: str) -> bool:
-        """Remove a scheduled job by its ID and update persisted state."""
-        if job_id not in self._jobs:
-            return False
+        """Remove a scheduled job by its ID."""
         try:
             self._scheduler.remove_job(job_id)
+            logger.info(f"[Scheduler] Job removed: {job_id}")
+            return True
         except Exception:
-            pass
-        del self._jobs[job_id]
-        self._save_jobs()
-        logger.info(f"[Scheduler] Job removed: {job_id}")
-        return True
+            return False

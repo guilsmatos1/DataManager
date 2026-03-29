@@ -28,12 +28,6 @@ class DeleteRequest(BaseModel):
     timeframe: str | None = Field(None, pattern=r"^[a-zA-Z0-9_]+$")
 
 
-class ResampleRequest(BaseModel):
-    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
-    asset: str = Field(..., pattern=SAFE_PATTERN)
-    target_timeframe: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
-
-
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
@@ -46,7 +40,6 @@ class DatabaseInfo(BaseModel):
     rows: int
     start_date: str
     end_date: str
-    file_size_kb: float
 
 
 class TaskResponse(BaseModel):
