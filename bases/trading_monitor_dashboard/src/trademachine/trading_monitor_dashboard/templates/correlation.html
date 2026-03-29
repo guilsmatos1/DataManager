@@ -81,7 +81,7 @@ let _windowDays  = 30;
     document.getElementById("portfolio-name").textContent = p.name || "";
 
     await Promise.all([
-        loadCorrelation("daily"), 
+        loadCorrelation("daily"),
         loadDynamicCorrelation(30),
         loadConcurrency()
     ]);
@@ -174,11 +174,11 @@ async function loadDynamicCorrelation(days) {
     _windowDays = days;
     const container = document.getElementById("dynamic-corr-container");
     container.innerHTML = '<div class="loading">Computing…</div>';
-    
+
     try {
         const res = await fetch(`/api/portfolios/${PORTFOLIO_ID}/correlation/dynamic?window_days=${days}`);
         const data = await res.json();
-        
+
         if (data.error) {
             container.innerHTML = `<p class="empty-state">${data.error}</p>`;
             return;

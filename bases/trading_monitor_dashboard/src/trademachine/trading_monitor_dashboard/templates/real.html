@@ -126,10 +126,10 @@ async function loadReal() {
         const npC = np >= 0 ? "profit-positive" : "profit-negative";
         const fl = s.floating_pnl;
         const flC = fl > 0 ? "profit-positive" : fl < 0 ? "profit-negative" : "";
-        
+
         // P&L Alert style if below -100
         const pnlAlert = fl < -100 ? "pnl-alert" : "";
-        
+
         // Last update logic
         const lu = s.last_update;
         const luStr = lu ? new Date(lu).toLocaleTimeString() : "—";
@@ -188,7 +188,7 @@ async function killStrategy(strategyId) {
 
 function buildEquityChart(data) {
     let labels, values;
-    
+
     if (data.aggregated_equity && data.aggregated_equity.length > 0) {
         // Use backend-provided aggregated equity
         labels = data.aggregated_equity.map(pt => pt.ts.slice(0, 10));
@@ -211,7 +211,7 @@ function buildEquityChart(data) {
     const ctx = document.getElementById("equity-chart").getContext("2d");
     // Clear existing chart if it exists
     if (window.myEquityChart) window.myEquityChart.destroy();
-    
+
     window.myEquityChart = new Chart(ctx, {
         type: "line",
         data: {
