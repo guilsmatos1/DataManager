@@ -52,10 +52,10 @@ services:
     depends_on:
       timescaledb:
         condition: service_healthy
-    volumes:
-      - ../../metadata:/app/metadata:ro
-      - ../../bases:/app/bases:ro
-      - ../../components:/app/components:ro
+    # volumes:
+    #   - ../../metadata:/app/metadata:ro
+    #   - ../../bases:/app/bases:ro
+    #   - ../../components:/app/components:ro
 
 volumes:
   timescaledb_data:
