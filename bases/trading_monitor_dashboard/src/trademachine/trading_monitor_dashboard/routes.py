@@ -109,6 +109,29 @@ def _compute_max_drawdown(equity_series: list[float]) -> float | None:
     return max_dd
 
 
+def _get_portfolio_or_404(db: Session, portfolio_id: int) -> Portfolio:
+    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
+    if portfolio is None:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    return portfolio
+
+
+def _get_portfolio_strategy_ids(
+    portfolio: Portfolio,
+    *,
+    required_count: int | None = None,
+    detail: str | None = None,
+    status_code: int = 422,
+) -> list[str]:
+    strategy_ids = [strategy.id for strategy in portfolio.strategies]
+    if required_count is not None and len(strategy_ids) < required_count:
+        raise HTTPException(
+            status_code=status_code,
+            detail=detail or "No strategies in this portfolio",
+        )
+    return strategy_ids
+
+
 def _compute_var(equity_series: list[float], percentile: float = 95) -> float | None:
     """Compute Value at Risk (VaR) from equity series using daily returns."""
     if len(equity_series) < 5:
@@ -832,10 +855,8 @@ def delete_portfolio(portfolio_id: int, db: Session = Depends(get_db)):
 
 @router.get("/portfolios/{portfolio_id}/daily")
 def get_portfolio_daily(portfolio_id: int, db: Session = Depends(get_db)):
-    p = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
-    if not p:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    strategy_ids = [s.id for s in p.strategies]
+    p = _get_portfolio_or_404(db, portfolio_id)
+    strategy_ids = _get_portfolio_strategy_ids(p)
     if not strategy_ids:
         return []
     rows = (
@@ -862,10 +883,8 @@ def get_portfolio_daily(portfolio_id: int, db: Session = Depends(get_db)):
 
 @router.get("/portfolios/{portfolio_id}/equity")
 def get_portfolio_equity(portfolio_id: int, db: Session = Depends(get_db)):
-    p = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
-    if not p:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    strategy_ids = [s.id for s in p.strategies]
+    p = _get_portfolio_or_404(db, portfolio_id)
+    strategy_ids = _get_portfolio_strategy_ids(p)
     if not strategy_ids:
         return []
     from trademachine.tradingmonitor.metrics.repository import get_strategy_equity_curve
@@ -899,14 +918,12 @@ def get_portfolio_correlation(
     since: datetime | None = None,
     db: Session = Depends(get_db),
 ):
-    p = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
-    if not p:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    strategy_ids = [s.id for s in p.strategies]
-    if len(strategy_ids) < 2:
-        raise HTTPException(
-            status_code=422, detail="Need at least 2 strategies in this portfolio."
-        )
+    p = _get_portfolio_or_404(db, portfolio_id)
+    strategy_ids = _get_portfolio_strategy_ids(
+        p,
+        required_count=2,
+        detail="Need at least 2 strategies in this portfolio.",
+    )
     from trademachine.tradingmonitor.metrics.calculator import (
         calculate_correlation_matrix,
     )
@@ -920,14 +937,12 @@ def get_portfolio_dynamic_correlation(
     window_days: int = Query(default=30, ge=3, le=365),
     db: Session = Depends(get_db),
 ):
-    p = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
-    if not p:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    strategy_ids = [s.id for s in p.strategies]
-    if len(strategy_ids) < 2:
-        raise HTTPException(
-            status_code=422, detail="Need at least 2 strategies in this portfolio."
-        )
+    p = _get_portfolio_or_404(db, portfolio_id)
+    strategy_ids = _get_portfolio_strategy_ids(
+        p,
+        required_count=2,
+        detail="Need at least 2 strategies in this portfolio.",
+    )
     from trademachine.tradingmonitor.metrics.calculator import (
         calculate_dynamic_correlation,
     )
@@ -941,14 +956,12 @@ def get_portfolio_concurrency(
     since: datetime | None = None,
     db: Session = Depends(get_db),
 ):
-    p = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
-    if not p:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    strategy_ids = [s.id for s in p.strategies]
-    if len(strategy_ids) < 2:
-        raise HTTPException(
-            status_code=422, detail="Need at least 2 strategies in this portfolio."
-        )
+    p = _get_portfolio_or_404(db, portfolio_id)
+    strategy_ids = _get_portfolio_strategy_ids(
+        p,
+        required_count=2,
+        detail="Need at least 2 strategies in this portfolio.",
+    )
     from trademachine.tradingmonitor.metrics.calculator import calculate_concurrency
 
     return calculate_concurrency(strategy_ids, since=_ensure_utc(since))
@@ -956,12 +969,12 @@ def get_portfolio_concurrency(
 
 @router.get("/portfolios/{portfolio_id}/metrics")
 def get_portfolio_metrics(portfolio_id: int, db: Session = Depends(get_db)):
-    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
-    if not portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    strategy_ids = [s.id for s in portfolio.strategies]
-    if not strategy_ids:
-        raise HTTPException(status_code=422, detail="No strategies in this portfolio")
+    portfolio = _get_portfolio_or_404(db, portfolio_id)
+    strategy_ids = _get_portfolio_strategy_ids(
+        portfolio,
+        required_count=1,
+        detail="No strategies in this portfolio",
+    )
     from trademachine.tradingmonitor.metrics.calculator import (
         calculate_portfolio_metrics,
     )
@@ -984,12 +997,12 @@ def get_portfolio_advanced_metrics(
     initial_balance: float | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
-    if not portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    strategy_ids = [s.id for s in portfolio.strategies]
-    if not strategy_ids:
-        raise HTTPException(status_code=422, detail="No strategies in this portfolio")
+    portfolio = _get_portfolio_or_404(db, portfolio_id)
+    strategy_ids = _get_portfolio_strategy_ids(
+        portfolio,
+        required_count=1,
+        detail="No strategies in this portfolio",
+    )
 
     from trademachine.tradingmonitor.metrics.calculator import calculate_metrics_from_df
     from trademachine.tradingmonitor.metrics.repository import (
@@ -1403,9 +1416,7 @@ def clear_ingestion_errors(db: Session = Depends(get_db)):
 
 @router.get("/portfolios/{portfolio_id}/equity/breakdown")
 def get_portfolio_equity_breakdown(portfolio_id: int, db: Session = Depends(get_db)):
-    p = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
-    if not p:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
+    p = _get_portfolio_or_404(db, portfolio_id)
     strategies = {s.id: s.name or s.id for s in p.strategies}
     if not strategies:
         return {"total": [], "strategies": {}}
@@ -1642,12 +1653,13 @@ def export_strategy_deals(strategy_id: str, db: Session = Depends(get_db)):
 
 @router.get("/portfolios/{portfolio_id}/export")
 def export_portfolio_deals(portfolio_id: int, db: Session = Depends(get_db)):
-    p = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
-    if not p:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    strategy_ids = [s.id for s in p.strategies]
-    if not strategy_ids:
-        raise HTTPException(status_code=404, detail="No strategies in portfolio")
+    p = _get_portfolio_or_404(db, portfolio_id)
+    strategy_ids = _get_portfolio_strategy_ids(
+        p,
+        required_count=1,
+        detail="No strategies in portfolio",
+        status_code=404,
+    )
     query = (
         db.query(Deal)
         .filter(Deal.strategy_id.in_(strategy_ids))
