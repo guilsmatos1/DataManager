@@ -1,5 +1,5 @@
 """
-Tests for src/tradingmonitor/analysis/drift.py.
+# Tests for components/tradingmonitor/src/trademachine/tradingmonitor/analysis/drift.py.
 
 Covers:
   - check_performance_drift: drift detection logic (VaR, win rate, profit factor, drawdown)

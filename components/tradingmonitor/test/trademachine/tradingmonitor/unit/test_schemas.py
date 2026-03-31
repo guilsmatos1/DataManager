@@ -1,5 +1,5 @@
 """
-Unit tests for src/ingestion/schemas.py
+Unit tests for components/tradingmonitor/src/trademachine/tradingmonitor/ingestion/schemas.py
 
 These tests cover Pydantic validation logic only — no DB, no network.
 Each test exercises a specific validation rule or default value.

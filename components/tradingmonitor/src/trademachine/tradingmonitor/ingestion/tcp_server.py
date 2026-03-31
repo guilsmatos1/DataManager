@@ -33,6 +33,7 @@ from trademachine.tradingmonitor.db.models import (
     EquityCurve,
     IngestionError,
     Strategy,
+    StrategyRuntimeSnapshot,
     Symbol,
 )
 from trademachine.tradingmonitor.ingestion.schemas import (
@@ -43,6 +44,7 @@ from trademachine.tradingmonitor.ingestion.schemas import (
     BacktestStartSchema,
     DealSchema,
     EquitySchema,
+    StrategyRuntimeSchema,
 )
 from trademachine.tradingmonitor.utils.notifications import notifier
 
@@ -431,6 +433,11 @@ def _process_message(
         new_account_id = str(valid_acc.login)
         _link_strategies_to_account(db, conn_strategies_seen, new_account_id)
         return new_account_id
+    elif topic == "STRATEGY_RUNTIME":
+        valid_runtime = StrategyRuntimeSchema(**data)
+        if str(valid_runtime.magic) != "0":
+            conn_strategies_seen.add(str(valid_runtime.magic))
+        process_strategy_runtime(db, valid_runtime, account_id=conn_account_id)
     elif topic == "BACKTEST_START":
         valid_bs = BacktestStartSchema(**data)
         process_backtest_start(db, valid_bs)
@@ -547,6 +554,39 @@ def process_account(db: Session, data: AccountSchema) -> None:
         notifier.notify_low_margin(
             acc_id, data.free_margin, settings.margin_threshold_pct
         )
+
+
+def process_strategy_runtime(
+    db: Session,
+    data: StrategyRuntimeSchema,
+    account_id: str | None = None,
+) -> None:
+    """Insert or update the latest runtime snapshot for a strategy."""
+    magic = str(data.magic)
+    if magic == "0":
+        return
+    ensure_strategy_exists(db, magic, account_id=account_id)
+    snapshot_ts = datetime.fromtimestamp(data.time, tz=UTC)
+    stmt = (
+        pg_insert(StrategyRuntimeSnapshot)
+        .values(
+            strategy_id=magic,
+            timestamp=snapshot_ts,
+            open_profit=data.open_profit,
+            open_trades_count=data.open_trades_count,
+            pending_orders_count=data.pending_orders_count,
+        )
+        .on_conflict_do_update(
+            index_elements=["strategy_id"],
+            set_={
+                "timestamp": snapshot_ts,
+                "open_profit": data.open_profit,
+                "open_trades_count": data.open_trades_count,
+                "pending_orders_count": data.pending_orders_count,
+            },
+        )
+    )
+    db.execute(stmt)
 
 
 # ── Backtest processors ────────────────────────────────────────────────────────

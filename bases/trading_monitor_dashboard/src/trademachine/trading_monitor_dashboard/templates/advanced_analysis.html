@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block title %}TradingMonitor — Advanced Analysis{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="/" class="back-link">← Overview</a>
+    <h1>Advanced Analysis</h1>
+</div>
+
+<div class="dashboard-grid">
+    <section class="card full-width">
+        <div class="section-header">
+            <h2>Parameters</h2>
+        </div>
+        <div class="edit-grid" style="max-width:980px">
+            <div class="field-group">
+                <span class="field-label">Date From</span>
+                <input class="field-input" type="date" id="param-date-from">
+            </div>
+            <div class="field-group">
+                <span class="field-label">Date To</span>
+                <input class="field-input" type="date" id="param-date-to">
+            </div>
+            <div class="field-group">
+                <span class="field-label">Initial Balance</span>
+                <input class="field-input" type="number" id="param-initial-balance" placeholder="e.g. 10000" step="0.01">
+            </div>
+            <div class="field-group">
+                <span class="field-label">History Type</span>
+                <select class="field-input" id="param-history-type">
+                    <option value="real">Real</option>
+                    <option value="demo">Demo</option>
+                    <option value="backtest">Backtest</option>
+                </select>
+            </div>
+            <div class="field-group">
+                <span class="field-label">Benchmark</span>
+                <select class="field-input" id="param-benchmark"></select>
+            </div>
+            <div class="field-group" style="grid-column:1 / -1">
+                <span class="field-label" style="margin-bottom:0.4rem">Strategies</span>
+                <input class="field-input" type="text" id="new-strategy-search" placeholder="Search strategies…" oninput="filterModalStrategies()" style="margin-bottom:0.5rem; max-width:300px">
+                <div id="new-strategy-list" class="strategy-checklist" style="padding:0; max-height:400px; overflow-y:auto; border:1px solid var(--border-color); border-radius:4px;"><div class="loading" style="padding:0.5rem">Loading…</div></div>
+            </div>
+        </div>
+        <div style="margin-top:1rem">
+            <button class="btn btn-primary btn-sm" onclick="runAdvancedAnalysis()">Update</button>
+            <span id="analysis-status" style="margin-left:0.75rem;font-size:0.85rem;color:var(--text-muted)"></span>
+        </div>
+    </section>
+
+    <section class="card full-width" id="equity-section" style="display:none">
+        <div class="section-header">
+            <h2>Equity Curve</h2>
+            <span id="analysis-range" class="badge badge-neutral"></span>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="equity-chart"></canvas>
+        </div>
+    </section>
+
+    <section class="card full-width" id="metrics-section" style="display:none">
+        <div class="section-header">
+            <h2>Main Metrics</h2>
+        </div>
+        <div id="analysis-metrics" class="metrics-grid"></div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/table-renderer.js"></script>
+<script>
+let equityChart = null;
+let _allEquityPoints = [];
+let _equityPeriod = "all";
+
+function setDefaultDateRange() {
+    const today = new Date();
+    const yearAgo = new Date(today);
+    yearAgo.setFullYear(yearAgo.getFullYear() - 2);
+    const dateTo = document.getElementById("param-date-to");
+    const dateFrom = document.getElementById("param-date-from");
+
+    if (!dateTo.value) {
+        dateTo.value = today.toISOString().slice(0, 10);
+    }
+
+    if (!dateFrom.value) {
+        dateFrom.value = yearAgo.toISOString().slice(0, 10);
+    }
+}
+
+async function loadStrategiesOptions() {
+    try {
+        const strategies = await fetchJson("/api/strategies");
+        _allStrategies = strategies;
+        renderModalStrategiesTable();
+    } catch (e) {
+        document.getElementById("analysis-status").textContent = `Failed to load strategies: ${e.message}`;
+    }
+}
+
+function filterModalStrategies() {
+    _modalLastClickedIdx = null;
+    renderModalStrategiesTable();
+}
+
+async function loadBenchmarksOptions() {
+    const select = document.getElementById("param-benchmark");
+    try {
+        const benchmarks = await fetchJson("/api/benchmarks");
+        const options = ['<option value="">Default / None</option>'];
+        benchmarks.forEach((b) => {
+            const selected = b.is_default ? "selected" : "";
+            const suffix = b.is_default ? " [default]" : "";
+            options.push(`<option value="${b.id}" ${selected}>${b.name}${suffix}</option>`);
+        });
+        select.innerHTML = options.join("");
+    } catch (e) {
+        select.innerHTML = '<option value="">Default / None</option>';
+        document.getElementById("analysis-status").textContent = `Failed to load benchmarks: ${e.message}`;
+    }
+}
+
+function getSelectedStrategies() {
+    return [...document.querySelectorAll("#new-strategy-list input.modal-strat-checkbox:checked")].map(el => el.value);
+}
+
+function renderAnalysisMetrics(metrics) {
+    const container = document.getElementById("analysis-metrics");
+    const section = document.getElementById("metrics-section");
+
+    if (metrics.error) {
+        container.innerHTML = `<p class="empty-state">${metrics.error}</p>`;
+        section.style.display = "block";
+        return;
+    }
+
+    const integerKeys = ["total trades"];
+    container.innerHTML = Object.entries(metrics).map(([k, v]) => {
+        const keyLower = k.toLowerCase();
+        let value = "—";
+        let cls = "metric-value";
+
+        if (typeof v === "number") {
+            value = integerKeys.includes(keyLower) ? v.toFixed(0) : fmt(v);
+            if (!integerKeys.includes(keyLower)) {
+                cls += v >= 0 ? " profit-positive" : " profit-negative";
+            }
+        } else if (v !== null && v !== undefined) {
+            value = v;
+        }
+
+        return `<div class="metric-item">
+            <span class="metric-label">${k}</span>
+            <span class="${cls}">${value}</span>
+        </div>`;
+    }).join("");
+
+    section.style.display = "block";
+}
+
+function renderAnalysisChart(points, benchmark) {
+    const canvasWrap = document.getElementById("equity-chart").parentElement;
+    if (!points.length) {
+        canvasWrap.innerHTML = '<p class="empty-state" style="padding:2rem 0">No equity data yet.</p>';
+        document.getElementById("equity-section").style.display = "block";
+        return;
+    }
+
+    canvasWrap.innerHTML = '<canvas id="equity-chart"></canvas>';
+    const ctx = document.getElementById("equity-chart").getContext("2d");
+    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+    const tickColor = isDark ? "#64748b" : "#94a3b8";
+    const gridColor = isDark ? "#334155" : "#e2e8f0";
+    const labels = points.map((p) => {
+        const d = new Date(p.timestamp);
+        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
+    });
+
+    const datasets = [{
+        label: benchmark ? "Portfolio / Strategies" : "Portfolio / Strategies",
+        data: points.map((p) => p.portfolio),
+        borderColor: "#10b981",
+        backgroundColor: "rgba(16,185,129,0.06)",
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+        borderWidth: 2.5,
+    }];
+
+    if (benchmark) {
+        datasets.push({
+            label: benchmark.name,
+            data: points.map((p) => p.benchmark),
+            borderColor: "#f59e0b",
+            backgroundColor: "transparent",
+            fill: false,
+            tension: 0.25,
+            pointRadius: 0,
+            borderWidth: 2,
+            borderDash: [6, 4],
+        });
+    }
+
+    if (equityChart) equityChart.destroy();
+    equityChart = new Chart(ctx, {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+                legend: { display: true, labels: { color: tickColor } },
+                tooltip: { callbacks: { label: (c) => ` ${c.dataset.label}: ${fmt(c.parsed.y)}` } },
+            },
+            scales: {
+                x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
+                y: { ticks: { color: tickColor }, grid: { color: gridColor } },
+            },
+        },
+    });
+    document.getElementById("equity-section").style.display = "block";
+}
+
+async function runAdvancedAnalysis() {
+    const status = document.getElementById("analysis-status");
+    const strategyIds = getSelectedStrategies();
+    if (!strategyIds.length) {
+        status.textContent = "Select at least one strategy.";
+        return;
+    }
+
+    status.textContent = "Updating…";
+    const params = new URLSearchParams();
+    strategyIds.forEach((id) => params.append("strategy_ids", id));
+    params.set("history_type", document.getElementById("param-history-type").value);
+
+    const dateFrom = document.getElementById("param-date-from").value;
+    const dateTo = document.getElementById("param-date-to").value;
+    const initialBalance = document.getElementById("param-initial-balance").value;
+    const benchmarkId = document.getElementById("param-benchmark").value;
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    if (initialBalance) params.set("initial_balance", initialBalance);
+    if (benchmarkId) params.set("benchmark_id", benchmarkId);
+
+    try {
+        const data = await fetchJson(`/api/advanced-analysis?${params.toString()}`);
+        status.textContent = "";
+
+        _allEquityPoints = data.equity_curve || [];
+        renderAnalysisChart(data.comparison_curve || [], data.benchmark || null);
+
+        renderAnalysisMetrics(data.metrics || {});
+
+        const rangeText = dateFrom || dateTo
+            ? `${dateFrom || "beginning"} → ${dateTo || "now"}`
+            : "All time";
+        const benchmarkText = data.benchmark ? ` · benchmark: ${data.benchmark.name}` : "";
+        document.getElementById("analysis-range").textContent = `${rangeText}${benchmarkText}`;
+    } catch (e) {
+        status.textContent = `Error: ${e.message}`;
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    setDefaultDateRange();
+    loadStrategiesOptions();
+    loadBenchmarksOptions();
+});
+</script>
+{% endblock %}

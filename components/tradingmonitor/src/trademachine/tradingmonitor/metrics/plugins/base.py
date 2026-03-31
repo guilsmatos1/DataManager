@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
@@ -19,6 +20,17 @@ class BaseMetric(ABC):
     def is_advanced(self) -> bool:
         """Whether this metric is only calculated in advanced mode."""
         return False
+
+    def _safe_calc(
+        self, func: Callable[[pd.Series], Any], returns: pd.Series | None
+    ) -> float | None:
+        """Guard-and-call helper shared by all quantstats-based plugins."""
+        if returns is None or returns.empty:
+            return None
+        try:
+            return float(func(returns))
+        except (ValueError, ZeroDivisionError):
+            return None
 
     @abstractmethod
     def calculate(

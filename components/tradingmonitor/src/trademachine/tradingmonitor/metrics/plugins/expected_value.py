@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 from trademachine.tradingmonitor.metrics.plugins.base import BaseMetric
+from trademachine.tradingmonitor.metrics.utils import net_pnl
 
 
 class ExpectedValue(BaseMetric):
@@ -14,7 +15,7 @@ class ExpectedValue(BaseMetric):
     ) -> float | None:
         if deals_df is None or deals_df.empty:
             return None
-        net = deals_df["profit"] + deals_df["commission"] + deals_df["swap"]
+        net = net_pnl(deals_df)
         if net.empty:
             return None
         wins = net[net > 0]

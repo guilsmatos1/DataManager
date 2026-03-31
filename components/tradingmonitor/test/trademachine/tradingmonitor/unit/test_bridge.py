@@ -1,5 +1,5 @@
 """
-Unit tests for src/dashboard/bridge.py
+Unit tests for bases/trading_monitor_dashboard/src/trademachine/trading_monitor_dashboard/bridge.py
 
 The bridge module holds module-level state (_queue, _loop).  Tests must reset
 that state after each run to avoid cross-test contamination.

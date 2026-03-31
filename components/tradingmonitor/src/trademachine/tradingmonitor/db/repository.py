@@ -4,6 +4,7 @@ This module provides repository classes that return dictionaries/DataFrames
 instead of SQLAlchemy model objects, decoupling bases from database schema changes.
 """
 
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -24,6 +25,11 @@ from trademachine.tradingmonitor.db.models import (
 )
 
 
+def to_iso(dt: datetime | None) -> str | None:
+    """Convert datetime or pd.Timestamp to ISO format string, handling None gracefully."""
+    return dt.isoformat() if dt else None
+
+
 def _model_to_dict(model: Any) -> dict:
     """Convert a SQLAlchemy model instance to a dictionary."""
     result = {}
@@ -32,7 +38,7 @@ def _model_to_dict(model: Any) -> dict:
         if isinstance(value, Enum):
             value = value.value
         elif hasattr(value, "isoformat"):
-            value = value.isoformat()
+            value = to_iso(value)
         result[column.name] = value
     return result
 
@@ -41,7 +47,7 @@ def _model_to_dict_deals(model: Any) -> dict:
     """Convert a Deal model to dictionary with proper enum handling."""
     return {
         "id": model.id,
-        "timestamp": model.timestamp.isoformat() if model.timestamp else None,
+        "timestamp": to_iso(model.timestamp),
         "ticket": model.ticket,
         "strategy_id": model.strategy_id,
         "symbol": model.symbol,
@@ -774,7 +780,7 @@ class EquityCurveRepository:
             for row in rows:
                 result[str(row.strategy_id)].append(
                     {
-                        "ts": row.timestamp.isoformat(),
+                        "ts": to_iso(row.timestamp),
                         "balance": float(row.balance),
                         "equity": float(row.equity),
                     }

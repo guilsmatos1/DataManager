@@ -1,5 +1,5 @@
 """
-Service-layer tests for src/ingestion/tcp_server.py processors.
+Service-layer tests for components/tradingmonitor/src/trademachine/tradingmonitor/ingestion/tcp_server.py processors.
 
 These tests isolate the processor functions from PostgreSQL by using
 MagicMock for the DB session.  `pg_insert` (PostgreSQL dialect) is
@@ -21,6 +21,7 @@ from trademachine.tradingmonitor.ingestion.schemas import (
     AccountSchema,
     DealSchema,
     EquitySchema,
+    StrategyRuntimeSchema,
 )
 from trademachine.tradingmonitor.ingestion.tcp_server import (
     EXISTING_ACCOUNTS,
@@ -30,6 +31,7 @@ from trademachine.tradingmonitor.ingestion.tcp_server import (
     process_account,
     process_deal,
     process_equity,
+    process_strategy_runtime,
 )
 
 _VALID_TS = 1_700_000_000
@@ -77,6 +79,18 @@ def _equity_schema(**overrides) -> EquitySchema:
     base = dict(time=_VALID_TS, magic=42, balance=10000.0, equity=10050.0)
     base.update(overrides)
     return EquitySchema(**base)
+
+
+def _runtime_schema(**overrides) -> StrategyRuntimeSchema:
+    base = dict(
+        time=_VALID_TS,
+        magic=42,
+        open_profit=37.5,
+        open_trades_count=2,
+        pending_orders_count=1,
+    )
+    base.update(overrides)
+    return StrategyRuntimeSchema(**base)
 
 
 # ── process_equity: magic=0 guard ─────────────────────────────────────────────
@@ -169,6 +183,24 @@ class TestProcessAccount:
             process_account(db, data)
         # Assert
         mock_ensure.assert_called_once_with(db, "456", "NewBroker")
+
+
+class TestProcessStrategyRuntime:
+    def test_magic_zero_returns_without_touching_db(self):
+        db = _mock_db()
+        process_strategy_runtime(db, _runtime_schema(magic=0))
+        db.execute.assert_not_called()
+        db.query.assert_not_called()
+
+    def test_valid_runtime_snapshot_calls_db_execute(self):
+        db = _mock_db()
+        process_strategy_runtime(db, _runtime_schema())
+        db.execute.assert_called_once()
+
+    def test_valid_runtime_snapshot_adds_strategy_to_cache(self):
+        db = _mock_db()
+        process_strategy_runtime(db, _runtime_schema(magic=314))
+        assert "314" in EXISTING_STRATEGIES
 
 
 # ── ensure_strategy_exists ────────────────────────────────────────────────────

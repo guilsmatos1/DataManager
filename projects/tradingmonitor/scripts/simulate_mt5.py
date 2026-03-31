@@ -67,6 +67,17 @@ def run_mt5_simulator():
                 "equity": 10500.0 + random.uniform(-50, 50),
             }
             send("EQUITY", equity_data)
+            print(f"[SENT] EQUITY update for strategy {magic}")
+
+            runtime_data = {
+                "time": int(time.time()),
+                "magic": magic,
+                "open_profit": round(random.uniform(-80, 140), 2),
+                "open_trades_count": random.randint(0, 4),
+                "pending_orders_count": random.randint(0, 3),
+            }
+            send("STRATEGY_RUNTIME", runtime_data)
+            print(f"[SENT] STRATEGY_RUNTIME for strategy {magic}")
 
             time.sleep(2)  # Espera 2 segundos entre envios
 

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Portfolio {{ portfolio_id }} — TradingMonitor{% endblock %}
+{% block title %}TradingMonitor — Portfolio {{ portfolio_id }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -7,43 +7,11 @@
     <h1 id="portfolio-title">Portfolio <span class="mono">#{{ portfolio_id }}</span></h1>
     <span id="portfolio-status-badge" class="badge"></span>
     <div style="margin-left:auto;display:flex;gap:0.5rem">
+        <a href="/advanced-analysis" class="btn btn-ghost btn-sm">Advanced Analysis</a>
         <a href="/portfolio/{{ portfolio_id }}/advanced-metrics" class="btn btn-ghost btn-sm">Advanced Metrics</a>
         <a href="/portfolio/{{ portfolio_id }}/quantstats-report" class="btn btn-ghost btn-sm" target="_blank">Full Report</a>
         <a id="corr-link" href="/portfolio/{{ portfolio_id }}/correlation" class="btn btn-ghost btn-sm">Correlation</a>
-        <button class="btn btn-ghost btn-sm" onclick="toggleEdit()">Edit</button>
         <button class="btn btn-sm" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3)" onclick="confirmDelete()">Delete</button>
-    </div>
-</div>
-
-<!-- Edit Form -->
-<div id="edit-form" style="display:none">
-    <div class="card" style="margin-bottom:1rem">
-        <div class="edit-form-wrapper" style="border-top:none;padding-top:0;margin-top:0">
-            <p class="edit-form-title">Edit Portfolio</p>
-            <div class="edit-grid">
-                <div class="field-group">
-                    <span class="field-label">Name</span>
-                    <input class="field-input" type="text" id="edit-name" placeholder="Portfolio name">
-                </div>
-                <div class="field-group">
-                    <span class="field-label">Description</span>
-                    <input class="field-input" type="text" id="edit-description" placeholder="Short description…">
-                </div>
-            </div>
-            <div class="edit-toggles">
-                <label class="toggle-group"><input type="checkbox" id="edit-live"><span class="toggle-label">Live</span></label>
-                <label class="toggle-group"><input type="checkbox" id="edit-real"><span class="toggle-label">Real Account</span></label>
-            </div>
-            <div class="field-group" style="margin-bottom:1rem">
-                <span class="field-label" style="margin-bottom:0.4rem">Strategies</span>
-                <div id="edit-strategy-list" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)"><div class="loading">Loading…</div></div>
-            </div>
-            <div class="edit-actions">
-                <button class="btn btn-primary btn-sm" onclick="savePortfolio()">Save changes</button>
-                <button class="btn btn-ghost btn-sm" onclick="toggleEdit()">Cancel</button>
-                <span id="edit-status" class="edit-status"></span>
-            </div>
-        </div>
     </div>
 </div>
 
@@ -51,11 +19,42 @@
 
     <!-- Info -->
     <section class="card" id="info-section">
-        <h2>Portfolio Info</h2>
+        <div class="section-header">
+            <h2>Portfolio Info</h2>
+            <button class="btn btn-ghost btn-sm" onclick="toggleEdit()">Edit</button>
+        </div>
         <div id="info-container" class="info-grid">
             <div class="skel skel-line" style="width:60%"></div>
             <div class="skel skel-line" style="width:75%"></div>
             <div class="skel skel-line" style="width:50%"></div>
+        </div>
+        <div id="edit-form" style="display:none">
+            <div class="edit-form-wrapper">
+                <p class="edit-form-title">Edit Portfolio</p>
+                <div class="edit-grid">
+                    <div class="field-group">
+                        <span class="field-label">Name</span>
+                        <input class="field-input" type="text" id="edit-name" placeholder="Portfolio name">
+                    </div>
+                    <div class="field-group">
+                        <span class="field-label">Description</span>
+                        <input class="field-input" type="text" id="edit-description" placeholder="Short description…">
+                    </div>
+                </div>
+                <div class="edit-toggles">
+                    <label class="toggle-group"><input type="checkbox" id="edit-live"><span class="toggle-label">Live</span></label>
+                    <label class="toggle-group"><input type="checkbox" id="edit-real"><span class="toggle-label">Real Account</span></label>
+                </div>
+                <div class="field-group" style="margin-bottom:1rem">
+                    <span class="field-label" style="margin-bottom:0.4rem">Strategies</span>
+                    <div id="edit-strategy-list" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)"><div class="loading">Loading…</div></div>
+                </div>
+                <div class="edit-actions">
+                    <button class="btn btn-primary btn-sm" onclick="savePortfolio()">Save changes</button>
+                    <button class="btn btn-ghost btn-sm" onclick="toggleEdit()">Cancel</button>
+                    <span id="edit-status" class="edit-status"></span>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -109,7 +108,7 @@
         <div class="section-header">
             <h2>Strategies</h2>
             <span id="strategies-badge" class="badge badge-neutral"></span>
-            <button class="btn btn-ghost btn-sm" style="margin-left:auto" title="Export CSV" onclick="exportPortfolioStrategiesCSV()">Exportar</button>
+            <button class="btn btn-ghost btn-sm" style="margin-left:auto" title="Export CSV" onclick="exportPortfolioStrategiesCSV()">Export</button>
         </div>
         <div style="padding:0.5rem 0 0.5rem;display:flex;align-items:center;gap:0.75rem">
             <input class="field-input" type="text" id="port-strat-search" placeholder="Search…" oninput="renderPortfolioStrategies()" style="max-width:200px">
@@ -131,6 +130,9 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+const PORTFOLIO_ID = "{{ portfolio_id }}";
+</script>
 <script src="/static/table-renderer.js"></script>
 <script src="/static/api-client.js"></script>
 <script src="/static/page-portfolio.js"></script>

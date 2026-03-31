@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}TradingMonitor — Account {{ account_id }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="/" class="back-link">← Overview</a>
+    <h1 id="account-title">Account {{ account_id }}</h1>
+</div>
+
+<div class="summary-cards" id="account-summary" style="display:none; grid-template-columns: repeat(4, 1fr);">
+    <div class="summary-card">
+        <span class="summary-num" id="account-id">{{ account_id }}</span>
+        <span class="summary-label">Account</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="account-balance">—</span>
+        <span class="summary-label">Balance</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="account-margin">—</span>
+        <span class="summary-label">Free Margin</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="account-strategy-count">—</span>
+        <span class="summary-label">Strategies</span>
+    </div>
+</div>
+
+<div class="card" id="account-meta-card" style="display:none">
+    <div class="section-header">
+        <h2>Account Details</h2>
+    </div>
+    <div id="account-meta" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:1rem;"></div>
+</div>
+
+<div class="card" id="account-strategies-card" style="display:none; margin-top: 1.25rem;">
+    <div class="section-header">
+        <h2>Strategies</h2>
+        <span id="account-strategies-badge" class="badge badge-neutral">0</span>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Symbol</th>
+                </tr>
+            </thead>
+            <tbody id="account-strategies-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<div id="account-empty" class="card" style="display:none">
+    <p class="empty-state">Account not found.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ACCOUNT_ID = {{ account_id | tojson }};
+let _accountStrategies = [];
+let _accountSortCol = "id";
+let _accountSortAsc = true;
+
+function accountSortBy(col) {
+    if (_accountSortCol === col) _accountSortAsc = !_accountSortAsc;
+    else { _accountSortCol = col; _accountSortAsc = true; }
+    renderStrategyRows();
+}
+
+function renderStrategyRows() {
+    const arrow = (col) => _accountSortCol === col ? (_accountSortAsc ? " ↑" : " ↓") : "";
+    const thead = document.querySelector("#account-strategies-card thead");
+    if (thead) thead.innerHTML = `
+        <tr>
+            <th class="sortable" onclick="accountSortBy('id')">ID${arrow("id")}</th>
+            <th class="sortable" onclick="accountSortBy('name')">Name${arrow("name")}</th>
+            <th class="sortable" onclick="accountSortBy('symbol')">Symbol${arrow("symbol")}</th>
+        </tr>`;
+
+    const strategies = [..._accountStrategies].sort((a, b) => {
+        let va = a[_accountSortCol];
+        let vb = b[_accountSortCol];
+        if (va == null) va = _accountSortAsc ? "\uffff" : "";
+        if (vb == null) vb = _accountSortAsc ? "\uffff" : "";
+        if (typeof va === "number" && typeof vb === "number") {
+            return _accountSortAsc ? va - vb : vb - va;
+        }
+        return _accountSortAsc
+            ? String(va).localeCompare(String(vb))
+            : String(vb).localeCompare(String(va));
+    });
+    const tbody = document.getElementById("account-strategies-body");
+    tbody.innerHTML = "";
+    strategies.forEach((s) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td><a href="/strategy/${s.id}" style="color:var(--accent)">${s.id}</a></td>
+            <td>${s.name || "—"}</td>
+            <td>${s.symbol || "—"}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+async function loadAccountPage() {
+    try {
+        const [accounts, strategies] = await Promise.all([
+            fetchJson("/api/accounts"),
+            fetchJson("/api/strategies"),
+        ]);
+
+        const account = accounts.find((a) => String(a.id) === String(ACCOUNT_ID));
+        if (!account) {
+            document.getElementById("account-empty").style.display = "block";
+            return;
+        }
+
+        const filteredStrategies = strategies.filter((s) => String(s.account_id || "") === String(ACCOUNT_ID));
+        _accountStrategies = filteredStrategies;
+
+        document.getElementById("account-title").textContent = account.name || `Account ${account.id}`;
+        document.getElementById("account-balance").textContent = account.balance != null ? fmt(account.balance) : "—";
+        document.getElementById("account-margin").textContent = account.free_margin != null ? fmt(account.free_margin) : "—";
+        document.getElementById("account-strategy-count").textContent = filteredStrategies.length;
+        document.getElementById("account-summary").style.display = "";
+
+        const meta = document.getElementById("account-meta");
+        meta.innerHTML = `
+            <div><strong>ID</strong><div class="text-muted">${account.id}</div></div>
+            <div><strong>Broker</strong><div class="text-muted">${account.broker || "—"}</div></div>
+            <div><strong>Type</strong><div class="text-muted">${account.account_type || "—"}</div></div>
+            <div><strong>Currency</strong><div class="text-muted">${account.currency || "—"}</div></div>
+            <div><strong>Deposits</strong><div class="text-muted">${account.total_deposits != null ? fmt(account.total_deposits) : "—"}</div></div>
+            <div><strong>Withdrawals</strong><div class="text-muted">${account.total_withdrawals != null ? fmt(account.total_withdrawals) : "—"}</div></div>
+        `;
+        document.getElementById("account-meta-card").style.display = "";
+
+        renderStrategyRows();
+        document.getElementById("account-strategies-badge").textContent = filteredStrategies.length;
+        document.getElementById("account-strategies-card").style.display = "";
+    } catch (e) {
+        document.getElementById("account-empty").style.display = "block";
+        document.getElementById("account-empty").innerHTML = `<p class="empty-state">Failed to load account: ${e.message}</p>`;
+    }
+}
+
+loadAccountPage();
+</script>
+{% endblock %}

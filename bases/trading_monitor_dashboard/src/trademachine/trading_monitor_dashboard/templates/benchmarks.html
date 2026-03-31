@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}TradingMonitor — Benchmarks{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="/" class="back-link">← Overview</a>
+    <h1>Benchmarks</h1>
+</div>
+
+<div class="dashboard-grid">
+    <section class="card full-width">
+        <div class="section-header">
+            <h2>Add Benchmark</h2>
+        </div>
+        <div class="edit-grid" style="max-width:1080px">
+            <div class="field-group">
+                <span class="field-label">Name</span>
+                <input class="field-input" id="benchmark-name" type="text" placeholder="S&P 500">
+            </div>
+            <div class="field-group">
+                <span class="field-label">Source</span>
+                <input class="field-input" id="benchmark-source" type="text" value="OPENBB">
+            </div>
+            <div class="field-group">
+                <span class="field-label">Asset</span>
+                <input class="field-input" id="benchmark-asset" type="text" placeholder="SPY">
+            </div>
+            <div class="field-group">
+                <span class="field-label">Timeframe</span>
+                <input class="field-input" id="benchmark-timeframe" type="text" value="D1">
+            </div>
+            <div class="field-group" style="grid-column:1 / -1">
+                <span class="field-label">Description</span>
+                <input class="field-input" id="benchmark-description" type="text" placeholder="US large cap proxy">
+            </div>
+        </div>
+        <div class="edit-toggles" style="margin-top:1rem">
+            <label class="toggle-group"><input type="checkbox" id="benchmark-enabled" checked><span class="toggle-label">Enabled</span></label>
+            <label class="toggle-group"><input type="checkbox" id="benchmark-default"><span class="toggle-label">Default Benchmark</span></label>
+        </div>
+        <div style="margin-top:1rem">
+            <button class="btn btn-primary btn-sm" onclick="createBenchmark()">Add Benchmark</button>
+            <span id="benchmarks-status" style="margin-left:0.75rem;font-size:0.85rem;color:var(--text-muted)"></span>
+        </div>
+    </section>
+
+    <section class="card full-width">
+        <div class="section-header">
+            <h2>Configured Benchmarks</h2>
+        </div>
+        <div id="benchmarks-table"><div class="loading">Loading benchmarks...</div></div>
+    </section>
+
+    <section class="card full-width">
+        <div class="section-header">
+            <h2>Available in DataManager</h2>
+        </div>
+        <div id="benchmarks-remote-table"><div class="loading">Loading remote databases...</div></div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function benchmarkStatusText(benchmark) {
+    if (benchmark.last_error) return benchmark.last_error;
+    if (benchmark.last_synced_at) return `Synced ${new Date(benchmark.last_synced_at).toLocaleString()}`;
+    return "Not synced yet";
+}
+
+function fillBenchmarkForm(row) {
+    document.getElementById("benchmark-name").value = row.asset;
+    document.getElementById("benchmark-source").value = row.source;
+    document.getElementById("benchmark-asset").value = row.asset;
+    document.getElementById("benchmark-timeframe").value = row.timeframe;
+}
+
+function renderBenchmarks(list) {
+    const container = document.getElementById("benchmarks-table");
+    if (!list.length) {
+        container.innerHTML = '<p class="empty-state">No benchmarks configured.</p>';
+        return;
+    }
+
+    const rows = list.map((b) => `
+        <tr>
+            <td>${b.name}</td>
+            <td class="mono">${b.source}</td>
+            <td class="mono">${b.asset}</td>
+            <td class="mono">${b.timeframe}</td>
+            <td>${b.local_points || 0}</td>
+            <td>${b.is_default ? '<span class="badge badge-live">Default</span>' : '<span class="badge badge-neutral">Optional</span>'}</td>
+            <td>${benchmarkStatusText(b)}</td>
+            <td style="display:flex;gap:0.5rem">
+                <button class="btn btn-ghost btn-sm" onclick="syncBenchmark(${b.id})">Sync</button>
+                <button class="btn btn-ghost btn-sm" onclick="setDefaultBenchmark(${b.id})">Set Default</button>
+            </td>
+        </tr>
+    `).join("");
+
+    container.innerHTML = `<table class="data-table">
+        <thead><tr><th>Name</th><th>Source</th><th>Asset</th><th>TF</th><th>Points</th><th>Default</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function renderRemoteBenchmarks(list) {
+    const container = document.getElementById("benchmarks-remote-table");
+    if (!list.length) {
+        container.innerHTML = '<p class="empty-state">No remote databases found.</p>';
+        return;
+    }
+
+    const rows = list.map((row) => `
+        <tr>
+            <td class="mono">${row.source}</td>
+            <td class="mono">${row.asset}</td>
+            <td class="mono">${row.timeframe}</td>
+            <td>${row.rows ?? "—"}</td>
+            <td>${row.last_timestamp || "—"}</td>
+            <td><button class="btn btn-ghost btn-sm" onclick='fillBenchmarkForm(${JSON.stringify(row)})'>Use</button></td>
+        </tr>
+    `).join("");
+
+    container.innerHTML = `<table class="data-table">
+        <thead><tr><th>Source</th><th>Asset</th><th>TF</th><th>Rows</th><th>Last Timestamp</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function loadBenchmarksPage() {
+    try {
+        const [benchmarks, remote] = await Promise.all([
+            fetchJson("/api/benchmarks"),
+            fetchJson("/api/benchmarks/available-from-datamanager"),
+        ]);
+        renderBenchmarks(benchmarks);
+        renderRemoteBenchmarks(remote);
+    } catch (e) {
+        document.getElementById("benchmarks-status").textContent = `Error: ${e.message}`;
+    }
+}
+
+async function createBenchmark() {
+    const status = document.getElementById("benchmarks-status");
+    status.textContent = "Saving...";
+    const payload = {
+        name: document.getElementById("benchmark-name").value.trim(),
+        source: document.getElementById("benchmark-source").value.trim(),
+        asset: document.getElementById("benchmark-asset").value.trim(),
+        timeframe: document.getElementById("benchmark-timeframe").value.trim(),
+        description: document.getElementById("benchmark-description").value.trim() || null,
+        enabled: document.getElementById("benchmark-enabled").checked,
+        is_default: document.getElementById("benchmark-default").checked,
+    };
+
+    try {
+        await fetchJson("/api/benchmarks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        status.textContent = "Benchmark added.";
+        loadBenchmarksPage();
+    } catch (e) {
+        status.textContent = `Error: ${e.message}`;
+    }
+}
+
+async function syncBenchmark(id) {
+    const status = document.getElementById("benchmarks-status");
+    status.textContent = "Syncing benchmark...";
+    try {
+        const result = await fetchJson(`/api/benchmarks/${id}/sync`, { method: "POST" });
+        status.textContent = result.message || "Benchmark synced.";
+        loadBenchmarksPage();
+    } catch (e) {
+        status.textContent = `Error: ${e.message}`;
+    }
+}
+
+async function setDefaultBenchmark(id) {
+    const status = document.getElementById("benchmarks-status");
+    status.textContent = "Updating default benchmark...";
+    try {
+        await fetchJson(`/api/benchmarks/${id}/set-default`, { method: "POST" });
+        status.textContent = "Default benchmark updated.";
+        loadBenchmarksPage();
+    } catch (e) {
+        status.textContent = `Error: ${e.message}`;
+    }
+}
+
+document.addEventListener("DOMContentLoaded", loadBenchmarksPage);
+</script>
+{% endblock %}

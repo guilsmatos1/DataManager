@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -96,6 +97,9 @@ class PortfolioResponse(BaseModel):
     strategy_ids: list[str] = []
     net_profit: float | None = None
     max_drawdown: float | None = None
+    backtest_net_profit: float | None = None
+    demo_net_profit: float | None = None
+    real_net_profit: float | None = None
 
     @classmethod
     def from_orm_portfolio(cls, portfolio):
@@ -117,6 +121,33 @@ class SymbolResponse(BaseModel):
     name: str
     market: str | None = None
     lot: float | None = None
+    strategies_count: int = 0
+
+
+class BenchmarkResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    source: str
+    asset: str
+    timeframe: str
+    description: str | None = None
+    is_default: bool = False
+    enabled: bool = True
+    last_synced_at: datetime | None = None
+    last_error: str | None = None
+    local_points: int = 0
+    latest_price_timestamp: datetime | None = None
+
+
+class BenchmarkRemoteDatabaseResponse(BaseModel):
+    source: str
+    asset: str
+    timeframe: str
+    status: str | None = None
+    rows: int | None = None
+    last_timestamp: str | None = None
 
 
 class PaginatedDeals(BaseModel):
@@ -212,6 +243,7 @@ class StrategyUpdate(BaseModel):
     timeframe: str | None = None
     operational_style: str | None = None
     trade_duration: str | None = None
+    initial_balance: float | None = None
     description: str | None = None
     live: bool | None = None
     real_account: bool | None = None
@@ -248,7 +280,35 @@ class SymbolUpdate(BaseModel):
     lot: float | None = None
 
 
+class BenchmarkCreate(BaseModel):
+    name: str
+    source: str
+    asset: str
+    timeframe: str = "D1"
+    description: str | None = None
+    enabled: bool = True
+    is_default: bool = False
+
+
+class BenchmarkUpdate(BaseModel):
+    name: str | None = None
+    source: str | None = None
+    asset: str | None = None
+    timeframe: str | None = None
+    description: str | None = None
+    enabled: bool | None = None
+    is_default: bool | None = None
+
+
 class TelegramSettings(BaseModel):
     bot_token: str | None = None
     chat_id: str | None = None
     var_95_threshold: float | None = None
+    default_initial_balance: float | None = None
+    real_page_mode: Literal["real", "demo"] = "real"
+
+
+class DataManagerSettings(BaseModel):
+    url: str = "http://127.0.0.1:8686"
+    api_key: str = ""
+    timeout: float = 30.0

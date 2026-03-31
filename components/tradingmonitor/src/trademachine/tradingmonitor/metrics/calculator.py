@@ -14,6 +14,7 @@ from trademachine.tradingmonitor.metrics.repository import (
     get_strategy_deals,
     get_strategy_equity_curve,
 )
+from trademachine.tradingmonitor.metrics.utils import net_pnl
 
 # Lazy initialization cache for plugin instances
 _plugin_instances: dict[type[BaseMetric], BaseMetric] = {}
@@ -56,11 +57,7 @@ def calculate_metrics_from_df(
     gross_loss = abs(trading_deals[trading_deals["profit"] < 0]["profit"].sum())
 
     # Net profit includes commissions and swaps
-    net_profit = (
-        trading_deals["profit"].sum()
-        + trading_deals["commission"].sum()
-        + trading_deals["swap"].sum()
-    )
+    net_profit = net_pnl(trading_deals).sum()
 
     profit_factor = compute_profit_factor(trading_deals["profit"].values)
 
@@ -134,7 +131,7 @@ def calculate_correlation_matrix(
         df = get_strategy_deals(sid, since=since)
         if df.empty:
             continue
-        net = df["profit"] + df["commission"] + df["swap"]
+        net = net_pnl(df)
         series[sid] = net.resample(freq).sum()
 
     if len(series) < 2:
@@ -203,7 +200,7 @@ def calculate_dynamic_correlation(
         if df.empty:
             continue
         # Use daily P&L for correlation
-        net = df["profit"] + df["commission"] + df["swap"]
+        net = net_pnl(df)
         series[sid] = net.resample("D").sum()
 
     if len(series) < 2:

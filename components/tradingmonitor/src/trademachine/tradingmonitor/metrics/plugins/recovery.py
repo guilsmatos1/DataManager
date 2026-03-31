@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import quantstats as qs
 from trademachine.tradingmonitor.metrics.plugins.base import BaseMetric
+from trademachine.tradingmonitor.metrics.utils import net_pnl
 
 
 class RecoveryFactor(BaseMetric):
@@ -17,11 +18,7 @@ class RecoveryFactor(BaseMetric):
             return None
 
         # Net profit includes commissions and swaps
-        net_profit = (
-            deals_df["profit"].sum()
-            + deals_df["commission"].sum()
-            + deals_df["swap"].sum()
-        )
+        net_profit = net_pnl(deals_df).sum()
 
         if daily_returns is None or daily_returns.empty:
             return None

@@ -21,13 +21,51 @@
 <body>
     <nav class="navbar">
         <a class="nav-brand" href="/">TradingMonitor</a>
+        {% set path = request.url.path %}
         <div class="nav-links">
-            <a href="/">Overview</a>
-            <a href="/real">Real</a>
+            <a href="/" class="{{ 'active' if path == '/' else '' }}">Overview</a>
+            <a href="/real" class="{{ 'active' if path == '/real' else '' }}">Real</a>
+            <div class="nav-dropdown" id="strategies-nav">
+                <button type="button" class="nav-dropdown-toggle {{ 'active' if path.startswith('/strategy') else '' }}" id="strategies-toggle" aria-expanded="false">
+                    <span>Strategies</span>
+                </button>
+                <div class="nav-dropdown-menu" id="strategies-menu">
+                    <div class="nav-dropdown-state" id="strategies-menu-state">Loading...</div>
+                    <div id="strategies-menu-items"></div>
+                </div>
+            </div>
+            <div class="nav-dropdown" id="portfolios-nav">
+                <button type="button" class="nav-dropdown-toggle {{ 'active' if path.startswith('/portfolio') else '' }}" id="portfolios-toggle" aria-expanded="false">
+                    <span>Portfolios</span>
+                </button>
+                <div class="nav-dropdown-menu" id="portfolios-menu">
+                    <div class="nav-dropdown-state" id="portfolios-menu-state">Loading...</div>
+                    <div id="portfolios-menu-items"></div>
+                </div>
+            </div>
+            <div class="nav-dropdown" id="accounts-nav">
+                <button type="button" class="nav-dropdown-toggle {{ 'active' if path.startswith('/account') else '' }}" id="accounts-toggle" aria-expanded="false">
+                    <span>Accounts</span>
+                </button>
+                <div class="nav-dropdown-menu" id="accounts-menu">
+                    <div class="nav-dropdown-state" id="accounts-menu-state">Loading...</div>
+                    <div id="accounts-menu-items"></div>
+                </div>
+            </div>
+            <div class="nav-dropdown" id="symbols-nav">
+                <button type="button" class="nav-dropdown-toggle {{ 'active' if path.startswith('/symbol') else '' }}" id="symbols-toggle" aria-expanded="false">
+                    <span>Symbols</span>
+                </button>
+                <div class="nav-dropdown-menu" id="symbols-menu">
+                    <div class="nav-dropdown-state" id="symbols-menu-state">Loading...</div>
+                    <div id="symbols-menu-items"></div>
+                </div>
+            </div>
+            <a href="/benchmarks" class="{{ 'active' if path.startswith('/benchmark') else '' }}">Benchmarks</a>
         </div>
         <div class="nav-status">
             <div class="nav-links">
-                <a href="/settings">Settings</a>
+                <a href="/settings" class="{{ 'active' if path == '/settings' else '' }}">Settings</a>
             </div>
             <button id="theme-toggle" class="btn-theme" onclick="toggleTheme()" title="Toggle theme">🌙</button>
             <span id="ws-pulse" title="Data pulse"></span>

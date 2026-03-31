@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from trademachine.core.logger import LOGGER_NAME, setup_logger
@@ -20,6 +20,10 @@ from trademachine.tradingmonitor.config import settings
 logger = logging.getLogger(LOGGER_NAME)
 
 BASE_DIR = Path(__file__).parent
+WORKSPACE_DIR = BASE_DIR.parents[4]
+METRICS_PUBLISHER_PATH = (
+    WORKSPACE_DIR / "projects" / "tradingmonitor" / "mt5" / "MetricsPublisher.mq5"
+)
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
@@ -89,9 +93,23 @@ def create_app(
             "portfolio.html", {"request": request, "portfolio_id": portfolio_id, **_ctx}
         )
 
-    @app.get("/compare")
-    async def compare_page(request: Request):
-        return templates.TemplateResponse("compare.html", {"request": request, **_ctx})
+    @app.get("/account/{account_id}")
+    async def account_page(request: Request, account_id: str):
+        return templates.TemplateResponse(
+            "account.html", {"request": request, "account_id": account_id, **_ctx}
+        )
+
+    @app.get("/symbol/{symbol_name:path}")
+    async def symbol_page(request: Request, symbol_name: str):
+        return templates.TemplateResponse(
+            "symbol.html", {"request": request, "symbol_name": symbol_name, **_ctx}
+        )
+
+    @app.get("/advanced-analysis")
+    async def advanced_analysis_page(request: Request):
+        return templates.TemplateResponse(
+            "advanced_analysis.html", {"request": request, **_ctx}
+        )
 
     @app.get("/real")
     async def real_page(request: Request):
@@ -100,6 +118,20 @@ def create_app(
     @app.get("/settings")
     async def settings_page(request: Request):
         return templates.TemplateResponse("settings.html", {"request": request, **_ctx})
+
+    @app.get("/benchmarks")
+    async def benchmarks_page(request: Request):
+        return templates.TemplateResponse(
+            "benchmarks.html", {"request": request, **_ctx}
+        )
+
+    @app.get("/downloads/metrics-publisher")
+    async def download_metrics_publisher():
+        return FileResponse(
+            path=str(METRICS_PUBLISHER_PATH),
+            filename="MetricsPublisher.mq5",
+            media_type="text/plain",
+        )
 
     @app.get("/portfolio/{portfolio_id}/advanced-metrics")
     async def portfolio_advanced_metrics_page(request: Request, portfolio_id: int):

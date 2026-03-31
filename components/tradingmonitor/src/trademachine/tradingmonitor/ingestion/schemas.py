@@ -67,6 +67,21 @@ class AccountSchema(BaseModel):
     withdrawals: float = 0.0
 
 
+class StrategyRuntimeSchema(_TimestampMixin):
+    time: int
+    magic: int
+    open_profit: float = 0.0
+    open_trades_count: int = 0
+    pending_orders_count: int = 0
+
+    @field_validator("open_trades_count", "pending_orders_count")
+    @classmethod
+    def _validate_non_negative_counts(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f"count must be >= 0, got {v}")
+        return v
+
+
 # ── Backtest schemas ──────────────────────────────────────────────────────────
 
 

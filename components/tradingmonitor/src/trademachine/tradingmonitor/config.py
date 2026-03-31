@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     dashboard_host: str = Field(default="127.0.0.1", alias="DASHBOARD_HOST")
     dashboard_port: int = Field(default=8000, alias="DASHBOARD_PORT")
 
+    # DataManager Integration
+    datamanager_url: str = Field(
+        default="http://127.0.0.1:8686",
+        alias="DATAMANAGER_URL",
+    )
+    datamanager_api_key: str = Field(
+        default="YOUR_API_KEY_HERE",
+        alias="DATAMANAGER_API_KEY",
+    )
+    datamanager_timeout: float = Field(default=30.0, alias="DATAMANAGER_TIMEOUT")
+
     # App Settings
     debug: bool = Field(default=False, alias="DEBUG")
     api_key: str = Field(alias="API_KEY")

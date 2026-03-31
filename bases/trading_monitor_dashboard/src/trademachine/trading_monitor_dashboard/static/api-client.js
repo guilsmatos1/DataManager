@@ -1,7 +1,6 @@
 /* ── API Client — shared data-fetching functions ─────────────────────────────── */
 
-// Re-export fetchJson from dashboard.js (api key injection is there)
-const { fetchJson } = window;
+let _portfolio = null;
 
 // ── Overview page (index.html) ───────────────────────────────────────────────
 
@@ -130,33 +129,42 @@ async function loadFloatingPnL() {
 
 // ── CRUD actions ──────────────────────────────────────────────────────────────
 
-async function createPortfolio() {
+async function createOrUpdatePortfolio() {
     const status = document.getElementById("create-status");
     const name = document.getElementById("new-name").value.trim();
     if (!name) { status.textContent = "❌ Name is required"; return; }
-    status.textContent = "Creating...";
+    status.textContent = _editingPortfolioId ? "Saving..." : "Creating...";
     const checkedIds = [...document.querySelectorAll("#new-strategy-list input:checked")].map(el => el.value);
     const ibRaw = document.getElementById("new-initial-balance").value;
     const payload = {
         name,
         description: document.getElementById("new-description").value || null,
-        live: document.getElementById("new-live").checked,
-        real_account: document.getElementById("new-real").checked,
         strategy_ids: checkedIds,
         initial_balance: ibRaw !== "" ? parseFloat(ibRaw) : null,
     };
     try {
-        const res = await fetch("/api/portfolios", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-        });
+        let res;
+        if (_editingPortfolioId) {
+            res = await fetch(`/api/portfolios/${_editingPortfolioId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+        } else {
+            res = await fetch("/api/portfolios", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+        }
         if (!res.ok) throw new Error(await res.text());
         const p = await res.json();
         closeCreateModal();
         loadPortfolios();
         loadSummary();
-        window.location = `/portfolio/${p.id}`;
+        if (!_editingPortfolioId) {
+            window.location = `/portfolio/${p.id}`;
+        }
     } catch(err) {
         status.textContent = "❌ " + err.message;
     }
@@ -277,7 +285,8 @@ async function loadMetrics() {
         if (data.error) { container.innerHTML = `<p class="empty-state">${data.error}</p>`; return; }
         const INTEGER_KEYS = ["total trades"];
         const NEGATE_KEYS = ["gross loss"];
-        container.innerHTML = Object.entries(data).map(([k, v]) => {
+        const HIDDEN_KEYS = new Set(["gross profit","gross loss"]);
+        container.innerHTML = Object.entries(data).filter(([k]) => !HIDDEN_KEYS.has(k.toLowerCase())).map(([k, v]) => {
             const keyLower = k.toLowerCase();
             const shouldNegate = NEGATE_KEYS.includes(keyLower);
             const displayVal = shouldNegate && typeof v === "number" && v !== null ? -Math.abs(v) : v;
@@ -304,9 +313,8 @@ async function loadEquity() {
     try {
         const res = await fetch(`/api/portfolios/${PORTFOLIO_ID}/equity/breakdown`);
         const data = await res.json();
-        _equityBreakdown = data;
         _allEquityPoints = data.total || [];
-        renderEquityChart(_allEquityPoints, _equityBreakdown.strategies || {}, _equityPeriod);
+        renderEquityChart(_allEquityPoints, {}, _equityPeriod);
         markUpdated("equity");
     } catch(e) { console.error("Equity load error:", e); }
 }
@@ -330,6 +338,24 @@ async function loadAllStrategiesForEdit() {
         _allStrategies = await res.json();
     }
     renderEditStrategiesTable();
+}
+
+async function toggleEdit() {
+    const form = document.getElementById("edit-form");
+    if (!form) return;
+
+    const isHidden = form.style.display === "none";
+    if (isHidden && typeof PORTFOLIO_ID !== "undefined" && _portfolio) {
+        document.getElementById("edit-name").value = _portfolio.name || "";
+        document.getElementById("edit-description").value = _portfolio.description || "";
+        document.getElementById("edit-live").checked = _portfolio.live || false;
+        document.getElementById("edit-real").checked = _portfolio.real_account || false;
+        await loadAllStrategiesForEdit();
+    }
+
+    form.style.display = isHidden ? "block" : "none";
+    const status = document.getElementById("edit-status");
+    if (status) status.textContent = "";
 }
 
 async function savePortfolio() {

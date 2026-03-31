@@ -1,5 +1,5 @@
 """
-Unit tests for src/metrics/calculator.py
+Unit tests for components/tradingmonitor/src/trademachine/tradingmonitor/metrics/calculator.py
 
 `calculate_metrics_from_df` is a pure function that receives DataFrames and
 returns a metrics dict — no DB, no network required.

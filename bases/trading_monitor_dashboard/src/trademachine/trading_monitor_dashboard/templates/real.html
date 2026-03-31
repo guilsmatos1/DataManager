@@ -1,16 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Real Accounts — TradingMonitor{% endblock %}
+{% block title %}TradingMonitor — Account Monitor{% endblock %}
 
 {% block content %}
 <style>
     .text-warning { color: var(--yellow); font-weight: 600; }
     .pnl-alert { background-color: rgba(239, 68, 68, 0.4) !important; color: white !important; }
     .recent-deals-card { margin-top: 1.5rem; }
-    .deal-row { display: flex; justify-content: space-between; padding: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
-    .deal-row:last-child { border-bottom: none; }
+    #strategies-card { margin-top: 1.5rem; }
+    #real-summary { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+    .summary-footnote { margin: -0.25rem 0 1.25rem; color: var(--text-muted); font-size: 0.78rem; }
 </style>
 <div class="page-header">
-    <h1>Real Accounts</h1>
+    <h1 id="real-page-title">Account Monitor</h1>
     <span id="real-status-badge" class="badge"></span>
     <button class="btn" style="margin-left: auto; background-color: var(--red); color: white; border: none; padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 0.8rem;" onclick="killAll()">Kill All</button>
 </div>
@@ -22,6 +23,18 @@
         <span class="summary-label">Strategies</span>
     </div>
     <div class="summary-card">
+        <span class="summary-num" id="sum-open-trades">—</span>
+        <span class="summary-label">Open Trades</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="sum-pending-orders">—</span>
+        <span class="summary-label">Pending Orders</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="sum-day-pnl">—</span>
+        <span class="summary-label">P&amp;L Today</span>
+    </div>
+    <div class="summary-card">
         <span class="summary-num" id="sum-net-profit">—</span>
         <span class="summary-label">Total Net Profit</span>
     </div>
@@ -30,15 +43,22 @@
         <span class="summary-label">Open P&amp;L (Floating)</span>
     </div>
 </div>
+<p id="real-summary-note" class="summary-footnote" style="display:none"></p>
 
-<!-- Aggregated Equity Curve -->
-<div class="card" id="equity-card" style="display:none">
+<!-- Aggregated P&L -->
+<div class="card" id="pnl-card" style="display:none">
     <div class="section-header">
-        <h2>Aggregated Equity Curve</h2>
-        <span class="badge badge-neutral" id="equity-badge"></span>
+        <h2>Aggregated P&amp;L</h2>
+        <span class="badge badge-neutral" id="pnl-badge"></span>
+        <div class="period-tabs" style="margin-left:0.75rem">
+            <button class="period-tab active" data-rp="all" onclick="setRealPnlPeriod('all')">All</button>
+            <button class="period-tab" data-rp="1Y" onclick="setRealPnlPeriod('1Y')">1Y</button>
+            <button class="period-tab" data-rp="1M" onclick="setRealPnlPeriod('1M')">1M</button>
+            <button class="period-tab" data-rp="1W" onclick="setRealPnlPeriod('1W')">1W</button>
+        </div>
     </div>
     <div class="chart-box" style="height:260px">
-        <canvas id="equity-chart"></canvas>
+        <canvas id="real-pnl-chart"></canvas>
     </div>
 </div>
 
@@ -73,26 +93,49 @@
 </div>
 
 <div id="real-empty" class="card" style="display:none">
-    <p class="empty-state">No real-account strategies found. Mark a strategy as "Real Account" to see it here.</p>
+    <p class="empty-state">No strategies found for the current /real mode. Change the mode in Settings to view Real or Demo strategies.</p>
 </div>
 
 <!-- Recent Deals/Trades Panel -->
 <div class="card recent-deals-card">
     <div class="section-header">
         <h2>Recent Deals</h2>
+        <span id="badge-recent-deals" class="badge badge-neutral">0</span>
     </div>
-    <div id="recent-deals-body" class="panel-body">
-        <p class="empty-state" style="padding: 2rem;">No recent deals found or loading...</p>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Strategy</th>
+                    <th>Symbol</th>
+                    <th>Type</th>
+                    <th>Profit</th>
+                    <th>Commission</th>
+                    <th>Swap</th>
+                    <th>Net Profit</th>
+                </tr>
+            </thead>
+            <tbody id="recent-deals-body">
+                <tr><td colspan="8" class="empty-state" style="padding: 2rem;">No recent deals found or loading...</td></tr>
+            </tbody>
+        </table>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+let realPnlChart = null;
+let _allRealPnlPoints = [];
+let _realPnlPeriod = localStorage.getItem("tm-real-pnl-period") || "all";
+let _realPnlDataKey = "";
+let _realPnlRenderedKey = "";
+
 async function loadReal() {
     let data;
     try {
-        const res = await apiFetch("/api/real");
+        const res = await fetch("/api/real");
         data = await res.json();
     } catch(e) {
         document.getElementById("real-status-badge").textContent = "Error";
@@ -100,21 +143,36 @@ async function loadReal() {
         return;
     }
 
+    const modeLabel = (data.mode || "real") === "demo" ? "Demo" : "Real";
+    document.getElementById("real-page-title").textContent = `Account Monitor (${modeLabel})`;
+
     if (!data.strategies || data.strategies.length === 0) {
         document.getElementById("real-empty").style.display = "block";
         return;
     }
 
     const totals = data.totals;
+    const dayCls = totals.day_pnl >= 0 ? "profit-positive" : "profit-negative";
     const npCls = totals.net_profit >= 0 ? "profit-positive" : "profit-negative";
     const flCls = totals.floating_pnl >= 0 ? "profit-positive" : "profit-negative";
 
     document.getElementById("sum-strategies").textContent = data.strategies.length;
+    document.getElementById("sum-open-trades").textContent = totals.open_trades_count ?? "—";
+    document.getElementById("sum-pending-orders").textContent = totals.pending_orders_count ?? "—";
+    document.getElementById("sum-day-pnl").textContent = fmt(totals.day_pnl);
+    document.getElementById("sum-day-pnl").className = "summary-num " + dayCls;
     document.getElementById("sum-net-profit").textContent = fmt(totals.net_profit);
     document.getElementById("sum-net-profit").className = "summary-num " + npCls;
     document.getElementById("sum-floating").textContent = fmt(totals.floating_pnl);
     document.getElementById("sum-floating").className = "summary-num " + flCls;
     document.getElementById("real-summary").style.display = "";
+    const note = document.getElementById("real-summary-note");
+    if (totals.counts_available === false) {
+        note.textContent = "Open trades and pending orders require MT5 snapshot data; the current feed only persists deals and equity.";
+        note.style.display = "";
+    } else {
+        note.style.display = "none";
+    }
     document.getElementById("real-status-badge").textContent = "Live";
     document.getElementById("real-status-badge").className = "badge badge-live";
 
@@ -160,9 +218,6 @@ async function loadReal() {
     document.getElementById("badge-real-strategies").textContent = data.strategies.length;
     document.getElementById("strategies-card").style.display = "";
 
-    // Aggregated equity chart
-    buildEquityChart(data);
-    loadRecentDeals();
 }
 
 async function killStrategy(strategyId) {
@@ -171,7 +226,7 @@ async function killStrategy(strategyId) {
     }
 
     try {
-        const res = await apiFetch(`/api/strategies/${strategyId}/kill`, {
+        const res = await fetch(`/api/strategies/${strategyId}/kill`, {
             method: "POST"
         });
         const result = await res.json();
@@ -186,73 +241,124 @@ async function killStrategy(strategyId) {
     }
 }
 
-function buildEquityChart(data) {
-    let labels, values;
+function filterRealPnlPoints(points, period) {
+    if (period === "all" || !points.length) return points;
+    const cutoff = new Date();
+    if (period === "1W") {
+        cutoff.setDate(cutoff.getDate() - 7);
+    } else if (period === "1M") {
+        cutoff.setMonth(cutoff.getMonth() - 1);
+    } else if (period === "1Y") {
+        cutoff.setFullYear(cutoff.getFullYear() - 1);
+    }
+    return points.filter(point => new Date(point.date) >= cutoff);
+}
 
-    if (data.aggregated_equity && data.aggregated_equity.length > 0) {
-        // Use backend-provided aggregated equity
-        labels = data.aggregated_equity.map(pt => pt.ts.slice(0, 10));
-        values = data.aggregated_equity.map(pt => pt.equity);
-    } else {
-        // Fallback: manually sum across strategies if aggregated_equity is missing
-        const tsMap = {};
-        for (const s of data.strategies) {
-            for (const pt of s.equity_curve || []) {
-                if (!tsMap[pt.ts]) tsMap[pt.ts] = 0;
-                tsMap[pt.ts] += pt.equity;
-            }
-        }
-        const sortedTs = Object.keys(tsMap).sort();
-        if (sortedTs.length < 2) return;
-        labels = sortedTs.map(ts => ts.slice(0, 10));
-        values = sortedTs.map(ts => tsMap[ts]);
+function syncRealPnlPeriodButtons() {
+    document.querySelectorAll(".period-tab[data-rp]").forEach(btn =>
+        btn.classList.toggle("active", btn.dataset.rp === _realPnlPeriod)
+    );
+}
+
+function renderRealPnlIfNeeded(force = false) {
+    const renderKey = `${_realPnlPeriod}::${_realPnlDataKey}`;
+    if (!force && renderKey === _realPnlRenderedKey) {
+        return;
+    }
+    renderRealPnlChart(filterRealPnlPoints(_allRealPnlPoints, _realPnlPeriod));
+    _realPnlRenderedKey = renderKey;
+}
+
+function setRealPnlPeriod(period) {
+    _realPnlPeriod = period;
+    localStorage.setItem("tm-real-pnl-period", period);
+    syncRealPnlPeriodButtons();
+    renderRealPnlIfNeeded(true);
+}
+
+function renderRealPnlChart(points) {
+    const wrapper = document.querySelector("#pnl-card .chart-box");
+    if (!document.getElementById("real-pnl-chart")) {
+        wrapper.innerHTML = '<canvas id="real-pnl-chart"></canvas>';
+    }
+    const canvas = document.getElementById("real-pnl-chart");
+    if (!points.length) {
+        wrapper.innerHTML = '<p class="empty-state" style="padding:2rem 0">No P&amp;L data yet.</p>';
+        document.getElementById("pnl-badge").textContent = "0 points";
+        document.getElementById("pnl-card").style.display = "";
+        return;
     }
 
-    const ctx = document.getElementById("equity-chart").getContext("2d");
-    // Clear existing chart if it exists
-    if (window.myEquityChart) window.myEquityChart.destroy();
+    const ctx = canvas.getContext("2d");
+    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+    const tickColor = isDark ? "#64748b" : "#94a3b8";
+    const gridColor = isDark ? "#334155" : "#e2e8f0";
+    const labels = points.map(point => {
+        const d = new Date(point.date);
+        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
+    });
+    const values = points.map(point => point.net_profit);
+    const colors = values.map(value => value >= 0 ? "rgba(16,185,129,0.85)" : "rgba(239,68,68,0.85)");
 
-    window.myEquityChart = new Chart(ctx, {
-        type: "line",
+    if (realPnlChart) realPnlChart.destroy();
+    realPnlChart = new Chart(ctx, {
+        type: "bar",
         data: {
             labels,
             datasets: [{
-                label: "Aggregated Equity",
+                label: "Daily P&L",
                 data: values,
-                borderColor: "#10b981",
-                backgroundColor: "rgba(16,185,129,0.08)",
-                borderWidth: 1.5,
-                pointRadius: 0,
-                tension: 0.3,
-                fill: true,
-            }]
+                backgroundColor: colors,
+                borderColor: colors,
+                borderWidth: 1,
+                borderRadius: 4,
+                barPercentage: 0.9,
+                categoryPercentage: 0.9,
+            }],
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
                 legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: ctx => fmt(ctx.parsed.y),
-                    }
-                }
+                tooltip: { callbacks: { label: ctx => ` P&L: ${fmt(ctx.parsed.y)}` } },
             },
             scales: {
                 x: {
-                    ticks: { maxTicksLimit: 10, color: "var(--text-muted)", font: { size: 11 } },
-                    grid: { color: "rgba(255,255,255,0.04)" }
+                    ticks: { maxTicksLimit: 12, color: tickColor, font: { size: 11 } },
+                    grid: { color: gridColor },
                 },
                 y: {
-                    ticks: { color: "var(--text-muted)", font: { size: 11 }, callback: v => fmt(v) },
-                    grid: { color: "rgba(255,255,255,0.04)" }
-                }
-            }
-        }
+                    ticks: { color: tickColor, font: { size: 11 }, callback: v => fmt(v) },
+                    grid: { color: gridColor },
+                },
+            },
+        },
     });
 
-    document.getElementById("equity-badge").textContent = `${labels.length} points`;
-    document.getElementById("equity-card").style.display = "";
+    document.getElementById("pnl-badge").textContent = `${labels.length} points`;
+    document.getElementById("pnl-card").style.display = "";
+}
+
+async function loadRealDailyPnl() {
+    try {
+        const res = await fetch("/api/real/daily");
+        const points = await res.json();
+        const nextKey = JSON.stringify(points);
+        if (nextKey === _realPnlDataKey) {
+            return;
+        }
+        _allRealPnlPoints = points;
+        _realPnlDataKey = nextKey;
+        renderRealPnlIfNeeded(true);
+    } catch (e) {
+        const wrapper = document.querySelector("#pnl-card .chart-box");
+        if (wrapper) {
+            wrapper.innerHTML = '<p class="empty-state" style="padding:2rem 0">Failed to load P&amp;L data.</p>';
+        }
+        _realPnlRenderedKey = "";
+        document.getElementById("pnl-card").style.display = "";
+    }
 }
 
 async function killAll() {
@@ -261,7 +367,7 @@ async function killAll() {
     }
 
     try {
-        const res = await apiFetch("/api/strategies/kill-all", { method: "POST" });
+        const res = await fetch("/api/strategies/kill-all", { method: "POST" });
         const result = await res.json();
         alert(result.message || "Kill-all command sent.");
         loadReal();
@@ -272,34 +378,55 @@ async function killAll() {
 
 async function loadRecentDeals() {
     const container = document.getElementById("recent-deals-body");
-    // This is a placeholder as no global /api/deals endpoint was confirmed.
-    // If the backend adds /api/deals/recent, we can fetch it here.
+    const badge = document.getElementById("badge-recent-deals");
     try {
-        // Example: const res = await apiFetch("/api/deals/recent");
-        // For now, just show a placeholder UI.
-        container.innerHTML = `
-            <div class="deal-row">
-                <span style="color:var(--text-muted)">2024-05-20 14:30</span>
-                <span class="badge badge-neutral">EURUSD</span>
-                <span class="profit-positive">+ $45.00</span>
-            </div>
-            <div class="deal-row">
-                <span style="color:var(--text-muted)">2024-05-20 12:15</span>
-                <span class="badge badge-neutral">XAUUSD</span>
-                <span class="profit-negative">- $12.40</span>
-            </div>
-            <div class="deal-row">
-                <span style="color:var(--text-muted)">2024-05-20 09:05</span>
-                <span class="badge badge-neutral">BTCUSD</span>
-                <span class="profit-positive">+ $120.50</span>
-            </div>
-        `;
+        const res = await fetch("/api/real/recent-deals?limit=20");
+        const deals = await res.json();
+        if (!deals.length) {
+            container.innerHTML = `<tr><td colspan="8" class="empty-state" style="padding: 2rem;">No recent deals found.</td></tr>`;
+            badge.textContent = "0";
+            return;
+        }
+        badge.textContent = String(deals.length);
+        container.innerHTML = deals.map(d => {
+            const ts = d.timestamp ? new Date(d.timestamp).toLocaleString() : "—";
+            const profit = d.profit ?? 0;
+            const commission = d.commission ?? 0;
+            const swap = d.swap ?? 0;
+            const net = d.net_profit ?? 0;
+            const profitCls = profit > 0 ? "profit-positive" : profit < 0 ? "profit-negative" : "";
+            const commissionCls = commission > 0 ? "profit-positive" : commission < 0 ? "profit-negative" : "";
+            const swapCls = swap > 0 ? "profit-positive" : swap < 0 ? "profit-negative" : "";
+            const cls = net > 0 ? "profit-positive" : net < 0 ? "profit-negative" : "";
+            return `
+                <tr>
+                    <td style="font-variant-numeric:tabular-nums;white-space:nowrap">${ts}</td>
+                    <td>
+                        <a href="/strategy/${d.strategy_id}" style="color:var(--accent)">${d.strategy_name || d.strategy_id || "—"}</a>
+                    </td>
+                    <td><span class="badge badge-neutral">${d.symbol || "—"}</span></td>
+                    <td><span class="badge badge-neutral">${d.type || "—"}</span></td>
+                    <td class="${profitCls}" style="font-variant-numeric:tabular-nums">${fmt(profit)}</td>
+                    <td class="${commissionCls}" style="font-variant-numeric:tabular-nums">${fmt(commission)}</td>
+                    <td class="${swapCls}" style="font-variant-numeric:tabular-nums">${fmt(swap)}</td>
+                    <td class="${cls}" style="font-variant-numeric:tabular-nums;font-weight:600">${fmt(net)}</td>
+                </tr>
+            `;
+        }).join("");
     } catch (e) {
-        container.innerHTML = `<p class="empty-state">Failed to load recent deals.</p>`;
+        container.innerHTML = `<tr><td colspan="8" class="empty-state" style="padding: 2rem;">Failed to load recent deals.</td></tr>`;
+        badge.textContent = "—";
     }
 }
 
+syncRealPnlPeriodButtons();
 loadReal();
-setInterval(loadReal, 5000);
+loadRealDailyPnl();
+loadRecentDeals();
+setInterval(() => {
+    loadReal();
+    loadRealDailyPnl();
+    loadRecentDeals();
+}, 5000);
 </script>
 {% endblock %}

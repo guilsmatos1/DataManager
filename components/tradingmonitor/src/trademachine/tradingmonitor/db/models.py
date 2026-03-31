@@ -66,7 +66,9 @@ class Strategy(Base):
     timeframe: Mapped[str | None] = mapped_column(String)
     operational_style: Mapped[str | None] = mapped_column(String)
     trade_duration: Mapped[str | None] = mapped_column(String)
-    initial_balance: Mapped[float | None] = mapped_column(Numeric(18, 8))
+    initial_balance: Mapped[float | None] = mapped_column(
+        Numeric(18, 8), default=100_000.0
+    )
     base_currency: Mapped[str | None] = mapped_column(String)
     description: Mapped[str | None] = mapped_column(String)
     live: Mapped[bool] = mapped_column(default=False)  # False = Incubação
@@ -104,6 +106,49 @@ class Portfolio(Base):
 
     strategies: Mapped[list["Strategy"]] = relationship(
         secondary=portfolio_strategy, back_populates="portfolios"
+    )
+
+
+class Benchmark(Base):
+    __tablename__ = "benchmarks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    asset: Mapped[str] = mapped_column(String, nullable=False)
+    timeframe: Mapped[str] = mapped_column(String, default="D1")
+    description: Mapped[str | None] = mapped_column(String)
+    is_default: Mapped[bool] = mapped_column(default=False)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+    prices: Mapped[list["BenchmarkPrice"]] = relationship(
+        back_populates="benchmark", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source", "asset", "timeframe", name="uq_benchmark_source_asset_tf"
+        ),
+    )
+
+
+class BenchmarkPrice(Base):
+    __tablename__ = "benchmark_prices"
+
+    benchmark_id: Mapped[int] = mapped_column(
+        ForeignKey("benchmarks.id"), primary_key=True
+    )
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    close: Mapped[float] = mapped_column(Numeric(18, 8), nullable=False)
+
+    benchmark: Mapped["Benchmark"] = relationship(back_populates="prices")
+
+    __table_args__ = (
+        Index("ix_benchmark_prices_benchmark_timestamp", "benchmark_id", "timestamp"),
     )
 
 
@@ -153,6 +198,22 @@ class EquityCurve(Base):
     __table_args__ = (
         Index("ix_equity_strategy_timestamp", "strategy_id", "timestamp"),
     )
+
+
+class StrategyRuntimeSnapshot(Base):
+    __tablename__ = "strategy_runtime_snapshots"
+
+    strategy_id: Mapped[str] = mapped_column(
+        ForeignKey("strategies.id"), primary_key=True
+    )
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=func.now(), nullable=False
+    )
+    open_profit: Mapped[float] = mapped_column(Numeric(18, 8), default=0.0)
+    open_trades_count: Mapped[int] = mapped_column(default=0)
+    pending_orders_count: Mapped[int] = mapped_column(default=0)
+
+    strategy: Mapped["Strategy"] = relationship()
 
 
 class Symbol(Base):

@@ -1,5 +1,5 @@
 """
-Service-layer tests for src/dashboard/routes.py
+Service-layer tests for bases/trading_monitor_dashboard/src/trademachine/trading_monitor_dashboard/routes.py
 
 Uses FastAPI's TestClient with get_db overridden to an in-memory SQLite session.
 Metric-heavy endpoints (which call calculate_metrics internally) are tested with
@@ -13,16 +13,23 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from trademachine.trading_monitor_dashboard.app import create_app
+from trademachine.tradingmonitor.analysis.benchmarks import _remote_database_exists
 from trademachine.tradingmonitor.config import settings
 from trademachine.tradingmonitor.db.database import get_db
 from trademachine.tradingmonitor.db.models import (
     Account,
+    Backtest,
+    BacktestDeal,
     Base,
+    Benchmark,
+    BenchmarkPrice,
     Deal,
     DealType,
     EquityCurve,
     Portfolio,
+    Setting,
     Strategy,
+    StrategyRuntimeSnapshot,
 )
 
 # ── Shared SQLite engine (module-scoped for performance) ──────────────────────
@@ -273,6 +280,16 @@ class TestUpdateStrategy:
         assert response.status_code == 200
         assert response.json()["name"] == "New Name"
 
+    def test_update_initial_balance(self, client, session):
+        session.add(Strategy(id="upd_ib", name="S", initial_balance=1000.0))
+        session.flush()
+        response = client.patch(
+            "/api/strategies/upd_ib",
+            json={"initial_balance": 2500.0},
+        )
+        assert response.status_code == 200
+        assert response.json()["initial_balance"] == 2500.0
+
     def test_update_live_flag(self, client, session):
         session.add(Strategy(id="upd2", name="S", live=False))
         session.flush()
@@ -307,6 +324,95 @@ class TestListPortfolios:
         data = client.get("/api/portfolios").json()
         assert "strategy_ids" in data[0]
         assert isinstance(data[0]["strategy_ids"], list)
+
+    def test_portfolios_return_backtest_demo_and_real_net_profit_columns(
+        self, client, session
+    ):
+        demo = Strategy(id="sd", name="Demo Strat", real_account=False)
+        real = Strategy(id="sr", name="Real Strat", real_account=True)
+        portfolio = Portfolio(name="Mixed")
+        portfolio.strategies = [demo, real]
+        session.add_all([demo, real, portfolio])
+        session.flush()
+
+        session.add_all(
+            [
+                Deal(
+                    timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+                    ticket=1,
+                    strategy_id="sd",
+                    symbol="EURUSD",
+                    type=DealType.BUY,
+                    volume=0.1,
+                    price=1.1,
+                    profit=12.0,
+                    commission=-1.0,
+                    swap=0.0,
+                ),
+                Deal(
+                    timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+                    ticket=2,
+                    strategy_id="sr",
+                    symbol="EURUSD",
+                    type=DealType.BUY,
+                    volume=0.1,
+                    price=1.1,
+                    profit=30.0,
+                    commission=0.0,
+                    swap=0.0,
+                ),
+            ]
+        )
+        bt1 = Backtest(
+            strategy_id="sd",
+            client_run_id=1001,
+            status="complete",
+            initial_balance=100.0,
+        )
+        bt2 = Backtest(
+            strategy_id="sr",
+            client_run_id=1002,
+            status="complete",
+            initial_balance=100.0,
+        )
+        session.add_all([bt1, bt2])
+        session.flush()
+
+        session.add_all(
+            [
+                BacktestDeal(
+                    backtest_id=bt1.id,
+                    timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+                    ticket=101,
+                    symbol="EURUSD",
+                    type=DealType.BUY,
+                    volume=0.1,
+                    price=1.1,
+                    profit=10.0,
+                    commission=-1.0,
+                    swap=0.0,
+                ),
+                BacktestDeal(
+                    backtest_id=bt2.id,
+                    timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+                    ticket=102,
+                    symbol="EURUSD",
+                    type=DealType.BUY,
+                    volume=0.1,
+                    price=1.1,
+                    profit=6.0,
+                    commission=0.0,
+                    swap=0.0,
+                ),
+            ]
+        )
+        session.flush()
+
+        data = client.get("/api/portfolios").json()
+        row = next(p for p in data if p["name"] == "Mixed")
+        assert row["demo_net_profit"] == pytest.approx(11.0)
+        assert row["real_net_profit"] == pytest.approx(30.0)
+        assert row["backtest_net_profit"] == pytest.approx(15.0)
 
 
 # ── GET /api/summary ──────────────────────────────────────────────────────────
@@ -367,3 +473,501 @@ class TestRealOverview:
         data = response.json()
         assert len(data["strategies"]) == 1
         assert len(data["strategies"][0]["equity_curve"]) == 100
+
+    def test_returns_intraday_pnl_and_latest_update(self, client, session):
+        session.add(
+            Strategy(
+                id="s1", name="Real Strat", real_account=True, initial_balance=1000
+            )
+        )
+        session.flush()
+
+        session.add(
+            EquityCurve(
+                timestamp=datetime(2024, 1, 1, 15, 30, tzinfo=UTC),
+                strategy_id="s1",
+                balance=1000.0,
+                equity=1025.0,
+            )
+        )
+        session.add(
+            Deal(
+                timestamp=datetime(2026, 3, 29, 13, 0, tzinfo=UTC),
+                ticket=1001,
+                strategy_id="s1",
+                symbol="EURUSD",
+                type=DealType.BUY,
+                volume=0.1,
+                price=1.10,
+                profit=25.0,
+                commission=-1.5,
+                swap=0.0,
+            )
+        )
+        session.add(
+            Deal(
+                timestamp=datetime(2026, 3, 28, 18, 0, tzinfo=UTC),
+                ticket=1002,
+                strategy_id="s1",
+                symbol="EURUSD",
+                type=DealType.SELL,
+                volume=0.1,
+                price=1.09,
+                profit=40.0,
+                commission=-1.0,
+                swap=0.0,
+            )
+        )
+        session.flush()
+
+        response = client.get("/api/real")
+        assert response.status_code == 200
+
+        body = response.json()
+        assert body["totals"]["day_pnl"] == pytest.approx(23.5)
+        assert body["totals"]["open_trades_count"] is None
+        assert body["totals"]["pending_orders_count"] is None
+        assert body["totals"]["counts_available"] is False
+        assert body["strategies"][0]["day_pnl"] == pytest.approx(23.5)
+        assert body["strategies"][0]["last_update"] == "2024-01-01T15:30:00"
+
+    def test_returns_runtime_counts_when_snapshots_exist(self, client, session):
+        session.add(Strategy(id="s1", name="Real 1", real_account=True))
+        session.add(Strategy(id="s2", name="Real 2", real_account=True))
+        session.add(
+            StrategyRuntimeSnapshot(
+                strategy_id="s1",
+                timestamp=datetime(2026, 3, 29, 10, 0, tzinfo=UTC),
+                open_profit=12.5,
+                open_trades_count=2,
+                pending_orders_count=1,
+            )
+        )
+        session.add(
+            StrategyRuntimeSnapshot(
+                strategy_id="s2",
+                timestamp=datetime(2026, 3, 29, 10, 5, tzinfo=UTC),
+                open_profit=-7.25,
+                open_trades_count=3,
+                pending_orders_count=4,
+            )
+        )
+        session.flush()
+
+        response = client.get("/api/real")
+        assert response.status_code == 200
+
+        body = response.json()
+        assert body["totals"]["open_trades_count"] == 5
+        assert body["totals"]["pending_orders_count"] == 5
+        assert body["totals"]["counts_available"] is True
+        assert body["totals"]["floating_pnl"] == pytest.approx(5.25)
+
+        strategy_one = next(s for s in body["strategies"] if s["id"] == "s1")
+        assert strategy_one["open_trades_count"] == 2
+        assert strategy_one["pending_orders_count"] == 1
+        assert strategy_one["floating_pnl"] == pytest.approx(12.5)
+
+    def test_can_switch_real_page_to_demo_mode(self, client, session):
+        session.add(Strategy(id="real_1", name="Real 1", real_account=True))
+        session.add(Strategy(id="demo_1", name="Demo 1", real_account=False))
+        session.add(Setting(key="real_page_mode", value="demo"))
+        session.flush()
+
+        response = client.get("/api/real")
+        assert response.status_code == 200
+
+        body = response.json()
+        assert body["mode"] == "demo"
+        strategy_ids = {s["id"] for s in body["strategies"]}
+        assert strategy_ids == {"demo_1"}
+
+    def test_real_page_demo_mode_prefers_account_type_over_strategy_flag(
+        self, client, session
+    ):
+        session.add(Account(id="acc_demo", name="Demo Account", account_type="Demo"))
+        session.add(Account(id="acc_real", name="Real Account", account_type="Real"))
+        session.add(
+            Strategy(
+                id="flagged_real_but_demo_account",
+                name="Mismatch Demo",
+                real_account=True,
+                account_id="acc_demo",
+            )
+        )
+        session.add(
+            Strategy(
+                id="flagged_demo_but_real_account",
+                name="Mismatch Real",
+                real_account=False,
+                account_id="acc_real",
+            )
+        )
+        session.add(Setting(key="real_page_mode", value="demo"))
+        session.flush()
+
+        response = client.get("/api/real")
+        assert response.status_code == 200
+
+        body = response.json()
+        strategy_ids = {s["id"] for s in body["strategies"]}
+        assert strategy_ids == {"flagged_real_but_demo_account"}
+
+    def test_real_recent_deals_follow_current_real_page_mode(self, client, session):
+        session.add(Account(id="acc_demo2", name="Demo Account", account_type="Demo"))
+        session.add(Account(id="acc_real2", name="Real Account", account_type="Real"))
+        session.add(
+            Strategy(
+                id="demo_recent",
+                name="Demo Recent",
+                real_account=False,
+                account_id="acc_demo2",
+            )
+        )
+        session.add(
+            Strategy(
+                id="real_recent",
+                name="Real Recent",
+                real_account=True,
+                account_id="acc_real2",
+            )
+        )
+        session.add(
+            Deal(
+                timestamp=datetime(2026, 3, 29, 13, 0, tzinfo=UTC),
+                ticket=2001,
+                strategy_id="demo_recent",
+                symbol="EURUSD",
+                type=DealType.BUY,
+                volume=0.1,
+                price=1.10,
+                profit=10.0,
+                commission=-1.0,
+                swap=0.0,
+            )
+        )
+        session.add(
+            Deal(
+                timestamp=datetime(2026, 3, 29, 14, 0, tzinfo=UTC),
+                ticket=2002,
+                strategy_id="real_recent",
+                symbol="XAUUSD",
+                type=DealType.SELL,
+                volume=0.1,
+                price=2100.0,
+                profit=20.0,
+                commission=-2.0,
+                swap=0.0,
+            )
+        )
+        session.add(Setting(key="real_page_mode", value="demo"))
+        session.flush()
+
+        response = client.get("/api/real/recent-deals")
+        assert response.status_code == 200
+
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["strategy_id"] == "demo_recent"
+        assert body[0]["net_profit"] == pytest.approx(9.0)
+
+    def test_real_daily_aggregates_pnl_for_current_mode(self, client, session):
+        session.add(Account(id="acc_demo3", name="Demo Account", account_type="Demo"))
+        session.add(Account(id="acc_real3", name="Real Account", account_type="Real"))
+        session.add(
+            Strategy(
+                id="demo_daily",
+                name="Demo Daily",
+                real_account=False,
+                account_id="acc_demo3",
+            )
+        )
+        session.add(
+            Strategy(
+                id="real_daily",
+                name="Real Daily",
+                real_account=True,
+                account_id="acc_real3",
+            )
+        )
+        session.add(
+            Deal(
+                timestamp=datetime(2026, 3, 29, 13, 0, tzinfo=UTC),
+                ticket=3001,
+                strategy_id="demo_daily",
+                symbol="EURUSD",
+                type=DealType.BUY,
+                volume=0.1,
+                price=1.10,
+                profit=15.0,
+                commission=-1.0,
+                swap=0.0,
+            )
+        )
+        session.add(
+            Deal(
+                timestamp=datetime(2026, 3, 29, 14, 0, tzinfo=UTC),
+                ticket=3002,
+                strategy_id="real_daily",
+                symbol="XAUUSD",
+                type=DealType.SELL,
+                volume=0.1,
+                price=2100.0,
+                profit=20.0,
+                commission=-2.0,
+                swap=0.0,
+            )
+        )
+        session.add(Setting(key="real_page_mode", value="demo"))
+        session.flush()
+
+        response = client.get("/api/real/daily")
+        assert response.status_code == 200
+
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["date"] == "2026-03-29"
+        assert body[0]["net_profit"] == pytest.approx(14.0)
+
+
+class TestTelegramSettings:
+    def test_returns_real_page_mode_setting(self, client, session):
+        session.add(Setting(key="real_page_mode", value="demo"))
+        session.flush()
+
+        response = client.get("/api/settings/telegram")
+        assert response.status_code == 200
+        assert response.json()["real_page_mode"] == "demo"
+
+    def test_updates_real_page_mode_setting(self, client, session):
+        response = client.post(
+            "/api/settings/telegram",
+            json={
+                "bot_token": "",
+                "chat_id": "",
+                "var_95_threshold": 0,
+                "default_initial_balance": 100000,
+                "real_page_mode": "demo",
+            },
+            headers={"X-API-Key": settings.api_key},
+        )
+        assert response.status_code == 204
+
+        setting = session.query(Setting).filter(Setting.key == "real_page_mode").first()
+        assert setting is not None
+        assert setting.value == "demo"
+
+
+class TestBenchmarks:
+    def test_create_and_list_benchmarks(self, client):
+        response = client.post(
+            "/api/benchmarks",
+            json={
+                "name": "S&P 500",
+                "source": "OPENBB",
+                "asset": "SPY",
+                "timeframe": "D1",
+                "is_default": True,
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["is_default"] is True
+
+        listed = client.get("/api/benchmarks")
+        assert listed.status_code == 200
+        assert listed.json()[0]["name"] == "S&P 500"
+
+    def test_set_default_benchmark_switches_previous_default(self, client, session):
+        b1 = Benchmark(
+            name="A", source="OPENBB", asset="SPY", timeframe="D1", is_default=True
+        )
+        b2 = Benchmark(
+            name="B", source="OPENBB", asset="QQQ", timeframe="D1", is_default=False
+        )
+        session.add_all([b1, b2])
+        session.flush()
+
+        response = client.post(f"/api/benchmarks/{b2.id}/set-default")
+        assert response.status_code == 200
+        assert response.json()["id"] == b2.id
+        assert response.json()["is_default"] is True
+
+        session.refresh(b1)
+        session.refresh(b2)
+        assert b1.is_default is False
+        assert b2.is_default is True
+
+    def test_sync_benchmark_returns_service_payload(self, client, session, monkeypatch):
+        benchmark = Benchmark(
+            name="Nasdaq", source="OPENBB", asset="QQQ", timeframe="D1"
+        )
+        session.add(benchmark)
+        session.flush()
+
+        def fake_sync(db, bm):
+            bm.last_error = None
+            return {
+                "status": "synced",
+                "message": "Imported 10 price points.",
+                "points": 10,
+            }
+
+        monkeypatch.setattr(
+            "trademachine.trading_monitor_dashboard.routes.sync_benchmark_from_datamanager",
+            fake_sync,
+        )
+
+        response = client.post(f"/api/benchmarks/{benchmark.id}/sync")
+        assert response.status_code == 200
+        assert response.json()["status"] == "synced"
+        assert response.json()["benchmark"]["name"] == "Nasdaq"
+
+    def test_duplicate_benchmark_create_returns_409(self, client, session):
+        session.add(
+            Benchmark(name="S&P 500", source="OPENBB", asset="SPY", timeframe="D1")
+        )
+        session.flush()
+
+        response = client.post(
+            "/api/benchmarks",
+            json={
+                "name": "S&P 500 Copy",
+                "source": "OPENBB",
+                "asset": "SPY",
+                "timeframe": "D1",
+            },
+        )
+        assert response.status_code == 409
+
+    def test_duplicate_benchmark_update_returns_409(self, client, session):
+        first = Benchmark(name="A", source="OPENBB", asset="SPY", timeframe="D1")
+        second = Benchmark(name="B", source="OPENBB", asset="QQQ", timeframe="D1")
+        session.add_all([first, second])
+        session.flush()
+
+        response = client.patch(
+            f"/api/benchmarks/{second.id}",
+            json={"asset": "SPY"},
+        )
+        assert response.status_code == 409
+
+    def test_sync_accepts_remote_m1_for_d1_benchmark(self, session, monkeypatch):
+        benchmark = Benchmark(
+            name="S&P 500", source="OPENBB", asset="SPY", timeframe="D1"
+        )
+        session.add(benchmark)
+        session.flush()
+
+        monkeypatch.setattr(
+            "trademachine.tradingmonitor.analysis.benchmarks.list_remote_databases",
+            lambda: [{"source": "OPENBB", "asset": "SPY", "timeframe": "M1"}],
+        )
+
+        assert _remote_database_exists(benchmark) is True
+
+
+class TestAdvancedAnalysisBenchmarks:
+    def test_returns_normalized_benchmark_curve_for_comparison(
+        self, client, session, monkeypatch
+    ):
+        import pandas as pd
+
+        session.add(Strategy(id="cmp1", name="Compare", real_account=True))
+        session.add(
+            Deal(
+                timestamp=datetime(2026, 1, 2, tzinfo=UTC),
+                ticket=1,
+                strategy_id="cmp1",
+                symbol="EURUSD",
+                type=DealType.BUY,
+                volume=0.1,
+                price=1.1,
+                profit=50.0,
+                commission=0.0,
+                swap=0.0,
+            )
+        )
+        session.add_all(
+            [
+                EquityCurve(
+                    timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+                    strategy_id="cmp1",
+                    balance=1000.0,
+                    equity=1000.0,
+                ),
+                EquityCurve(
+                    timestamp=datetime(2026, 1, 2, tzinfo=UTC),
+                    strategy_id="cmp1",
+                    balance=1050.0,
+                    equity=1050.0,
+                ),
+            ]
+        )
+        benchmark = Benchmark(
+            name="S&P 500",
+            source="OPENBB",
+            asset="SPY",
+            timeframe="D1",
+            is_default=True,
+        )
+        session.add(benchmark)
+        session.flush()
+        session.add_all(
+            [
+                BenchmarkPrice(
+                    benchmark_id=benchmark.id,
+                    timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+                    close=200.0,
+                ),
+                BenchmarkPrice(
+                    benchmark_id=benchmark.id,
+                    timestamp=datetime(2026, 1, 2, tzinfo=UTC),
+                    close=220.0,
+                ),
+            ]
+        )
+        session.flush()
+
+        deals_df = pd.DataFrame(
+            [
+                {
+                    "timestamp": datetime(2026, 1, 2, tzinfo=UTC),
+                    "profit": 50.0,
+                    "commission": 0.0,
+                    "swap": 0.0,
+                    "type": "BUY",
+                }
+            ]
+        ).set_index("timestamp")
+        equity_df = pd.DataFrame(
+            [
+                {"timestamp": datetime(2026, 1, 1, tzinfo=UTC), "equity": 1000.0},
+                {"timestamp": datetime(2026, 1, 2, tzinfo=UTC), "equity": 1050.0},
+            ]
+        ).set_index("timestamp")
+
+        monkeypatch.setattr(
+            "trademachine.tradingmonitor.metrics.repository.get_strategy_deals",
+            lambda *args, **kwargs: deals_df,
+        )
+        monkeypatch.setattr(
+            "trademachine.tradingmonitor.metrics.repository.get_strategy_equity_curve",
+            lambda *args, **kwargs: equity_df,
+        )
+
+        response = client.get(
+            "/api/advanced-analysis",
+            params={
+                "strategy_ids": ["cmp1"],
+                "history_type": "real",
+                "initial_balance": 1000,
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["benchmark"]["name"] == "S&P 500"
+        assert len(body["comparison_curve"]) == 2
+        assert body["comparison_curve"][0]["portfolio"] == pytest.approx(1000.0)
+        assert body["comparison_curve"][0]["benchmark"] == pytest.approx(1000.0)
+        assert body["comparison_curve"][1]["benchmark"] == pytest.approx(1100.0)
+        assert body["metrics"]["Benchmark Return (%)"] == pytest.approx(10.0)

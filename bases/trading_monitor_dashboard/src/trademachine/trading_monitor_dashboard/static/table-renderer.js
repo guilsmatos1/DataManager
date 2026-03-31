@@ -30,9 +30,9 @@ function renderPie(key, canvasId, data) {
             datasets: [{
                 data: values,
                 backgroundColor: CHART_COLORS.slice(0, labels.length),
-                borderColor: "#0f172a",
-                borderWidth: 2,
-                hoverOffset: 6,
+                borderColor: "transparent",
+                borderWidth: 0,
+                hoverOffset: 4,
             }]
         },
         options: {
@@ -81,6 +81,9 @@ function renderStrategiesTable() {
         return;
     }
 
+    // Filter out invalid entries (e.g., API returns "——" as placeholder)
+    list = list.filter(s => s.id && String(s.id) !== "——");
+
     if (_stratSortCol) {
         list = [...list].sort((a, b) => {
             let va = a[_stratSortCol], vb = b[_stratSortCol];
@@ -128,14 +131,21 @@ function renderStrategiesTable() {
             const hoursAgo = lastT ? Math.round((Date.now() - lastT.getTime()) / 3600000) : "?";
             zombieBadge = `<span class="badge badge-zombie" title="Sem trades há ${hoursAgo}h — verifique o robô">Zombie</span>`;
         }
+        const npPct = (np, ib) => {
+            if (np == null || np === "—" || ib == null || ib <= 0) return `<td class="text-muted">—</td>`;
+            const pct = (np / ib) * 100;
+            const cls = pct >= 0 ? "profit-positive" : "profit-negative";
+            return `<td class="${cls}" style="font-variant-numeric:tabular-nums">${pct.toFixed(2)}%</td>`;
+        };
         return `<tr class="clickable-row" onclick="window.location='/strategy/${s.id}'">
             <td class="mono">${s.id}<button class="btn-copy-id" onclick="event.stopPropagation();copyId('${s.id}',this)" title="Copy Magic Number">⎘</button></td>
             <td class="editable-cell" data-strat-id="${s.id}" data-field="name" onclick="event.stopPropagation();startEdit(this)">${s.name || "—"}</td>
             <td>${s.symbol || "—"}</td>
             <td class="editable-cell" data-strat-id="${s.id}" data-field="timeframe" onclick="event.stopPropagation();startEdit(this)">${s.timeframe || "—"}</td>
+            <td>${s.operational_style || "—"}</td>
             <td class="editable-cell" data-strat-id="${s.id}" data-field="trade_duration" onclick="event.stopPropagation();startEdit(this)">${s.trade_duration || "—"}</td>
-            <td class="editable-cell" data-strat-id="${s.id}" data-field="account_type" data-account-id="${s.account_id || ""}" onclick="event.stopPropagation();startStratAccountEdit(this)">${s.account_type || "—"}</td>
-            ${npCell(npBt)}${npCell(npDemo)}${npCell(npReal)}
+            <td class="editable-cell" data-strat-id="${s.id}" data-field="initial_balance" data-type="number" onclick="event.stopPropagation();startEdit(this)" style="font-variant-numeric:tabular-nums">${s.initial_balance != null ? fmt(s.initial_balance) : "—"}</td>
+            ${npPct(npBt, s.initial_balance)}${npPct(npDemo, s.initial_balance)}${npPct(npReal, s.initial_balance)}
             <td>${signalDot}${liveBadge}${zombieBadge}</td>
             <td><button class="btn-delete-row" title="Delete" onclick="event.stopPropagation();deleteStrategy('${s.id}','${(s.name||s.id).replace(/'/g,"\\'")}')">✕</button></td>
         </tr>`;
@@ -144,8 +154,8 @@ function renderStrategiesTable() {
     container.innerHTML = `<table class="data-table">
         <thead><tr>
             ${th("ID","id")}${th("Name","name")}${th("Symbol","symbol")}
-            ${th("TF","timeframe")}${th("Duration","trade_duration")}
-            ${th("Type","account_type")}
+            ${th("TF","timeframe")}${th("Style","operational_style")}${th("Duration","trade_duration")}
+            ${th("Initial Balance","initial_balance")}
             ${th("NP Backtest","backtest_net_profit")}${th("NP Demo","net_profit")}${th("NP Real","net_profit")}
             <th>Status</th><th>Actions</th>
         </tr></thead>
@@ -212,11 +222,11 @@ function renderAccountsTable() {
         const depositsCls = (a.total_deposits ?? 0) > 0 ? "profit-positive" : "";
         const withdrawCls = (a.total_withdrawals ?? 0) > 0 ? "profit-negative" : "";
         const npCls       = a.net_profit == null ? "" : a.net_profit >= 0 ? "profit-positive" : "profit-negative";
-        return `<tr>
+        return `<tr class="clickable-row" onclick="window.location='/account/${encodeURIComponent(a.id)}'">
             <td class="mono">${a.id}</td>
             <td class="editable-cell" data-account-id="${a.id}" data-field="name" onclick="event.stopPropagation();startAccountEdit(this)">${a.name || "—"}</td>
             <td>${a.broker || "—"}</td>
-            <td class="editable-cell" data-account-id="${a.id}" data-field="account_type" onclick="event.stopPropagation();startAccountEdit(this)">${a.account_type || "—"}</td>
+            <td><span class="badge ${a.account_type?.toLowerCase().includes('real') ? 'badge-real' : 'badge-demo'}">${a.account_type || "—"}</span></td>
             <td class="editable-cell" data-account-id="${a.id}" data-field="currency" onclick="event.stopPropagation();startAccountEdit(this)">${a.currency || "—"}</td>
             <td class="${balanceCls}" style="font-variant-numeric:tabular-nums">${a.balance != null ? fmt(a.balance) : "—"}</td>
             <td class="${marginCls}" style="font-variant-numeric:tabular-nums">${a.free_margin != null ? fmt(a.free_margin) : "—"}</td>
@@ -227,7 +237,7 @@ function renderAccountsTable() {
     }).join("");
     container.innerHTML = `<table class="data-table">
         <thead><tr>
-            ${tha("Número","id")}${tha("Name","name")}${tha("Broker","broker")}
+            ${tha("Number","id")}${tha("Name","name")}${tha("Broker","broker")}
             ${tha("Type","account_type")}${tha("Currency","currency")}
             ${tha("Balance","balance")}${tha("Free Margin","free_margin")}
             ${tha("Deposits","total_deposits")}${tha("Withdrawals","total_withdrawals")}
@@ -291,26 +301,38 @@ function renderPortfoliosTable() {
     const pageList = list.slice((_portPage - 1) * ps, _portPage * ps);
 
     const rows = pageList.map(p => {
-        const ddVal = p.max_drawdown != null ? (p.max_drawdown * 100).toFixed(1) + "%" : "—";
-        const ddCls = p.max_drawdown != null ? "profit-negative" : "text-muted";
+        const npPct = val => (
+            val != null && p.initial_balance && p.initial_balance > 0
+                ? ((val / p.initial_balance) * 100).toFixed(2) + "%"
+                : "—"
+        );
+        const npCls = val => (
+            val != null ? (val >= 0 ? "profit-positive" : "profit-negative") : "text-muted"
+        );
         return `<tr class="clickable-row" onclick="window.location='/portfolio/${p.id}'">
+            <td class="mono">${p.id}</td>
             <td class="editable-cell" data-portfolio-id="${p.id}" data-field="name" onclick="event.stopPropagation();startPortfolioEdit(this)">${p.name || "—"}</td>
             <td class="editable-cell" data-portfolio-id="${p.id}" data-field="description" onclick="event.stopPropagation();startPortfolioEdit(this)">${p.description || "—"}</td>
             <td>${p.strategy_ids.length}</td>
             <td class="editable-cell" data-portfolio-id="${p.id}" data-field="initial_balance" data-type="number" onclick="event.stopPropagation();startPortfolioEdit(this)" style="font-variant-numeric:tabular-nums">${p.initial_balance != null ? fmt(p.initial_balance) : "—"}</td>
-            ${portfolioNpCell(p.net_profit ?? null)}
-            <td class="${ddCls}" style="font-variant-numeric:tabular-nums">${ddVal}</td>
+            <td class="${npCls(p.backtest_net_profit)}" style="font-variant-numeric:tabular-nums">${npPct(p.backtest_net_profit)}</td>
+            <td class="${npCls(p.demo_net_profit)}" style="font-variant-numeric:tabular-nums">${npPct(p.demo_net_profit)}</td>
+            <td class="${npCls(p.real_net_profit)}" style="font-variant-numeric:tabular-nums">${npPct(p.real_net_profit)}</td>
             <td><span class="badge ${p.live ? 'badge-live' : 'badge-incubation'}">${p.live ? "Live" : "Incubation"}</span></td>
-            <td><span class="badge ${p.real_account ? 'badge-real' : 'badge-demo'}">${p.real_account ? "Real" : "Demo"}</span></td>
-            <td><button class="btn-delete-row" title="Delete" onclick="event.stopPropagation();deletePortfolio(${p.id},'${(p.name||p.id).replace(/'/g,"\\'")}')">✕</button></td>
+            <td>
+                <button class="btn-edit-row" onclick="event.stopPropagation();openEditPortfolioModalById(${p.id})" title="Edit">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+                <button class="btn-delete-row" title="Delete" onclick="event.stopPropagation();deletePortfolio(${p.id},'${(p.name||p.id).replace(/'/g,"\\'")}')">✕</button>
+            </td>
         </tr>`;
     }).join("");
     container.innerHTML = `<table class="data-table">
         <thead><tr>
-            ${thp("Name","name")}${thp("Description","description")}
+            ${thp("ID","id")}${thp("Name","name")}${thp("Description","description")}
             <th>Strategies</th>${thp("Initial Balance","initial_balance")}
-            ${thp("Net Profit","net_profit")}${thp("Drawdown","max_drawdown")}
-            <th>Status</th><th>Account Type</th><th>Actions</th>
+            ${thp("NP Backtest %","backtest_net_profit")}${thp("NP Demo %","demo_net_profit")}${thp("NP Real %","real_net_profit")}
+            <th>Status</th><th>Actions</th>
         </tr></thead>
         <tbody>${rows}</tbody>
     </table>`;
@@ -369,15 +391,17 @@ function renderSymbolsTable() {
     if (_symPage > totalPages) _symPage = 1;
     const pageList = list.slice((_symPage - 1) * ps, _symPage * ps);
 
-    const rows = pageList.map(s => `<tr>
-        <td class="editable-cell" data-sym-id="${s.id}" data-field="name" onclick="startSymbolEdit(this)">${s.name}</td>
-        <td class="editable-cell" data-sym-id="${s.id}" data-field="market" onclick="startSymbolEdit(this)">${s.market || "—"}</td>
-        <td class="editable-cell" data-sym-id="${s.id}" data-field="lot" data-type="number" onclick="startSymbolEdit(this)" style="font-variant-numeric:tabular-nums">${s.lot != null ? s.lot : "—"}</td>
-        <td><button class="btn-delete-row" title="Delete" onclick="deleteSymbol(${s.id},'${s.name.replace(/'/g,"\\'")}')">✕</button></td>
+    const rows = pageList.map(s => `<tr class="clickable-row" onclick="window.location='/symbol/${encodeURIComponent(s.name)}'">
+        <td class="mono">${s.id}</td>
+        <td class="editable-cell" data-sym-id="${s.id}" data-field="name" onclick="event.stopPropagation();startSymbolEdit(this)">${s.name}</td>
+        <td class="editable-cell" data-sym-id="${s.id}" data-field="market" onclick="event.stopPropagation();startSymbolEdit(this)">${s.market || "—"}</td>
+        <td class="editable-cell" data-sym-id="${s.id}" data-field="lot" data-type="number" onclick="event.stopPropagation();startSymbolEdit(this)" style="font-variant-numeric:tabular-nums">${s.lot != null ? s.lot : "—"}</td>
+        <td style="text-align:center;font-weight:600">${s.strategies_count || 0}</td>
+        <td><button class="btn-delete-row" title="Delete" onclick="event.stopPropagation();deleteSymbol(${s.id},'${s.name.replace(/'/g,"\\'")}')">✕</button></td>
     </tr>`).join("");
 
     container.innerHTML = `<table class="data-table">
-        <thead><tr>${ths("Name","name")}${ths("Market","market")}${ths("Lot Tick","lot")}<th>Actions</th></tr></thead>
+        <thead><tr>${ths("ID","id")}${ths("Name","name")}${ths("Market","market")}${ths("Lot Tick","lot")}<th class="sortable" style="text-align:center" onclick="symSortBy('strategies_count')">Strategies${_symSortCol==="strategies_count"?(_symSortAsc?" ↑":" ↓"):""}</th><th>Actions</th></tr></thead>
         <tbody>${rows}</tbody>
     </table>`;
 
@@ -402,11 +426,27 @@ function symGoPage(p) { _symPage = p; renderSymbolsTable(); }
 // ── Create Portfolio modal strategies table ────────────────────────────────────
 
 let _modalStratSort = "id", _modalStratSortAsc = true;
+let _modalLastClickedIdx = null;
 
 function modalStratSortBy(col) {
     if (_modalStratSort === col) _modalStratSortAsc = !_modalStratSortAsc;
     else { _modalStratSort = col; _modalStratSortAsc = true; }
+    _modalLastClickedIdx = null;
     renderModalStrategiesTable();
+}
+
+function handleModalStratRowClick(e, idx) {
+    if (e.shiftKey && _modalLastClickedIdx !== null) {
+        e.preventDefault();
+        const checkboxes = document.querySelectorAll('#new-strategy-list .modal-strat-checkbox');
+        const start = Math.min(_modalLastClickedIdx, idx);
+        const end = Math.max(_modalLastClickedIdx, idx);
+        const allChecked = Array.from(checkboxes).slice(start, end + 1).every(cb => cb.checked);
+        checkboxes.forEach((cb, i) => {
+            if (i >= start && i <= end) cb.checked = !allChecked;
+        });
+    }
+    _modalLastClickedIdx = idx;
 }
 
 function renderModalStrategiesTable() {
@@ -429,7 +469,7 @@ function renderModalStrategiesTable() {
         container.innerHTML = '<p class="empty-state" style="padding:0.5rem">No strategies found.</p>';
         return;
     }
-    const rows = list.map(s => `<tr onclick="event.stopPropagation();this.querySelector('input').click()">
+    const rows = list.map((s, idx) => `<tr onclick="event.stopPropagation();handleModalStratRowClick(event,${idx});this.querySelector('input').click()">
         <td style="width:2rem;text-align:center"><input type="checkbox" class="modal-strat-checkbox" value="${s.id}" ${checked.has(String(s.id)) ? "checked" : ""} onclick="event.stopPropagation()"></td>
         <td class="mono">${s.id}</td>
         <td>${s.name || "—"}</td>
@@ -463,7 +503,6 @@ function toggleAllModalStrategies(source) {
 // ── Portfolio page charts & tables ──────────────────────────────────────────
 
 let equityChart = null;
-let _equityBreakdown = null;
 let _allEquityPoints = [];
 let _equityPeriod = "all";
 
@@ -484,12 +523,8 @@ function setEquityPeriod(period) {
     _equityPeriod = period;
     document.querySelectorAll(".period-tab[data-ep]").forEach(b =>
         b.classList.toggle("active", b.dataset.ep === period));
-    if (_equityBreakdown) {
-        renderEquityChart(
-            _allEquityPoints,
-            _equityBreakdown.strategies || {},
-            period
-        );
+    if (_allEquityPoints.length) {
+        renderEquityChart(_allEquityPoints, {}, period);
     }
 }
 
@@ -500,6 +535,11 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
         ctx.canvas.parentElement.innerHTML = '<p class="empty-state" style="padding:2rem 0">No equity data yet.</p>';
         return;
     }
+
+    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+    const tickColor = isDark ? "#64748b" : "#94a3b8";
+    const gridColor = isDark ? "#334155" : "#e2e8f0";
+    const legendColor = isDark ? "#94a3b8" : "#475569";
 
     const cutoff = period !== "all" ? (() => {
         const d = new Date();
@@ -548,9 +588,7 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
             interaction: { mode: "index", intersect: false },
             plugins: {
                 legend: {
-                    display: true,
-                    position: "bottom",
-                    labels: { color: "#94a3b8", boxWidth: 12, padding: 16, font: { size: 11 } },
+                    display: false,
                 },
                 tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)}` } },
                 zoom: {
@@ -559,8 +597,8 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
                 },
             },
             scales: {
-                x: { ticks: { maxTicksLimit: 12, color: "#64748b" }, grid: { color: "#334155" } },
-                y: { ticks: { color: "#64748b" }, grid: { color: "#334155" } },
+                x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
+                y: { ticks: { color: tickColor }, grid: { color: gridColor } },
             },
         },
     });
@@ -607,7 +645,7 @@ function renderCalendar() {
             valHtml = `
                 <div style="flex:1; display:flex; flex-direction:column; justify-content:center; align-items:center; margin-top:-0.5rem">
                     <span class="cal-value" style="align-self:center; font-size:0.95rem">${np > 0 ? "+" : ""}${fmt(np, 2)}</span>
-                    <span style="font-size:0.62rem; font-weight:600; text-transform:uppercase; color:var(--text-dim); margin-top:2px">${count} ${count === 1 ? 'trade' : 'trades'}</span>
+                    <span style="font-size:0.62rem; font-weight:600; text-transform:uppercase; color:var(--text); margin-top:2px">${count} ${count === 1 ? 'trade' : 'trades'}</span>
                 </div>`;
         }
         if (dateStr === today) cls += " cal-today";
@@ -648,14 +686,24 @@ function renderPortfolioStrategies() {
     const _retdd = s => {
         const np = s.net_profit, dd = s.max_drawdown, ib = s.initial_balance;
         if (np == null || dd == null || dd <= 0 || ib == null || ib <= 0) return null;
-        const val = np / (Math.abs(dd) * ib);
+        const val = np / (dd * ib);
         return val;
     };
 
     if (_portStratSortCol) {
         list.sort((a, b) => {
-            let va = _portStratSortCol === "retdd" ? _retdd(a) : a[_portStratSortCol];
-            let vb = _portStratSortCol === "retdd" ? _retdd(b) : b[_portStratSortCol];
+            let va, vb;
+            if (_portStratSortCol === "retdd") {
+                va = _retdd(a);
+                vb = _retdd(b);
+            } else if (_portStratSortCol === "max_drawdown") {
+                // Sort by absolute drawdown amount
+                va = a.max_drawdown != null && a.initial_balance != null ? a.max_drawdown * a.initial_balance : null;
+                vb = b.max_drawdown != null && b.initial_balance != null ? b.max_drawdown * b.initial_balance : null;
+            } else {
+                va = a[_portStratSortCol];
+                vb = b[_portStratSortCol];
+            }
             if (va == null) va = _portStratSortAsc ? Infinity : -Infinity;
             if (vb == null) vb = _portStratSortAsc ? Infinity : -Infinity;
             return _portStratSortAsc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
@@ -676,7 +724,9 @@ function renderPortfolioStrategies() {
         const np = s.net_profit;
         const npCls = np == null ? "" : (np >= 0 ? "profit-positive" : "profit-negative");
         const dd = s.max_drawdown;
-        const ddStr = dd != null ? (dd * 100).toFixed(2) + "%" : "—";
+        const ib = s.initial_balance;
+        const ddAmount = dd != null && ib != null ? dd * ib : null;
+        const ddStr = ddAmount != null ? fmt(ddAmount) : "—";
         const ddCls = dd != null && dd > 0 ? "profit-negative" : "";
         const retDDVal = _retdd(s);
         const retDD = retDDVal != null ? retDDVal.toFixed(2) : "—";
@@ -726,11 +776,12 @@ function exportPortfolioStrategiesCSV() {
     const headers = ["ID","Name","Symbol","TF","Type","Trades","Net Profit","Drawdown","Ret/DD"];
     const rows = _portStratList.map(s => {
         const dd = s.max_drawdown;
-        const ddStr = dd != null ? (dd * 100).toFixed(2) + "%" : "";
+        const ib = s.initial_balance;
+        const ddAmount = dd != null && ib != null ? dd * ib : null;
+        const ddStr = ddAmount != null ? ddAmount.toFixed(2) : "";
         let retDD = "";
-        const ib = s.initial_balance || 1;
-        if (s.net_profit != null && dd != null && dd > 0 && ib > 0) {
-            const val = s.net_profit / (Math.abs(dd) * ib);
+        if (s.net_profit != null && dd != null && dd > 0 && ib != null && ib > 0) {
+            const val = s.net_profit / (dd * ib);
             retDD = val.toFixed(2);
         }
         return [s.id, s.name||"", s.symbol||"", s.timeframe||"", s.trade_duration||"", s.trades_count??"",(s.net_profit??""),(ddStr),(retDD)].join(",");
@@ -754,8 +805,12 @@ function editStratSortBy(col) {
 
 function renderEditStrategiesTable() {
     const container = document.getElementById("edit-strategy-list");
+    const selectedInputs = [...document.querySelectorAll("#edit-strategy-list input:checked")].map(el => el.value);
+    const portfolioStrategyIds = typeof _portfolio !== "undefined" && _portfolio && Array.isArray(_portfolio.strategy_ids)
+        ? _portfolio.strategy_ids
+        : [];
     const selected = new Set(
-        [...document.querySelectorAll("#edit-strategy-list input:checked")].map(el => el.value)
+        selectedInputs.length ? selectedInputs : portfolioStrategyIds
     );
     const col = _editStratSort;
     const asc = _editStratSortAsc;

@@ -1,140 +1,249 @@
 {% extends "base.html" %}
 
-{% block title %}Configurações - TradingMonitor{% endblock %}
+{% block title %}TradingMonitor — Configurações{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <h1>Configurações</h1>
 </div>
 
-<div style="display:flex; flex-direction:column; gap:1.5rem; max-width:700px;">
-
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">Integração Telegram</h2>
-    </div>
-    <div class="card-body">
-        <form id="telegram-form" onsubmit="saveSettings(event)">
-            <div class="form-group" style="margin-bottom: 1.5rem;">
-                <label for="bot_token" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Bot Token</label>
-                <input type="password" id="bot_token" name="bot_token" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
-            </div>
-            <div class="form-group" style="margin-bottom: 1.5rem;">
-                <label for="chat_id" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Chat ID</label>
-                <input type="text" id="chat_id" name="chat_id" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: -100123456789">
-            </div>
-            <div class="form-group" style="margin-bottom: 1.5rem;">
-                <label for="var_95_threshold" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Limite VaR 95% (%)</label>
-                <input type="number" step="0.01" id="var_95_threshold" name="var_95_threshold" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: 5.0">
-                <small style="color:var(--text-muted); font-size:0.75rem;">Notificar no Telegram se o VaR diário exceder este valor.</small>
-            </div>
-            <div id="settings-status" style="margin-bottom: 1rem; font-size: 0.85rem; display: none;"></div>
-            <button type="submit" class="btn btn-primary" id="save-btn" style="background: var(--accent); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500;">Salvar Configurações</button>
-        </form>
-    </div>
+<div class="section-tabs">
+    <button class="section-tab active" onclick="showSettingsTab('geral')">Geral</button>
+    <button class="section-tab" onclick="showSettingsTab('integracoes')">Integrações</button>
+    <button class="section-tab" onclick="showSettingsTab('importacao')">Importação</button>
+    <button class="section-tab" onclick="showSettingsTab('visualizacao')">Visualização</button>
+    <button class="section-tab" onclick="showSettingsTab('sistema')">Sistema</button>
 </div>
 
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">Mapeamento CSV (Arquivo → Magic Number)</h2>
-    </div>
-    <div class="card-body">
-        <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;">
-            Opcional. Carregue um CSV com colunas <code>arquivo</code> e <code>MagicNumber</code> para vincular
-            relatórios HTML que não possuem Magic Number embutido, ou para sobrescrever o valor encontrado no HTML.
-        </p>
-        <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-            <label class="btn btn-ghost btn-sm" style="cursor:pointer;">
-                Selecionar CSV
-                <input type="file" id="csv-mapping-input" accept=".csv,.txt" style="display:none" onchange="csvMappingLoad(this)">
-            </label>
-            <span id="csv-mapping-status" style="font-size:0.85rem; color:var(--text-muted);"></span>
-            <button class="btn btn-sm" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25);"
-                    onclick="csvMappingClear()" id="csv-mapping-clear" style="display:none">Limpar</button>
-        </div>
-        <div id="csv-mapping-preview" style="margin-top:0.75rem; display:none;">
-            <table class="data-table" style="width:100%; max-width:500px;">
-                <thead><tr><th>Arquivo</th><th>Magic Number</th></tr></thead>
-                <tbody id="csv-mapping-tbody"></tbody>
-            </table>
-        </div>
-    </div>
-</div>
+<div style="max-width:1000px; width:100%;">
 
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">Importar Backtests MT5</h2>
-    </div>
-    <div class="card-body">
-        <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;">
-            Selecione um ou mais relatórios HTML exportados pelo MetaTrader 5 (Relatório → Exportar como HTML).
-            A estratégia correspondente ao Magic Number deve estar cadastrada.
-        </p>
-
-        <div id="bt-drop-zone"
-             style="border: 2px dashed var(--border); border-radius: var(--radius); padding: 2rem 1rem;
-                    text-align:center; cursor:pointer; color:var(--text-muted); margin-bottom:1rem;
-                    transition: border-color 0.2s, background 0.2s;"
-             onclick="document.getElementById('bt-file-input').click()"
-             ondragover="btDragOver(event)" ondragleave="btDragLeave(event)" ondrop="btDrop(event)">
-            <div style="font-size:2rem; margin-bottom:0.5rem;">📂</div>
-            <div>Arraste arquivos HTML aqui ou <strong>clique para selecionar</strong></div>
-            <div style="font-size:0.8rem; margin-top:0.4rem;">Múltiplos arquivos suportados</div>
-        </div>
-        <input type="file" id="bt-file-input" accept=".html,.htm" multiple style="display:none"
-               onchange="btFilesSelected(this.files)">
-
-        <div id="bt-file-list" style="margin-bottom:1rem;"></div>
-
-        <div style="display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem;">
-            <button class="btn btn-primary btn-sm" id="bt-upload-btn" onclick="btUpload()" disabled>
-                Importar
-            </button>
-            <span id="bt-upload-status" style="font-size:0.85rem; color:var(--text-muted);"></span>
-        </div>
-
-        <div id="bt-progress-wrap" style="display:none; margin-bottom:1rem;">
-            <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted); margin-bottom:0.35rem;">
-                <span id="bt-progress-label">Processando…</span>
-                <span id="bt-progress-pct">0%</span>
+    <!-- ── ABA GERAL ── -->
+    <div id="tab-geral" class="settings-tab-content">
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">EA MetricsPublisher</h2>
             </div>
-            <div style="background:var(--border); border-radius:4px; height:6px; overflow:hidden;">
-                <div id="bt-progress-bar"
-                     style="height:100%; width:0%; background:var(--accent); border-radius:4px; transition:width 0.25s ease;"></div>
+            <div class="card-body">
+                <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;">
+                    Baixe o EA já preparado para publicar <code>DEAL</code>, <code>EQUITY</code>, <code>ACCOUNT</code> e <code>STRATEGY_RUNTIME</code> para o TradingMonitor.
+                </p>
+                <a href="/downloads/metrics-publisher" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.5rem; background: var(--accent); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500;">
+                    Baixar MetricsPublisher.mq5
+                </a>
             </div>
         </div>
 
-        <div id="bt-results" style="margin-top:1.25rem; display:none;">
-            <h3 style="font-size:0.9rem; font-weight:600; margin-bottom:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em;">Resultado</h3>
-            <table class="data-table" style="width:100%">
-                <thead><tr>
-                    <th>Arquivo</th>
-                    <th>Status</th>
-                    <th>Backtest ID</th>
-                    <th>Transações</th>
-                    <th>Detalhe</th>
-                </tr></thead>
-                <tbody id="bt-results-body"></tbody>
-            </table>
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Preferências Globais</h2>
+            </div>
+            <div class="card-body">
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label for="default_initial_balance" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Initial Balance Padrão (estratégias novas)</label>
+                    <input type="number" step="0.01" id="default_initial_balance" name="default_initial_balance" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: 100000">
+                    <small style="color:var(--text-muted); font-size:0.75rem;">Valor padrão de initial balance ao criar novas estratégias. Use 100000 para simular 100k de saldo.</small>
+                </div>
+                <div style="display: flex; gap: 0.75rem; align-items: center;">
+                    <button type="button" class="btn btn-primary" onclick="saveSettings(event)" style="background: var(--accent); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500;">Salvar Preferências</button>
+                    <span id="geral-status" class="edit-status" style="display:none;"></span>
+                </div>
+            </div>
         </div>
     </div>
-</div>
 
+    <!-- ── ABA INTEGRAÇÕES ── -->
+    <div id="tab-integracoes" class="settings-tab-content" style="display:none">
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">Integração Telegram</h2>
+            </div>
+            <div class="card-body">
+                <form id="telegram-form" onsubmit="saveSettings(event)">
+                    <div class="form-group" style="margin-bottom: 1.5rem;">
+                        <label for="bot_token" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Bot Token</label>
+                        <input type="password" id="bot_token" name="bot_token" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.5rem;">
+                        <label for="chat_id" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Chat ID</label>
+                        <input type="text" id="chat_id" name="chat_id" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: -100123456789">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.5rem;">
+                        <label for="var_95_threshold" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Limite VaR 95% (%)</label>
+                        <input type="number" step="0.01" id="var_95_threshold" name="var_95_threshold" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: 5.0">
+                        <small style="color:var(--text-muted); font-size:0.75rem;">Notificar no Telegram se o VaR diário exceder este valor.</small>
+                    </div>
+                    <div id="settings-status" style="margin-bottom: 1rem; font-size: 0.85rem; display: none;"></div>
+                    <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <button type="submit" class="btn btn-primary" id="save-btn" style="background: var(--accent); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500;">Salvar Telegram</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="test-telegram-btn" onclick="testTelegram()" style="border: 1px solid var(--border);">Enviar Teste</button>
+                        <span id="test-telegram-status" style="font-size: 0.85rem;"></span>
+                    </div>
+                </form>
+            </div>
+        </div>
 
-<div class="card">
-    <div class="card-header" style="display:flex;align-items:center;gap:1rem">
-        <h2 class="card-title">Erros de Ingestão (Dead Letters)</h2>
-        <span id="dl-count" class="badge badge-neutral" style="margin-left:auto"></span>
-        <button class="btn btn-ghost btn-sm" onclick="loadDeadLetters()">Atualizar</button>
-        <button class="btn btn-sm" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25)" onclick="clearDeadLetters()">Limpar tudo</button>
-    </div>
-    <div class="card-body">
-        <p style="color:var(--text-muted);font-size:0.8rem;margin-bottom:0.75rem">Últimas mensagens que falharam ao ser processadas pelo servidor TCP.</p>
-        <div id="dl-list" style="display:flex;flex-direction:column;gap:0.5rem">
-            <p style="color:var(--text-muted);font-size:0.85rem">Carregando…</p>
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Integração DataManager</h2>
+            </div>
+            <div class="card-body">
+                <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;">
+                    Configure a conexão com a API do DataManager para sincronizar benchmarks e dados de mercado.
+                </p>
+                <form id="dm-form" onsubmit="saveDmSettings(event)">
+                    <div class="form-group" style="margin-bottom: 1.5rem;">
+                        <label for="dm_url" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">URL</label>
+                        <input type="text" id="dm_url" name="dm_url" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="http://127.0.0.1:8686">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.5rem;">
+                        <label for="dm_api_key" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">API Key</label>
+                        <input type="password" id="dm_api_key" name="dm_api_key" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="YOUR_API_KEY_HERE">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.5rem;">
+                        <label for="dm_timeout" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Timeout (segundos)</label>
+                        <input type="number" step="0.1" id="dm_timeout" name="dm_timeout" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="30">
+                    </div>
+                    <div id="dm-status" style="margin-bottom: 1rem; font-size: 0.85rem; display: none;"></div>
+                    <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <button type="submit" class="btn btn-primary" id="dm-save-btn" style="background: var(--accent); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500;">Salvar DataManager</button>
+                        <button type="button" class="btn btn-ghost btn-sm" id="dm-test-btn" onclick="testDmConnection()" style="border: 1px solid var(--border);">Testar Conexão</button>
+                        <span id="dm-test-status" style="font-size: 0.85rem;"></span>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
-</div>
+
+    <!-- ── ABA IMPORTAÇÃO ── -->
+    <div id="tab-importacao" class="settings-tab-content" style="display:none">
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-header">
+                <h2 class="card-title">Importar Backtests MT5</h2>
+            </div>
+            <div class="card-body">
+                <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;">
+                    Selecione um ou mais relatórios HTML exportados pelo MetaTrader 5 (Relatório → Exportar como HTML).
+                    A estratégia correspondente ao Magic Number deve estar cadastrada.
+                </p>
+
+                <div id="bt-drop-zone"
+                     style="border: 2px dashed var(--border); border-radius: var(--radius); padding: 2rem 1rem;
+                            text-align:center; cursor:pointer; color:var(--text-muted); margin-bottom:1rem;
+                            transition: border-color 0.2s, background 0.2s;"
+                     onclick="document.getElementById('bt-file-input').click()"
+                     ondragover="btDragOver(event)" ondragleave="btDragLeave(event)" ondrop="btDrop(event)">
+                    <div style="font-size:2rem; margin-bottom:0.5rem;">📂</div>
+                    <div>Arraste arquivos HTML aqui ou <strong>clique para selecionar</strong></div>
+                    <div style="font-size:0.8rem; margin-top:0.4rem;">Múltiplos arquivos suportados</div>
+                </div>
+                <input type="file" id="bt-file-input" accept=".html,.htm" multiple style="display:none"
+                       onchange="btFilesSelected(this.files)">
+
+                <div id="bt-file-list" style="margin-bottom:1rem;"></div>
+
+                <div style="display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem;">
+                    <button class="btn btn-primary btn-sm" id="bt-upload-btn" onclick="btUpload()" disabled>
+                        Importar
+                    </button>
+                    <span id="bt-upload-status" style="font-size:0.85rem; color:var(--text-muted);"></span>
+                </div>
+
+                <div id="bt-progress-wrap" style="display:none; margin-bottom:1rem;">
+                    <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted); margin-bottom:0.35rem;">
+                        <span id="bt-progress-label">Processando…</span>
+                        <span id="bt-progress-pct">0%</span>
+                    </div>
+                    <div style="background:var(--border); border-radius:4px; height:6px; overflow:hidden;">
+                        <div id="bt-progress-bar"
+                             style="height:100%; width:0%; background:var(--accent); border-radius:4px; transition:width 0.25s ease;"></div>
+                    </div>
+                </div>
+
+                <div id="bt-results" style="margin-top:1.25rem; display:none;">
+                    <h3 style="font-size:0.9rem; font-weight:600; margin-bottom:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em;">Resultado</h3>
+                    <table class="data-table" style="width:100%">
+                        <thead><tr>
+                            <th>Arquivo</th>
+                            <th>Status</th>
+                            <th>Backtest ID</th>
+                            <th>Transações</th>
+                            <th>Detalhe</th>
+                        </tr></thead>
+                        <tbody id="bt-results-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Mapeamento CSV (Arquivo → Magic Number)</h2>
+            </div>
+            <div class="card-body">
+                <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:1rem;">
+                    Opcional. Carregue um CSV com colunas <code>arquivo</code> e <code>MagicNumber</code> para vincular
+                    relatórios HTML que não possuem Magic Number embutido, ou para sobrescrever o valor encontrado no HTML.
+                </p>
+                <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                    <label class="btn btn-ghost btn-sm" style="cursor:pointer;">
+                        Selecionar CSV
+                        <input type="file" id="csv-mapping-input" accept=".csv,.txt" style="display:none" onchange="csvMappingLoad(this)">
+                    </label>
+                    <button class="btn btn-ghost btn-sm" onclick="downloadCsvMappingExample()">Baixar Exemplo</button>
+                    <span id="csv-mapping-status" style="font-size:0.85rem; color:var(--text-muted);"></span>
+                    <button class="btn btn-sm" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25);"
+                            onclick="csvMappingClear()" id="csv-mapping-clear" style="display:none">Limpar</button>
+                </div>
+                <div id="csv-mapping-preview" style="margin-top:0.75rem; display:none;">
+                    <table class="data-table" style="width:100%; max-width:500px;">
+                        <thead><tr><th>Arquivo</th><th>Magic Number</th></tr></thead>
+                        <tbody id="csv-mapping-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── ABA VISUALIZAÇÃO ── -->
+    <div id="tab-visualizacao" class="settings-tab-content" style="display:none">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Configurações de Visualização</h2>
+            </div>
+            <div class="card-body">
+                <div class="form-group" style="margin-bottom: 1.5rem;">
+                    <label for="real_page_mode" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Modo da página /real</label>
+                    <select id="real_page_mode" name="real_page_mode" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);">
+                        <option value="real">Exibir apenas contas Real</option>
+                        <option value="demo">Exibir apenas contas Demo</option>
+                    </select>
+                    <small style="color:var(--text-muted); font-size:0.75rem;">A visão /real exibirá somente um dos dois grupos: Real ou Demo.</small>
+                </div>
+                <div style="display: flex; gap: 0.75rem; align-items: center;">
+                    <button type="button" class="btn btn-primary" onclick="saveSettings(event)" style="background: var(--accent); color: white; border: none; padding: 0.6rem 1.2rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500;">Salvar Visualização</button>
+                    <span id="visualizacao-status" class="edit-status" style="display:none;"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── ABA SISTEMA ── -->
+    <div id="tab-sistema" class="settings-tab-content" style="display:none">
+        <div class="card">
+            <div class="card-header" style="display:flex;align-items:center;gap:1rem">
+                <h2 class="card-title">Erros de Ingestão (Dead Letters)</h2>
+                <span id="dl-count" class="badge badge-neutral" style="margin-left:auto"></span>
+                <button class="btn btn-ghost btn-sm" onclick="loadDeadLetters()">Atualizar</button>
+                <button class="btn btn-sm" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25)" onclick="clearDeadLetters()">Limpar tudo</button>
+            </div>
+            <div class="card-body">
+                <p style="color:var(--text-muted);font-size:0.8rem;margin-bottom:0.75rem">Últimas mensagens que falharam ao ser processadas pelo servidor TCP.</p>
+                <div id="dl-list" style="display:flex;flex-direction:column;gap:0.5rem">
+                    <p style="color:var(--text-muted);font-size:0.85rem">Carregando…</p>
+                </div>
+            </div>
+        </div>
+    </div>
 
 </div>
 {% endblock %}
@@ -143,7 +252,28 @@
 <script>
     const API_KEY = document.querySelector('meta[name="api-key"]').content;
 
-    // ── Telegram Settings ────────────────────────────────────────────────────
+    // ── Tab Management ───────────────────────────────────────────────────────
+
+    function showSettingsTab(tabId) {
+        // Update tab buttons
+        document.querySelectorAll('.section-tab').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('onclick').includes(tabId));
+        });
+        // Update content sections
+        document.querySelectorAll('.settings-tab-content').forEach(section => {
+            section.style.display = section.id === `tab-${tabId}` ? 'block' : 'none';
+        });
+        // Store preference
+        localStorage.setItem('tm-settings-tab', tabId);
+    }
+
+    // Restore last active tab
+    document.addEventListener('DOMContentLoaded', () => {
+        const lastTab = localStorage.getItem('tm-settings-tab');
+        if (lastTab) showSettingsTab(lastTab);
+    });
+
+    // ── Telegram & Global Settings ───────────────────────────────────────────
 
     async function loadSettings() {
         try {
@@ -155,6 +285,8 @@
                 document.getElementById('bot_token').value = data.bot_token || '';
                 document.getElementById('chat_id').value = data.chat_id || '';
                 document.getElementById('var_95_threshold').value = data.var_95_threshold || '';
+                document.getElementById('default_initial_balance').value = data.default_initial_balance || 100000;
+                document.getElementById('real_page_mode').value = data.real_page_mode || 'real';
             }
         } catch (error) {
             console.error('Error loading settings:', error);
@@ -163,17 +295,24 @@
 
     async function saveSettings(event) {
         event.preventDefault();
-        const saveBtn = document.getElementById('save-btn');
-        const statusDiv = document.getElementById('settings-status');
 
-        saveBtn.disabled = true;
-        saveBtn.innerText = 'Salvando...';
-        statusDiv.style.display = 'none';
+        // Determine which status spans to update
+        const statuses = ['settings-status', 'geral-status', 'visualizacao-status'];
+        statuses.forEach(sId => {
+            const el = document.getElementById(sId);
+            if (el) {
+                el.innerText = 'Salvando...';
+                el.style.color = 'var(--text-muted)';
+                el.style.display = 'inline-block';
+            }
+        });
 
         const payload = {
             bot_token: document.getElementById('bot_token').value,
             chat_id: document.getElementById('chat_id').value,
-            var_95_threshold: parseFloat(document.getElementById('var_95_threshold').value) || 0
+            var_95_threshold: parseFloat(document.getElementById('var_95_threshold').value) || 0,
+            default_initial_balance: parseFloat(document.getElementById('default_initial_balance').value) || 100000,
+            real_page_mode: document.getElementById('real_page_mode').value || 'real'
         };
 
         try {
@@ -187,23 +326,126 @@
             });
 
             if (response.ok) {
-                statusDiv.innerText = 'Configurações salvas com sucesso!';
-                statusDiv.style.color = 'var(--green)';
-                statusDiv.style.display = 'block';
+                statuses.forEach(sId => {
+                    const el = document.getElementById(sId);
+                    if (el) {
+                        el.innerText = '✅ Salvo!';
+                        el.style.color = 'var(--green)';
+                        setTimeout(() => { el.style.display = 'none'; }, 3000);
+                    }
+                });
             } else {
                 throw new Error('Falha ao salvar');
             }
         } catch (error) {
-            statusDiv.innerText = 'Erro ao salvar configurações.';
-            statusDiv.style.color = 'var(--red)';
-            statusDiv.style.display = 'block';
+            statuses.forEach(sId => {
+                const el = document.getElementById(sId);
+                if (el) {
+                    el.innerText = '❌ Erro ao salvar.';
+                    el.style.color = 'var(--red)';
+                }
+            });
+        }
+    }
+
+    async function testTelegram() {
+        const btn = document.getElementById('test-telegram-btn');
+        const status = document.getElementById('test-telegram-status');
+        btn.disabled = true;
+        status.textContent = 'Enviando...';
+        status.style.color = 'var(--text-muted)';
+        try {
+            const res = await fetch('/api/settings/telegram/test', {
+                method: 'POST',
+                headers: { 'X-API-Key': API_KEY }
+            });
+            if (res.ok) {
+                status.textContent = '✅ Mensagem enviada!';
+                status.style.color = 'var(--green)';
+            } else {
+                const err = await res.json();
+                status.textContent = '❌ ' + (err.detail || 'Erro');
+                status.style.color = 'var(--red)';
+            }
+        } catch(e) {
+            status.textContent = '❌ Erro de conexão';
+            status.style.color = 'var(--red)';
         } finally {
-            saveBtn.disabled = false;
-            saveBtn.innerText = 'Salvar Configurações';
+            btn.disabled = false;
         }
     }
 
     document.addEventListener('DOMContentLoaded', loadSettings);
+
+    // ── DataManager Settings ────────────────────────────────────────────────
+
+    async function loadDmSettings() {
+        try {
+            const res = await fetch('/api/settings/datamanager', { headers: { 'X-API-Key': API_KEY } });
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('dm_url').value = data.url || '';
+                document.getElementById('dm_api_key').value = data.api_key || '';
+                document.getElementById('dm_timeout').value = data.timeout || 30;
+            }
+        } catch (e) { console.error('Error loading DM settings:', e); }
+    }
+
+    async function saveDmSettings(event) {
+        event.preventDefault();
+        const btn = document.getElementById('dm-save-btn');
+        const status = document.getElementById('dm-status');
+        btn.disabled = true; btn.innerText = 'Salvando...'; status.style.display = 'none';
+
+        try {
+            const res = await fetch('/api/settings/datamanager', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+                body: JSON.stringify({
+                    url: document.getElementById('dm_url').value,
+                    api_key: document.getElementById('dm_api_key').value,
+                    timeout: parseFloat(document.getElementById('dm_timeout').value) || 30,
+                })
+            });
+            if (res.ok) {
+                status.innerText = 'Configurações salvas!';
+                status.style.color = 'var(--green)';
+            } else { throw new Error('Falha ao salvar'); }
+        } catch (e) {
+            status.innerText = 'Erro ao salvar.';
+            status.style.color = 'var(--red)';
+        } finally {
+            status.style.display = 'block';
+            btn.disabled = false; btn.innerText = 'Salvar';
+        }
+    }
+
+    async function testDmConnection() {
+        const btn = document.getElementById('dm-test-btn');
+        const status = document.getElementById('dm-test-status');
+        btn.disabled = true;
+        status.textContent = 'Testando...';
+        status.style.color = 'var(--text-muted)';
+        try {
+            const res = await fetch('/api/settings/datamanager/test', {
+                method: 'POST', headers: { 'X-API-Key': API_KEY }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                status.textContent = `✅ Conectado! ${data.databases_count} database(s) encontrada(s).`;
+                status.style.color = 'var(--green)';
+            } else {
+                const err = await res.json();
+                status.textContent = '❌ ' + (err.detail || 'Erro');
+                status.style.color = 'var(--red)';
+            }
+        } catch (e) {
+            status.textContent = '❌ Erro de conexão';
+            status.style.color = 'var(--red)';
+        } finally { btn.disabled = false; }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadDmSettings);
 
     // ── CSV Mapping ──────────────────────────────────────────────────────────
 
@@ -261,6 +503,24 @@
         document.getElementById('csv-mapping-clear').style.display = 'none';
         document.getElementById('csv-mapping-input').value = '';
         document.getElementById('csv-mapping-tbody').innerHTML = '';
+    }
+
+    function downloadCsvMappingExample() {
+        const headers = ["arquivo", "MagicNumber"];
+        const rows = [
+            ["relatorio_geral.html", "12345"],
+            ["backtest_EURUSD.html", "67890"],
+            ["strategia_xp.html", "11111"],
+        ];
+        const escape = v => `"${String(v).replace(/"/g, '""')}"`;
+        const csv = [headers.map(escape).join(","), ...rows.map(r => r.map(escape).join(","))].join("\n");
+        const blob = new Blob([csv], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "mapeamento_exemplo.csv";
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     // ── Backtest Upload ──────────────────────────────────────────────────────

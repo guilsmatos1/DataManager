@@ -13,9 +13,4 @@ class MaxDrawdown(BaseMetric):
     def calculate(
         self, deals_df: pd.DataFrame, daily_returns: pd.Series | None = None, **kwargs
     ) -> float | None:
-        if daily_returns is None or daily_returns.empty:
-            return None
-        try:
-            return float(qs.stats.max_drawdown(daily_returns) * 100)
-        except (ValueError, ZeroDivisionError):
-            return None
+        return self._safe_calc(lambda r: qs.stats.max_drawdown(r) * 100, daily_returns)

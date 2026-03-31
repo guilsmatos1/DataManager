@@ -133,7 +133,9 @@ class TestRoutesExtended:
             assert response.status_code == 200
             assert "matrix" in response.json()
 
-    def test_get_portfolio_correlation_requires_two_strategies(self, client, db_session):
+    def test_get_portfolio_correlation_requires_two_strategies(
+        self, client, db_session
+    ):
         p = Portfolio(name="P1")
         p.strategies.append(Strategy(id="s1", name="S1"))
         db_session.add(p)
@@ -141,7 +143,9 @@ class TestRoutesExtended:
 
         response = client.get(f"/api/portfolios/{p.id}/correlation")
         assert response.status_code == 422
-        assert response.json()["detail"] == "Need at least 2 strategies in this portfolio."
+        assert (
+            response.json()["detail"] == "Need at least 2 strategies in this portfolio."
+        )
 
     def test_get_portfolio_metrics_requires_strategies(self, client, db_session):
         p = Portfolio(name="P1")
