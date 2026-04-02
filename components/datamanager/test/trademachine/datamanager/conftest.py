@@ -38,6 +38,8 @@ def db_engine():
             conn.execute(text(f"DROP MATERIALIZED VIEW IF EXISTS ohlcv_{tf} CASCADE;"))
 
         # Apaga as tabelas
+        conn.execute(text("DROP TABLE IF EXISTS economic_observations CASCADE;"))
+        conn.execute(text("DROP TABLE IF EXISTS economic_series CASCADE;"))
         conn.execute(text("DROP TABLE IF EXISTS ohlcv_m1 CASCADE;"))
         conn.execute(text("DROP TABLE IF EXISTS assets CASCADE;"))
         conn.execute(text("DROP TABLE IF EXISTS sources CASCADE;"))
@@ -49,6 +51,11 @@ def db_engine():
         conn.execute(
             text(
                 "SELECT create_hypertable('ohlcv_m1', 'timestamp', if_not_exists => TRUE);"
+            )
+        )
+        conn.execute(
+            text(
+                "SELECT create_hypertable('economic_observations', 'timestamp', if_not_exists => TRUE);"
             )
         )
 
@@ -81,7 +88,11 @@ def db_session(db_engine):
     session = Session()
 
     # Limpa os dados, mas mantém a estrutura (tabelas e visões)
-    session.execute(text("TRUNCATE TABLE ohlcv_m1, assets, sources CASCADE;"))
+    session.execute(
+        text(
+            "TRUNCATE TABLE economic_observations, economic_series, ohlcv_m1, assets, sources CASCADE;"
+        )
+    )
     session.commit()
 
     yield session

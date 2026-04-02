@@ -33,3 +33,8 @@ def init_db():
                 "SELECT create_hypertable('ohlcv_m1', 'timestamp', if_not_exists => TRUE);"
             )
         )
+        conn.execute(
+            text(
+                "SELECT create_hypertable('economic_observations', 'timestamp', if_not_exists => TRUE);"
+            )
+        )

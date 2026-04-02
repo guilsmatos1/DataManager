@@ -7,11 +7,17 @@ from datetime import UTC, datetime
 
 from colorama import Fore, Style, init
 from dateutil.parser import parse
+from trademachine.core.interactive import (
+    create_prompt_session,
+    interactive_history_path,
+    read_interactive_input,
+)
 from trademachine.core.logger import LOGGER_NAME, setup_logger
 
 __version__ = "0.1.0"
 from trademachine.datamanager.services.manager import DataManager
 from trademachine.datamanager.services.scheduler import SchedulerService
+from trademachine.datamanager.services.series_manager import SeriesManager
 
 init(autoreset=True)
 
@@ -36,11 +42,25 @@ class DataManagerCLI(cmd.Cmd):
 
  {Style.BRIGHT}COMMANDS:{Style.NORMAL}
  {Fore.CYAN}download{Fore.WHITE} | {Fore.CYAN}update{Fore.WHITE} | {Fore.CYAN}search{Fore.WHITE} | {Fore.CYAN}list{Fore.WHITE} | {Fore.CYAN}delete{Fore.WHITE} | {Fore.CYAN}quality{Fore.WHITE} | {Fore.CYAN}schedule{Fore.WHITE} | {Fore.CYAN}info{Fore.WHITE}
+ {Fore.CYAN}fred_search{Fore.WHITE} | {Fore.CYAN}fred_download{Fore.WHITE} | {Fore.CYAN}fred_update{Fore.WHITE} | {Fore.CYAN}fred_list{Fore.WHITE} | {Fore.CYAN}fred_info{Fore.WHITE} | {Fore.CYAN}fred_delete{Fore.WHITE}
 
  {Fore.WHITE}Type {Fore.YELLOW}'help'{Fore.WHITE} for the full manual or {Fore.YELLOW}'exit'{Fore.WHITE} to quit.
 ════════════════════════════════════════════════════════════════════════
 """
     prompt = f"{Fore.GREEN}DataManager> {Style.RESET_ALL}"
+
+    @staticmethod
+    def _interactive_history_path() -> str:
+        """Returns the shell history file used by the interactive prompt."""
+        return interactive_history_path("datamanager")
+
+    def _create_prompt_session(self):
+        """Builds a prompt_toolkit session when available."""
+        return create_prompt_session(self._interactive_history_path(), logger=logger)
+
+    def _read_interactive_input(self, prompt_session) -> str:
+        """Reads one interactive command, using history-capable prompt when possible."""
+        return read_interactive_input(prompt_session, self.prompt)
 
     def do_help(self, arg):
         """Custom help command to show all commands in a structured way."""
@@ -85,10 +105,41 @@ class DataManagerCLI(cmd.Cmd):
 
         self.scheduler = SchedulerService(self.server)
         self.scheduler.start()
+        self.series_server = SeriesManager()
 
     def emptyline(self):
         """Overrides cmd.Cmd default behavior, which repeats the last command."""
         pass
+
+    def cmdloop(self, intro=None):
+        """Runs the interactive loop with persistent command history support."""
+        if intro is not None:
+            self.intro = intro
+
+        self.preloop()
+        if self.intro:
+            self.stdout.write(str(self.intro))
+
+        prompt_session = self._create_prompt_session()
+        stop = None
+        while not stop:
+            if self.cmdqueue:
+                line = self.cmdqueue.pop(0)
+            else:
+                try:
+                    line = self._read_interactive_input(prompt_session)
+                except EOFError:
+                    self.stdout.write("\n")
+                    line = "quit"
+                except KeyboardInterrupt:
+                    self.stdout.write("\n")
+                    continue
+
+            line = self.precmd(line)
+            stop = self.onecmd(line)
+            stop = self.postcmd(stop, line)
+
+        self.postloop()
 
     def do_download(self, arg):
         """
@@ -350,6 +401,186 @@ class DataManagerCLI(cmd.Cmd):
         except Exception as e:
             logger.error(f"Internal parse error: {e}")
 
+    def do_fred_search(self, arg):
+        """
+        Search FRED economic series.
+        Usage: fred_search [--query QUERY]
+        Examples:
+          fred_search
+          fred_search --query inflation
+        """
+        parser = argparse.ArgumentParser(
+            prog="fred_search", description="Search FRED series", exit_on_error=False
+        )
+        parser.add_argument("--query", type=str, default=None)
+
+        try:
+            args_parsed = parser.parse_args(shlex.split(arg))
+            df = self.series_server.search_series(query=args_parsed.query)
+            if df is None or df.empty:
+                logger.info("No FRED series found.")
+                return
+
+            print(f"\nFound {len(df)} series. Displaying the first 20:")
+            print(f"{Fore.WHITE}{'=' * 100}")
+            header = f"{'SERIES ID':<18} | {'TITLE':<50} | {'FREQ':<10} | {'UNITS':<18}"
+            print(f"{Fore.YELLOW}{header}")
+            print(f"{Fore.WHITE}{'-' * 100}")
+            df = df.reset_index().fillna("")
+            for _, row in df.head(20).iterrows():
+                series_id = str(row.get("series_id", row.get("id", "")))
+                title = str(row.get("title", row.get("name", "")))[:48]
+                frequency = str(row.get("frequency", row.get("native_frequency", "")))
+                units = str(row.get("units", ""))[:16]
+                print(
+                    f"{Fore.WHITE}{series_id:<18} | {title:<50} | {frequency:<10} | {units:<18}"
+                )
+            print(f"{Fore.WHITE}{'=' * 100}\n")
+        except SystemExit:
+            pass
+        except Exception as e:
+            logger.error(f"Internal parse error: {e}")
+
+    def do_fred_download(self, arg):
+        """
+        Download and save a FRED series.
+        Usage: fred_download <series_id> [start_date] [end_date] [--frequency FREQ]
+        Examples:
+          fred_download CPIAUCSL 2010-01-01 2024-01-01
+          fred_download CPIAUCSL --frequency m
+        """
+        parser = argparse.ArgumentParser(prog="fred_download", exit_on_error=False)
+        parser.add_argument("series_id")
+        parser.add_argument("start_date", nargs="?", default=None)
+        parser.add_argument("end_date", nargs="?", default=None)
+        parser.add_argument("--frequency", type=str, default=None)
+
+        try:
+            args_parsed = parser.parse_args(shlex.split(arg))
+            start_date = (
+                parse(args_parsed.start_date) if args_parsed.start_date else None
+            )
+            end_date = parse(args_parsed.end_date) if args_parsed.end_date else None
+            result = self.series_server.download_series(
+                "fred",
+                args_parsed.series_id,
+                start_date=start_date.isoformat() if start_date else None,
+                end_date=end_date.isoformat() if end_date else None,
+                frequency=args_parsed.frequency,
+            )
+            logger.info(
+                f"FRED download started/completed: {result.get('series_id', args_parsed.series_id)}"
+            )
+        except SystemExit:
+            pass
+        except Exception as e:
+            logger.error(f"Error downloading FRED series: {e}")
+
+    def do_fred_update(self, arg):
+        """
+        Update an existing FRED series.
+        Usage: fred_update <series_id> [--lookback LOOKBACK] [--frequency FREQ]
+        Examples:
+          fred_update CPIAUCSL
+          fred_update CPIAUCSL --lookback 30D
+        """
+        parser = argparse.ArgumentParser(prog="fred_update", exit_on_error=False)
+        parser.add_argument("series_id")
+        parser.add_argument("--lookback", dest="lookback_period", default=None)
+        parser.add_argument("--frequency", type=str, default=None)
+
+        try:
+            args_parsed = parser.parse_args(shlex.split(arg))
+            result = self.series_server.update_series(
+                "fred",
+                args_parsed.series_id,
+                lookback_period=args_parsed.lookback_period,
+                frequency=args_parsed.frequency,
+            )
+            logger.info(
+                f"FRED update started/completed: {result.get('series_id', args_parsed.series_id)}"
+            )
+        except SystemExit:
+            pass
+        except Exception as e:
+            logger.error(f"Error updating FRED series: {e}")
+
+    def do_fred_list(self, arg):
+        """List stored FRED series. Usage: fred_list"""
+        try:
+            items = self.series_server.list_series()
+            if not items:
+                logger.info("No FRED series found.")
+                return
+
+            print(f"\n{Fore.CYAN}{Style.BRIGHT}FRED SERIES:{Style.RESET_ALL}")
+            print(f"{Fore.WHITE}=" * 105)
+            header = f"{'SERIES ID':<18} | {'TITLE':<36} | {'FREQ':<10} | {'ROWS':<8} | {'START':<16} | {'END':<16}"
+            print(f"{Fore.YELLOW}{header}")
+            print(f"{Fore.WHITE}{'-' * 105}")
+            for item in items:
+                start = (item.get("observation_start") or "")[:16]
+                end = (item.get("observation_end") or "")[:16]
+                rows = item.get("rows", "N/A")
+                print(
+                    f"{Fore.WHITE}{str(item.get('series_id', '')):<18} | {str(item.get('title', ''))[:34]:<36} | {str(item.get('frequency', '')):<10} | {str(rows):<8} | {start:<16} | {end:<16}"
+                )
+            print(f"{Fore.WHITE}{'=' * 105}\n")
+        except Exception as e:
+            logger.error(f"Error listing FRED series: {e}")
+
+    def do_fred_info(self, arg):
+        """
+        Show info about a stored FRED series.
+        Usage: fred_info <series_id>
+        """
+        args = arg.split()
+        if len(args) != 1:
+            logger.error("Correct usage: fred_info <series_id>")
+            return
+
+        info = self.series_server.info_series("fred", args[0])
+        if not info:
+            logger.warning(f"Series not found: {args[0].upper()}")
+            return
+
+        print(f"\n{Fore.CYAN}{Style.BRIGHT}FRED SERIES INFO:")
+        print(f"{Fore.WHITE}{'=' * 50}")
+        labels: dict[str, tuple[str, Callable[[object], str]]] = {
+            "source": ("Source", str),
+            "series_id": ("Series ID", str),
+            "title": ("Title", str),
+            "frequency": ("Frequency", str),
+            "units": ("Units", str),
+            "seasonal_adjustment": ("Seasonal Adj.", str),
+            "observation_start": ("Start", str),
+            "observation_end": ("End", str),
+            "last_updated": ("Last Updated", str),
+            "rows": ("Rows", lambda v: f"{v:,}" if isinstance(v, int) else str(v)),
+        }
+        for key, (label, fmt) in labels.items():
+            if key in info:
+                print(f"  {Fore.YELLOW}{label:<16}{Fore.WHITE}{fmt(info[key])}")
+        print(f"{Fore.WHITE}{'=' * 50}\n")
+
+    def do_fred_delete(self, arg):
+        """
+        Delete a stored FRED series.
+        Usage: fred_delete <series_id>
+        """
+        args = arg.split()
+        if len(args) != 1:
+            logger.error("Correct usage: fred_delete <series_id>")
+            return
+
+        try:
+            if self.series_server.delete_series("fred", args[0]):
+                logger.info(f"Deleted FRED series: {args[0]}")
+            else:
+                logger.warning(f"Series not found: {args[0]}")
+        except Exception as e:
+            logger.error(f"Error deleting FRED series: {e}")
+
     def do_quality(self, arg):
         """
         Performs quality tests and returns error count in a database.
@@ -385,11 +616,14 @@ class DataManagerCLI(cmd.Cmd):
         Usage:
           schedule add <source> <asset> [timeframe] --cron "0 */4 * * *"
           schedule add <source> <asset> [timeframe] --interval <minutes>
+          schedule add-series <series_id> --cron "0 */4 * * *"
+          schedule add-series <series_id> --interval <minutes>
           schedule list
           schedule remove <job_id>
         Examples:
           schedule add DUKASCOPY EURUSD M1 --interval 60
           schedule add OPENBB AAPL H1 --cron "0 9 * * 1-5"
+          schedule add-series CPIAUCSL --interval 720
           schedule list
           schedule remove <job_id>
         """
@@ -404,6 +638,15 @@ class DataManagerCLI(cmd.Cmd):
         add_p.add_argument(
             "--interval", type=int, default=None, dest="interval_minutes"
         )
+
+        add_series_p = subparsers.add_parser("add-series")
+        add_series_p.add_argument("series_id")
+        add_series_p.add_argument("--cron", type=str, default=None)
+        add_series_p.add_argument(
+            "--interval", type=int, default=None, dest="interval_minutes"
+        )
+        add_series_p.add_argument("--lookback", dest="lookback_period", default=None)
+        add_series_p.add_argument("--frequency", type=str, default=None)
 
         subparsers.add_parser("list")
 
@@ -435,6 +678,29 @@ class DataManagerCLI(cmd.Cmd):
                 )
             except Exception as e:
                 logger.error(f"Failed to schedule job: {e}")
+
+        elif parsed.subcmd == "add-series":
+            if not parsed.cron and not parsed.interval_minutes:
+                logger.error("Provide --cron or --interval.")
+                return
+            try:
+                add_series_job = getattr(self.scheduler, "add_series_job", None)
+                if add_series_job is None:
+                    logger.error("Series scheduling is not available in this build.")
+                    return
+                job = add_series_job(
+                    source="fred",
+                    series_id=parsed.series_id,
+                    lookback_period=parsed.lookback_period,
+                    frequency=parsed.frequency,
+                    cron=parsed.cron,
+                    interval_minutes=parsed.interval_minutes,
+                )
+                logger.info(
+                    f"Series job scheduled: {job['job_id']} | next run: {job['next_run']}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to schedule series job: {e}")
 
         elif parsed.subcmd == "list":
             jobs = self.scheduler.list_jobs()

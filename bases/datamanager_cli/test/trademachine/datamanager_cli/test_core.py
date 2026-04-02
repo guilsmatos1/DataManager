@@ -1,5 +1,5 @@
-from trademachine.datamanager_cli import core
+from trademachine.datamanager_cli import cli
 
 
 def test_sample():
-    assert core is not None
+    assert cli is not None

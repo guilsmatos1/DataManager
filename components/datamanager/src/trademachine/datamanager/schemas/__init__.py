@@ -28,6 +28,31 @@ class DeleteRequest(BaseModel):
     timeframe: str | None = Field(None, pattern=r"^[a-zA-Z0-9_]+$")
 
 
+class SeriesDownloadRequest(BaseModel):
+    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
+    series_id: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$")
+    start_date: str | None = None
+    end_date: str | None = None
+    frequency: str | None = Field(None, pattern=r"^[a-zA-Z0-9_]+$")
+
+
+class SeriesUpdateRequest(BaseModel):
+    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
+    series_id: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$")
+    lookback_period: str | None = Field(None, pattern=r"^[a-zA-Z0-9_]+$")
+    frequency: str | None = Field(None, pattern=r"^[a-zA-Z0-9_]+$")
+
+
+class SeriesDeleteRequest(BaseModel):
+    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
+    series_id: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$")
+
+
+class SeriesSearchRequest(BaseModel):
+    source: str = Field("fred", pattern=r"^[a-zA-Z0-9_]+$")
+    query: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
@@ -84,3 +109,33 @@ class ScheduleJobInfo(BaseModel):
 
 class ScheduleListResponse(BaseModel):
     jobs: list[ScheduleJobInfo]
+
+
+# ---------------------------------------------------------------------------
+# Series / FRED models
+# ---------------------------------------------------------------------------
+
+
+class SeriesInfo(BaseModel):
+    source: str
+    series_id: str
+    title: str | None = None
+    frequency: str | None = None
+    units: str | None = None
+    seasonal_adjustment: str | None = None
+    observation_start: str | None = None
+    observation_end: str | None = None
+    last_updated: str | None = None
+    rows: int | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class SeriesSearchResponse(BaseModel):
+    series: list[Any]
+
+
+class SeriesListResponse(BaseModel):
+    series: list[SeriesInfo]
+    total: int
+    skip: int
+    limit: int

@@ -23,13 +23,21 @@ from trademachine.datamanager.schemas import (
     ScheduleListResponse,
     ScheduleRequest,
     SearchResponse,
+    SeriesDeleteRequest,
+    SeriesDownloadRequest,
+    SeriesInfo,
+    SeriesListResponse,
+    SeriesSearchResponse,
+    SeriesUpdateRequest,
     TaskResponse,
     UpdateRequest,
 )
 from trademachine.datamanager.services.manager import DataManager
 from trademachine.datamanager.services.scheduler import SchedulerService
+from trademachine.datamanager.services.series_manager import SeriesManager
 
 manager = DataManager()
+series_manager = SeriesManager()
 scheduler = SchedulerService(manager)
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -248,7 +256,7 @@ def get_data_file(
 
     # Convert to Parquet in memory
     buf = io.BytesIO()
-    df.to_parquet(buf, engine="pyarrow")
+    df.to_parquet(buf, engine="fastparquet")
     buf.seek(0)
 
     return StreamingResponse(
@@ -282,6 +290,149 @@ def stream_data(
     filename = f"{source}_{asset}_{timeframe}.csv"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return StreamingResponse(_csv_generator(), media_type="text/csv", headers=headers)
+
+
+# --- FRED / economic series ---
+
+
+@app.get("/series/search", response_model=SeriesSearchResponse)
+def search_series(
+    source: str = "fred",
+    query: str | None = None,
+    api_key: str = Depends(get_api_key),
+):
+    try:
+        df = series_manager.search_series(source=source, query=query)
+        if df.empty:
+            return {"series": []}
+
+        series = df.reset_index().fillna("").to_dict(orient="records")
+        return {"series": series}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+
+
+@app.post("/series/download", response_model=TaskResponse)
+def download_series(
+    req: SeriesDownloadRequest,
+    background_tasks: BackgroundTasks,
+    api_key: str = Depends(get_api_key),
+):
+    try:
+        background_tasks.add_task(
+            series_manager.download_series,
+            req.source,
+            req.series_id,
+            req.start_date,
+            req.end_date,
+            req.frequency,
+        )
+        return {
+            "status": "success",
+            "message": f"Download of {req.series_id} via {req.source} started in background",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/series/update", response_model=TaskResponse)
+def update_series(
+    req: SeriesUpdateRequest,
+    background_tasks: BackgroundTasks,
+    api_key: str = Depends(get_api_key),
+):
+    try:
+        background_tasks.add_task(
+            series_manager.update_series,
+            req.source,
+            req.series_id,
+            req.lookback_period,
+            req.frequency,
+        )
+        return {
+            "status": "success",
+            "message": f"Update of {req.series_id} via {req.source} started in background",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/series/list", response_model=SeriesListResponse)
+def list_series(
+    skip: int = 0,
+    limit: int = 100,
+    api_key: str = Depends(get_api_key),
+):
+    try:
+        items = series_manager.list_series()
+        total = len(items)
+        page = items[skip : skip + limit]
+        series = [
+            item if isinstance(item, SeriesInfo) else SeriesInfo(**item)
+            for item in page
+        ]
+        return {"series": series, "total": total, "skip": skip, "limit": limit}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/series/info/{source}/{series_id}", response_model=SeriesInfo)
+def get_series_info(source: str, series_id: str, api_key: str = Depends(get_api_key)):
+    if not all(re.match(r"^[a-zA-Z0-9_.\-]+$", p) for p in [source, series_id]):
+        raise HTTPException(status_code=400, detail="Invalid path parameters in URLs")
+
+    info = series_manager.info_series(source, series_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Series not found")
+    if isinstance(info, SeriesInfo):
+        return info
+    return SeriesInfo(**info)
+
+
+@app.get("/series/data/{source}/{series_id}")
+def get_series_data_file(
+    source: str, series_id: str, api_key: str = Depends(get_api_key)
+):
+    if not all(re.match(r"^[a-zA-Z0-9_.\-]+$", p) for p in [source, series_id]):
+        raise HTTPException(status_code=400, detail="Invalid path parameters")
+
+    try:
+        df = series_manager.load_series_data(source, series_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Series not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    buf = io.BytesIO()
+    df.to_parquet(buf, engine="fastparquet")
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{source}_{series_id}.parquet"'
+        },
+    )
+
+
+@app.post("/series/delete", response_model=TaskResponse)
+def delete_series(
+    req: SeriesDeleteRequest,
+    api_key: str = Depends(get_api_key),
+):
+    try:
+        removed = series_manager.delete_series(req.source, req.series_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail="Series not found")
+        return {
+            "status": "success",
+            "message": f"Deleted {req.series_id} from {req.source}",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/schedule", response_model=ScheduleJobInfo)

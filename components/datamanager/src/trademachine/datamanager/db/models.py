@@ -1,9 +1,11 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -64,3 +66,52 @@ class OhlcvM1(Base):
     low: Mapped[float] = mapped_column(Float, nullable=False)
     close: Mapped[float] = mapped_column(Float, nullable=False)
     volume: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class EconomicSeries(Base):
+    __tablename__ = "economic_series"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id", "series_id", name="uq_economic_series_source_series"
+        ),
+        Index("ix_economic_series_source_series", "source_id", "series_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"), nullable=False)
+    series_id: Mapped[str] = mapped_column(String, nullable=False)
+
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    native_frequency: Mapped[str | None] = mapped_column(String, nullable=True)
+    units: Mapped[str | None] = mapped_column(String, nullable=True)
+    seasonal_adjustment: Mapped[str | None] = mapped_column(String, nullable=True)
+    observation_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    observation_end: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_fetched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    source: Mapped["Source"] = relationship("Source")
+
+
+class EconomicObservation(Base):
+    __tablename__ = "economic_observations"
+    __table_args__ = (
+        Index("ix_economic_observations_series_ref_id", "series_ref_id"),
+        UniqueConstraint(
+            "timestamp", "series_ref_id", name="uq_economic_observation_timestamp"
+        ),
+    )
+
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True, nullable=False
+    )
+    series_ref_id: Mapped[int] = mapped_column(
+        ForeignKey("economic_series.id"), primary_key=True, nullable=False
+    )
+    value: Mapped[float] = mapped_column(Float, nullable=False)

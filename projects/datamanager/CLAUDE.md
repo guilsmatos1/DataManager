@@ -13,6 +13,7 @@ uv run datamanager -i
 
 # Run a single CLI command directly
 uv run datamanager download dukascopy EURUSD 2024-01-01 2024-12-31
+uv run datamanager fred_search --query inflation
 
 # Start the REST API server (port 8686)
 uv run uvicorn trademachine.datamanager_api.router:app --host 0.0.0.0 --port 8686
@@ -32,11 +33,11 @@ docker-compose up -d
 
 ## Architecture
 
-**DataManager** is a financial data management system that fetches, stores, and manages OHLCV (Open/High/Low/Close/Volume) candlestick data. The system exposes two independent interfaces (CLI and REST API) that share the same core orchestrator.
+**DataManager** is a financial data management system that fetches, stores, and manages OHLCV (Open/High/Low/Close/Volume) candlestick data plus FRED economic series. The system exposes two independent interfaces (CLI and REST API) that share the same OHLCV orchestrator, while FRED uses a dedicated `SeriesManager`.
 
 ### Core Principle
 
-All data is always fetched and stored at **M1 (1-minute) resolution first**. Higher timeframes (M5, M15, H1, D1, etc.) are derived via resampling — they are never fetched directly from sources.
+OHLCV data is always fetched and stored at **M1 (1-minute) resolution first**. Higher timeframes (M5, M15, H1, D1, etc.) are derived via resampling — they are never fetched directly from sources. FRED series are stored separately at their native frequency and updated with overlap to absorb historical revisions.
 
 ### Module Responsibilities
 
@@ -52,18 +53,21 @@ components/datamanager/src/trademachine/datamanager/
   ├── core/config.py                  → Pydantic settings (DATABASE_URL, DATAMANAGER_API_KEY)
   ├── db/
   │   ├── database.py                 → SQLAlchemy async engine + session
-  │   ├── models.py                  → ORM models (OHLCV, assets, sources)
+  │   ├── models.py                  → ORM models (OHLCV, assets, sources, FRED series)
   │   ├── processor.py                → DataProcessor: OHLCV resampling + gap filling
-  │   └── storage.py                  → StorageManager: TimescaleDB I/O (hypertable + continuous aggregates)
+  │   ├── storage.py                  → StorageManager: OHLCV TimescaleDB I/O
+  │   └── series_storage.py           → SeriesStorageManager: FRED persistence
   ├── fetchers/
   │   ├── base.py                    → BaseFetcher ABC
   │   ├── ccxt.py                    → CCXT integration (crypto; exchange:SYMBOL)
   │   ├── dukascopy.py               → Dukascopy integration (forex, commodities)
-  │   └── openbb.py                 → OpenBB/YFinance integration (equities, ETFs)
+  │   ├── openbb.py                 → OpenBB/YFinance integration (equities, ETFs)
+  │   └── fred.py                   → OpenBB/FRED integration (economic series)
   ├── schemas/                        → Pydantic request/response models
   └── services/
-      ├── manager.py                  → DataManager: central orchestrator
-      └── scheduler.py                → Background job scheduler (APScheduler)
+      ├── manager.py                  → DataManager: OHLCV orchestrator
+      ├── scheduler.py                → Background job scheduler (APScheduler)
+      └── series_manager.py           → FRED/economic-series orchestrator
 ```
 
 ### Data Flow
@@ -87,13 +91,17 @@ TimescaleDB (PostgreSQL):
   ├── ohlcv_h4        — Continuous aggregate: 4-hour OHLCV
   ├── ohlcv_d1        — Continuous aggregate: 1-day OHLCV
   ├── sources         — Catalog: data source names
-  └── assets         — Catalog: tickers per source with min/max/row_count
+  ├── assets         — Catalog: tickers per source with min/max/row_count
+  ├── economic_series — Catalog: FRED series metadata and provider payload
+  └── economic_observations — Hypertable: timestamped FRED observations
 
 metadata/
 metadata/dukas_assets.csv      # ~3,000 valid Dukascopy asset symbols
 ```
 
 Use `update all` CLI command to recalculate asset statistics after bulk loads.
+
+Use `fred_update` or `schedule add-series` for FRED series refreshes; those use an overlap window so historic revisions are not missed.
 
 ### Adding a New Fetcher
 
@@ -107,6 +115,8 @@ The DataFrame returned by `fetch_data` must have:
 - Columns: `Open`, `High`, `Low`, `Close`, `Volume` (capitalized)
 
 The fetcher is auto-discovered via `pkgutil`/`importlib` in `trademachine.datamanager.fetchers` — no registration required. Modules that fail to import (e.g. missing optional dependencies) are skipped with a warning.
+
+FRED does not reuse the OHLCV fetcher contract. It has its own `FredFetcher` and `SeriesManager` because the data shape is a single economic value series, not OHLCV candles.
 
 **Important**: `download_data` raises an exception if an M1 database for that asset/source already exists. Use the `update` command to append newer data to an existing database.
 
@@ -151,6 +161,13 @@ gemini -p "Voce e um Engenheiro de Documentacao senior do projeto DataManager (P
 | `/search` | GET | Yes | Search assets by source/query |
 | `/data/{source}/{asset}/{timeframe}` | GET | Yes | Download data as Parquet |
 | `/data/{source}/{asset}/{timeframe}/stream` | GET | Yes | Stream data as CSV |
+| `/series/search` | GET | Yes | Search FRED economic series |
+| `/series/download` | POST | Yes | Download and save a FRED series |
+| `/series/update` | POST | Yes | Update an existing FRED series |
+| `/series/list` | GET | Yes | List stored FRED series |
+| `/series/info/{source}/{series_id}` | GET | Yes | Metadata for a stored FRED series |
+| `/series/data/{source}/{series_id}` | GET | Yes | Download FRED data as Parquet |
+| `/series/delete` | POST | Yes | Delete a stored FRED series |
 | `/schedule` | GET | Yes | List scheduled jobs |
 | `/schedule` | POST | Yes | Create scheduled job |
 | `/schedule/{job_id}` | DELETE | Yes | Remove scheduled job |
@@ -178,6 +195,7 @@ uv run ruff check --fix . && uv run ruff format .
 ### REST API Auth
 
 Set `DATAMANAGER_API_KEY` in `.env` (see `.env.example`). All API requests require the header `X-API-Key: <value>`.
+Set `FRED_API_KEY` in `.env` as well. The OpenBB FRED provider requires it to search and download economic series.
 
 ### Environment Variables
 
@@ -187,3 +205,4 @@ Set `DATAMANAGER_API_KEY` in `.env` (see `.env.example`). All API requests requi
 | `DATAMANAGER_API_KEY` | — | Secret key for API authentication |
 | `DATAMANAGER_HOST` | `0.0.0.0` | API server host |
 | `DATAMANAGER_PORT` | `8686` | API server port |
+| `FRED_API_KEY` | — | FRED API key used by OpenBB for economic series |

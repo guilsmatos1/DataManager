@@ -5,7 +5,13 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from trademachine.datamanager.db.database import SessionLocal, engine
-from trademachine.datamanager.db.models import Asset, OhlcvM1, Source
+from trademachine.datamanager.db.models import (
+    Asset,
+    EconomicObservation,
+    EconomicSeries,
+    OhlcvM1,
+    Source,
+)
 
 
 class StorageManager:
@@ -335,6 +341,8 @@ class StorageManager:
     def delete_all(self) -> bool:
         """Delete all sources, assets and data."""
         with self._get_db() as db:
+            db.execute(delete(EconomicObservation))
+            db.execute(delete(EconomicSeries))
             db.execute(delete(OhlcvM1))
             db.execute(delete(Asset))
             db.execute(delete(Source))

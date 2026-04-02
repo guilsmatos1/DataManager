@@ -2,7 +2,7 @@
 
 > **Version:** v0.1.0
 > **Python:** 3.12
-> **Purpose:** Tool for downloading, storing, and managing OHLCV (Open, High, Low, Close, Volume) data of financial assets, with support for multiple data sources, timeframe resampling, and a network API.
+> **Purpose:** Tool for downloading, storing, and managing OHLCV (Open, High, Low, Close, Volume) data of financial assets and FRED economic series, with support for multiple data sources, timeframe resampling, and a network API.
 
 ---
 
@@ -38,7 +38,7 @@
 
 ## 1. Architecture Overview
 
-DataManager follows **Polylith Architecture** with three layers: components (business logic), bases (entry points), and projects (build configs). The CLI and API are **independent entry points** that share the same `DataManager` orchestrator component.
+DataManager follows **Polylith Architecture** with three layers: components (business logic), bases (entry points), and projects (build configs). The CLI and API are **independent entry points** that share the same `DataManager` orchestrator component for OHLCV, while FRED uses a dedicated `SeriesManager`.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -69,7 +69,7 @@ DataManager follows **Polylith Architecture** with three layers: components (bus
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Fundamental Principle:** All data is always downloaded and stored in **M1 (1 minute)** first. Higher timeframes (H1, D1, etc.) are generated via **resampling** from the base M1 data.
+**Fundamental Principle:** OHLCV data is always downloaded and stored in **M1 (1 minute)** first. Higher timeframes (H1, D1, etc.) are generated via **resampling** from the base M1 data. FRED series are stored separately with native frequency and an overlap-based update flow to absorb historical revisions.
 
 ---
 
@@ -102,18 +102,21 @@ components/datamanager/src/trademachine/datamanager/
 │   ├── core/config.py         # Pydantic Settings (env vars / .env)
 │   ├── db/
 │   │   ├── database.py        # SQLAlchemy async engine + session
-│   │   ├── models.py          # ORM models (OHLCV, assets, sources)
+│   │   ├── models.py          # ORM models (OHLCV, assets, sources, FRED series)
+│   │   ├── series_storage.py  # FRED/economic-series persistence layer
 │   │   ├── processor.py       # DataProcessor: OHLCV resampling + Gap filling
 │   │   └── storage.py         # StorageManager: TimescaleDB I/O (hypertable + upsert)
 │   ├── fetchers/
 │   │   ├── base.py            # BaseFetcher: abstract interface (ABC)
 │   │   ├── ccxt.py            # CCXT (crypto, 100+ exchanges)
 │   │   ├── dukascopy.py       # Dukascopy integration (forex, commodities)
-│   │   └── openbb.py          # OpenBB/YFinance (stocks, ETFs)
+│   │   ├── openbb.py          # OpenBB/YFinance (stocks, ETFs)
+│   │   └── fred.py            # OpenBB/FRED (economic series)
 │   ├── schemas/               # Pydantic request/response models
 │   └── services/
 │       ├── manager.py        # DataManager: central orchestrator
-│       └── scheduler.py      # SchedulerService: APScheduler jobs (persisted to TimescaleDB)
+│       ├── scheduler.py      # SchedulerService: APScheduler jobs (persisted to TimescaleDB)
+│       └── series_manager.py  # SeriesManager: FRED/economic-series orchestrator
 
 bases/datamanager_api/src/trademachine/datamanager_api/
 └── router.py                  # FastAPI REST API (port 8686)
@@ -146,6 +149,12 @@ bases/datamanager_cli/src/trademachine/datamanager_cli/
 | `do_search` | `search` | Searches for available assets in sources |
 | `do_quality` | `quality` | Data integrity report |
 | `do_schedule` | `schedule` | Manages background update jobs |
+| `do_fred_search` | `fred_search` | Searches FRED economic series |
+| `do_fred_download` | `fred_download` | Downloads and saves a FRED series |
+| `do_fred_update` | `fred_update` | Updates an existing FRED series |
+| `do_fred_list` | `fred_list` | Lists stored FRED series |
+| `do_fred_info` | `fred_info` | Shows metadata for a stored FRED series |
+| `do_fred_delete` | `fred_delete` | Deletes a stored FRED series |
 | `do_exit` / `do_quit` | `exit` / `quit` | Exits the program |
 
 ---
@@ -176,6 +185,12 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - Downloads only new data from `last_date` to `now`.
 - Uses `storage.append_data()` to concatenate without duplicates.
 
+**`SeriesManager`**
+- `search_series(source="fred", query=None)` searches FRED via OpenBB.
+- `download_series(source, series_id, start_date, end_date, frequency=None)` stores series observations in `economic_observations`.
+- `update_series(source, series_id, lookback_period=None, frequency=None)` refreshes with overlap to absorb FRED revisions.
+- `list_series()` and `info_series()` expose stored series metadata.
+
 ---
 
 ### 3.3 `components/datamanager/.../services/scheduler.py` — Background Job Manager
@@ -186,6 +201,7 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - Supports **Cron** expressions (5 fields) and **Intervals** (minutes).
 - Jobs run in background daemon threads.
 - Jobs are **persisted to TimescaleDB** via SQLAlchemyJobStore, surviving service restarts.
+- FRED series jobs are handled in parallel via `add_series_job(...)` and a separate top-level update function.
 
 ---
 
@@ -199,6 +215,7 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - `api_key`: Secret for REST API authentication (`DATAMANAGER_API_KEY`).
 - `host` / `port`: Network server configuration.
 - Loads from `.env` file automatically.
+- `FRED_API_KEY`: FRED API key required by the OpenBB FRED provider.
 
 ---
 
@@ -215,10 +232,13 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - **Continuous Aggregates:** `ohlcv_m5`, `ohlcv_m15`, `ohlcv_h1`, `ohlcv_h4`, `ohlcv_d1` — automatically refreshed materialized views.
 - **Upsert Logic:** Uses PostgreSQL `ON CONFLICT DO UPDATE` to avoid duplicates.
 - **Batch Inserts:** Saves in batches of 5,000 rows to stay under PostgreSQL's parameter limit.
+- **FRED Storage:** `economic_series` and `economic_observations` store macro series metadata and observations separately from OHLCV.
 
 #### Catalog Tables:
 - **`sources`**: Data source names (Dukascopy, CCXT, OpenBB).
 - **`assets`**: Ticker symbols per source with `min_date`, `max_date`, `row_count`.
+- **`economic_series`**: FRED series metadata, provider payload, and latest fetch window.
+- **`economic_observations`**: Timestamped FRED observations keyed by series reference.
 
 ---
 
@@ -247,6 +267,11 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - Syntax: `exchange:SYMBOL` (e.g., `binance:BTC/USDT`). Defaults to binance.
 - Automatically handles rate limits and chunked OHLCV fetching.
 
+**`FredFetcher`:**
+- Uses OpenBB's FRED provider to search and download economic series.
+- Requires a configured FRED API key.
+- Returns a datetime index and a single numeric `Value` column for persistence.
+
 **BaseFetcher**:
 - Abstract base class defining `fetch_data` and `search` interfaces.
 
@@ -273,6 +298,7 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - Uses `yfinance` as the primary backend for M1 data.
 - Supports major global stock exchanges and ETFs.
 - Note: M1 history for stocks is typically limited to the last 7-30 days by the provider.
+- FRED is not stored through `openbb.py`; it uses `fred.py` and `series_manager.py` to keep economic series separate from OHLCV candles.
 
 ---
 
@@ -288,6 +314,7 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - **Asset Search (`GET /search`)**: Discover available assets via source/query/exchange.
 - **Data Management**: API endpoints for `/download`, `/update`, and `/delete`.
 - **Automated Scheduling**: REST interface for managing recurring update tasks (`/schedule`).
+- **Economic Series**: Dedicated `/series/*` endpoints for FRED search, download, update, list, info, data, and delete.
 - **Rate Limiting**: Sliding window protection (60 requests per 60 seconds per IP).
 - **Background Tasks**: Long-running operations (download, update) are offloaded to avoid blocking the server.
 
@@ -315,16 +342,17 @@ self._fetchers = get_all_fetchers()  # auto-discovered via pkgutil
 - Handles authentication (`X-API-Key`).
 - Provides methods for downloading data directly to Pandas DataFrames.
 - Includes automatic timezone conversion.
+- Also provides dedicated helpers for FRED series search, download, update, list, info, delete, and data export.
 
 ---
 
 ## 4. Data Flow
 
 1. **Request:** User triggers a command (CLI) or endpoint (API).
-2. **Orchestration:** `DataManager` service identifies the required `Fetcher`.
-3. **Fetching:** `Fetcher` downloads `M1` data in chunks from the provider.
-4. **Storage:** `StorageManager` upserts data into the `ohlcv_m1` hypertable (batch inserts).
-5. **Post-processing:** TimescaleDB automatically refreshes continuous aggregates (M5, M15, H1, H4, D1). Other timeframes are derived via `DataProcessor.resample_ohlc()` on read.
+2. **Orchestration:** `DataManager` service identifies the required OHLCV `Fetcher`, or `SeriesManager` routes FRED requests to `FredFetcher`.
+3. **Fetching:** OHLCV fetchers download `M1` data in chunks; `FredFetcher` downloads economic series at their native frequency.
+4. **Storage:** `StorageManager` upserts OHLCV data into the `ohlcv_m1` hypertable; `SeriesStorageManager` stores FRED metadata and observations in dedicated tables.
+5. **Post-processing:** TimescaleDB automatically refreshes OHLCV continuous aggregates (M5, M15, H1, H4, D1). Other OHLCV timeframes are derived via `DataProcessor.resample_ohlc()` on read. FRED updates use an overlap window to absorb revisions.
 
 ---
 
@@ -340,7 +368,9 @@ TimescaleDB (PostgreSQL)
   ├── ohlcv_h4        — Continuous aggregate: 4-hour OHLCV
   ├── ohlcv_d1        — Continuous aggregate: 1-day OHLCV
   ├── sources         — Catalog: data source names
-  └── assets         — Catalog: tickers per source with min/max/row_count
+  ├── assets         — Catalog: tickers per source with min/max/row_count
+  ├── economic_series — Catalog: FRED series metadata and provider payload
+  └── economic_observations — Hypertable: timestamped FRED observations
 ```
 
 ---
@@ -350,6 +380,8 @@ TimescaleDB (PostgreSQL)
 Asset metadata (sources, tickers, date ranges, row counts) is stored in SQL tables:
 - **`sources`**: Source name (Dukascopy, CCXT, OpenBB).
 - **`assets`**: Ticker, `source_id`, `min_date`, `max_date`, `row_count`.
+- **`economic_series`**: FRED series metadata, including title, frequency, units, and provider payload.
+- **`economic_observations`**: Timestamped FRED observations keyed by series reference.
 
 Use `update all` CLI command to recalculate asset statistics after bulk loads.
 
@@ -362,6 +394,7 @@ Use `update all` CLI command to recalculate asset statistics after bulk loads.
 | `DUKASCOPY` | `dukascopy-python` | Forex, Commodities | High quality, full history. |
 | `OPENBB` | `openbb` | Stocks, ETFs, Crypto | Uses yfinance proxy for M1. |
 | `CCXT` | `ccxt` | Crypto | Supports multi-exchange prefix. |
+| `FRED` | `openbb` + FRED provider | Economic and macro series | Stored separately from OHLCV candles. |
 
 ---
 
@@ -412,7 +445,8 @@ Mapping to pandas resample strings is defined in `DataProcessor.TF_MAPPING`.
 - **FastAPI / Uvicorn**: Web server.
 - **SQLAlchemy / TimescaleDB**: ORM and time-series database.
 - **APScheduler**: Background task scheduling.
-- **ccxt / openbb / dukascopy-python**: Data providers.
+- **ccxt / openbb / dukascopy-python**: OHLCV data providers.
+- **openbb FRED provider**: FRED economic series.
 - **Pydantic / Pydantic-Settings**: Validation and configuration.
 
 ---
@@ -431,6 +465,13 @@ Mapping to pandas resample strings is defined in `DataProcessor.TF_MAPPING`.
 | `search` | `search --source dukascopy --query gold` |
 | `quality` | `quality DUKASCOPY EURUSD M1` |
 | `schedule add` | `schedule add DUKASCOPY EURUSD M1 --interval 60` |
+| `fred_search` | `fred_search --query inflation` |
+| `fred_download` | `fred_download CPIAUCSL 2024-01-01 2025-01-01` |
+| `fred_update` | `fred_update CPIAUCSL --lookback 30D` |
+| `fred_list` | `fred_list` |
+| `fred_info` | `fred_info CPIAUCSL` |
+| `fred_delete` | `fred_delete CPIAUCSL` |
+| `schedule add-series` | `schedule add-series CPIAUCSL --interval 720` |
 | `schedule list` | `schedule list` |
 | `schedule remove` | `schedule remove <job_id>` |
 
@@ -450,6 +491,13 @@ Mapping to pandas resample strings is defined in `DataProcessor.TF_MAPPING`.
 | `/delete` | `POST` | Yes | Delete specific or all databases |
 | `/data/{source}/{asset}/{timeframe}` | `GET` | Yes | Download data as Parquet |
 | `/data/{source}/{asset}/{timeframe}/stream` | `GET` | Yes | Stream data as CSV |
+| `/series/search` | `GET` | Yes | Search FRED economic series |
+| `/series/download` | `POST` | Yes | Trigger a background FRED download task |
+| `/series/update` | `POST` | Yes | Trigger a background FRED update task |
+| `/series/list` | `GET` | Yes | List stored FRED series |
+| `/series/info/{source}/{series_id}` | `GET` | Yes | Metadata for a stored FRED series |
+| `/series/data/{source}/{series_id}` | `GET` | Yes | Download FRED data as Parquet |
+| `/series/delete` | `POST` | Yes | Delete a stored FRED series |
 | `/schedule` | `GET` | Yes | List all active scheduled jobs |
 | `/schedule` | `POST` | Yes | Create a new recurring update job |
 | `/schedule/{job_id}` | `DELETE` | Yes | Remove a scheduled job by its ID |

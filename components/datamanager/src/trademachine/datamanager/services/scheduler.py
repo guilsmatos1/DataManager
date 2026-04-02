@@ -9,6 +9,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from trademachine.core.logger import LOGGER_NAME
 from trademachine.datamanager.db.database import engine
 from trademachine.datamanager.services.manager import DataManager
+from trademachine.datamanager.services.series_manager import SeriesManager
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -21,6 +22,37 @@ def execute_update_job(source: str, asset: str, timeframe: str) -> None:
         manager.update_data(source, asset, timeframe)
     except Exception as e:
         logger.error(f"[Scheduler] Update failed for {source}/{asset}/{timeframe}: {e}")
+
+
+def execute_update_series_job(
+    source: str,
+    series_id: str,
+    lookback_period: str | None = None,
+    frequency: str | None = None,
+) -> None:
+    """Global task function for scheduled FRED series updates."""
+    logger.info(
+        "[Scheduler] Running series update: %s/%s (lookback=%s, frequency=%s)",
+        source,
+        series_id,
+        lookback_period,
+        frequency,
+    )
+    try:
+        manager = SeriesManager()
+        manager.update_series(
+            source,
+            series_id,
+            lookback_period=lookback_period,
+            frequency=frequency,
+        )
+    except Exception as e:
+        logger.error(
+            "[Scheduler] Series update failed for %s/%s: %s",
+            source,
+            series_id,
+            e,
+        )
 
 
 class SchedulerService:
@@ -40,6 +72,19 @@ class SchedulerService:
             "default": SQLAlchemyJobStore(engine=engine, tablename="apscheduler_jobs")
         }
         self._scheduler = BackgroundScheduler(jobstores=jobstores, daemon=True)
+
+    @staticmethod
+    def _build_trigger(
+        cron: str | None = None,
+        interval_minutes: int | None = None,
+    ):
+        if not cron and not interval_minutes:
+            raise ValueError("Either 'cron' or 'interval_minutes' must be provided.")
+        return (
+            CronTrigger.from_crontab(cron)
+            if cron
+            else IntervalTrigger(minutes=interval_minutes)
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -84,16 +129,8 @@ class SchedulerService:
         Raises:
             ValueError: If neither cron nor interval_minutes is provided.
         """
-        if not cron and not interval_minutes:
-            raise ValueError("Either 'cron' or 'interval_minutes' must be provided.")
-
         job_id = str(uuid.uuid4())
-
-        trigger = (
-            CronTrigger.from_crontab(cron)
-            if cron
-            else IntervalTrigger(minutes=interval_minutes)
-        )
+        trigger = self._build_trigger(cron=cron, interval_minutes=interval_minutes)
 
         apsjob = self._scheduler.add_job(
             execute_update_job,
@@ -120,28 +157,81 @@ class SchedulerService:
             "next_run": str(apsjob.next_run_time),
         }
 
+    def add_series_job(
+        self,
+        source: str,
+        series_id: str,
+        lookback_period: str | None = None,
+        frequency: str | None = None,
+        cron: str | None = None,
+        interval_minutes: int | None = None,
+    ) -> dict[str, Any]:
+        """Schedule a recurring update for a FRED/economic series."""
+        job_id = str(uuid.uuid4())
+        trigger = self._build_trigger(cron=cron, interval_minutes=interval_minutes)
+
+        apsjob = self._scheduler.add_job(
+            execute_update_series_job,
+            trigger=trigger,
+            args=[source, series_id, lookback_period, frequency],
+            id=job_id,
+            name=f"{source}/{series_id}/SERIES",
+            replace_existing=True,
+        )
+
+        trigger_repr = cron if cron else f"every {interval_minutes}min"
+        logger.info(
+            "[Scheduler] Series job added/updated: %s (%s/%s, trigger=%s)",
+            job_id,
+            source,
+            series_id,
+            trigger_repr,
+        )
+
+        return {
+            "job_id": job_id,
+            "source": source,
+            "asset": series_id,
+            "timeframe": "SERIES",
+            "trigger": trigger_repr,
+            "cron": cron,
+            "interval_minutes": interval_minutes,
+            "next_run": str(apsjob.next_run_time),
+            "lookback_period": lookback_period,
+            "frequency": frequency,
+        }
+
     def list_jobs(self) -> list[dict[str, Any]]:
         """Return metadata for all active scheduled jobs."""
         result = []
         for apsjob in self._scheduler.get_jobs():
-            args = apsjob.args
+            args = apsjob.args or ()
             source, asset, timeframe = "", "", "M1"
-            if args and len(args) == 3:
+            extra: dict[str, Any] = {}
+            if apsjob.func is execute_update_series_job:
+                if len(args) >= 2:
+                    source, asset = args[:2]
+                timeframe = "SERIES"
+                if len(args) >= 3:
+                    extra["lookback_period"] = args[2]
+                if len(args) >= 4:
+                    extra["frequency"] = args[3]
+            elif len(args) == 3:
                 source, asset, timeframe = args
 
             trigger_repr = str(apsjob.trigger)
 
-            result.append(
-                {
-                    "job_id": apsjob.id,
-                    "name": apsjob.name,
-                    "source": source,
-                    "asset": asset,
-                    "timeframe": timeframe,
-                    "trigger": trigger_repr,
-                    "next_run": str(apsjob.next_run_time),
-                }
-            )
+            item = {
+                "job_id": apsjob.id,
+                "name": apsjob.name,
+                "source": source,
+                "asset": asset,
+                "timeframe": timeframe,
+                "trigger": trigger_repr,
+                "next_run": str(apsjob.next_run_time),
+            }
+            item.update(extra)
+            result.append(item)
         return result
 
     def remove_job(self, job_id: str) -> bool:
