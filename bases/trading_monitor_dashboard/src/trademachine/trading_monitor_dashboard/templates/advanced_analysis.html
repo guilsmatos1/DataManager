@@ -7,6 +7,30 @@
     <h1>Advanced Analysis</h1>
 </div>
 
+<style>
+    #analysis-metrics.metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .analysis-status { margin-left:0.75rem; font-size:0.85rem; color:var(--text-muted); }
+    .analysis-status.is-loading { color: var(--text-muted); }
+    .analysis-status.is-success { color: var(--green); }
+    .analysis-status.is-error { color: var(--red); }
+    .analysis-error {
+        margin-top: 1rem;
+        padding: 0.9rem 1rem;
+        border-radius: 8px;
+        border: 1px solid rgba(239, 68, 68, 0.35);
+        background: rgba(239, 68, 68, 0.08);
+    }
+    .analysis-error[hidden] { display: none; }
+    .analysis-error-title { display:block; font-size:0.78rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--red); margin-bottom:0.35rem; }
+    .analysis-error-message { color: var(--text); font-size: 0.9rem; line-height: 1.4; }
+    @media (max-width: 900px) {
+        #analysis-metrics.metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+        #analysis-metrics.metrics-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
 <div class="dashboard-grid">
     <section class="card full-width">
         <div class="section-header">
@@ -44,8 +68,12 @@
             </div>
         </div>
         <div style="margin-top:1rem">
-            <button class="btn btn-primary btn-sm" onclick="runAdvancedAnalysis()">Update</button>
-            <span id="analysis-status" style="margin-left:0.75rem;font-size:0.85rem;color:var(--text-muted)"></span>
+            <button id="analysis-update-btn" class="btn btn-primary btn-sm" onclick="runAdvancedAnalysis()">Update</button>
+            <span id="analysis-status" class="analysis-status"></span>
+        </div>
+        <div id="analysis-error" class="analysis-error" hidden>
+            <span class="analysis-error-title">Analysis Error</span>
+            <div id="analysis-error-message" class="analysis-error-message"></div>
         </div>
     </section>
 
@@ -53,6 +81,7 @@
         <div class="section-header">
             <h2>Equity Curve</h2>
             <span id="analysis-range" class="badge badge-neutral"></span>
+            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('equity-chart', 'advanced_equity.png')" title="Export image">⭳ Export</button>
         </div>
         <div class="chart-wrapper">
             <canvas id="equity-chart"></canvas>
@@ -65,15 +94,95 @@
         </div>
         <div id="analysis-metrics" class="metrics-grid"></div>
     </section>
+
+    <section class="card" id="positive-contrib-section" style="display:none">
+        <div class="section-header">
+            <h2>Positive Contribution</h2>
+        </div>
+        <div class="chart-wrapper" style="max-height:360px; display:flex; justify-content:center;">
+            <canvas id="positive-contrib-chart"></canvas>
+        </div>
+    </section>
+
+    <section class="card" id="negative-contrib-section" style="display:none">
+        <div class="section-header">
+            <h2>Negative Contribution</h2>
+        </div>
+        <div class="chart-wrapper" style="max-height:360px; display:flex; justify-content:center;">
+            <canvas id="negative-contrib-chart"></canvas>
+        </div>
+    </section>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="/static/table-renderer.js"></script>
 <script>
-let equityChart = null;
-let _allEquityPoints = [];
-let _equityPeriod = "all";
+// equityChart, _allEquityPoints, _equityPeriod declared by table-renderer.js
+let _advancedAllStrategies = [];
+let _analysisRequestToken = 0;
+let _strategyLoadToken = 0;
+
+function setAnalysisStatus(message = "", tone = "") {
+    const status = document.getElementById("analysis-status");
+    status.textContent = message;
+    status.className = "analysis-status";
+    if (tone) status.classList.add(`is-${tone}`);
+}
+
+function showAnalysisError(message) {
+    const box = document.getElementById("analysis-error");
+    document.getElementById("analysis-error-message").textContent = message;
+    box.hidden = false;
+}
+
+function clearAnalysisError() {
+    document.getElementById("analysis-error").hidden = true;
+    document.getElementById("analysis-error-message").textContent = "";
+}
+
+function extractErrorMessage(error, fallback) {
+    const msg = String(error?.message || "").trim();
+    if (!msg) return fallback;
+    return msg.startsWith("HTTP ") ? msg.replace(/^HTTP\s+\d+:\s*/, "") : msg;
+}
+
+function setAnalysisLoading(isLoading) {
+    const button = document.getElementById("analysis-update-btn");
+    button.disabled = isLoading;
+    button.textContent = isLoading ? "Updating..." : "Update";
+}
+
+function setStrategiesLoading(message = "Loading strategies...") {
+    document.getElementById("new-strategy-list").innerHTML = `<div class="loading" style="padding:0.5rem">${message}</div>`;
+}
+
+function showStrategiesError(message) {
+    document.getElementById("new-strategy-list").innerHTML = `<p class="error" style="padding:0.75rem">${message}</p>`;
+}
+
+function resetAnalysisOutput() {
+    _allEquityPoints = [];
+    if (equityChart) {
+        equityChart.destroy();
+        equityChart = null;
+    }
+    if (positiveContribChart) {
+        positiveContribChart.destroy();
+        positiveContribChart = null;
+    }
+    if (negativeContribChart) {
+        negativeContribChart.destroy();
+        negativeContribChart = null;
+    }
+    document.getElementById("equity-section").style.display = "none";
+    document.getElementById("metrics-section").style.display = "none";
+    document.getElementById("positive-contrib-section").style.display = "none";
+    document.getElementById("negative-contrib-section").style.display = "none";
+    document.querySelector("#equity-section .chart-wrapper").innerHTML = '<canvas id="equity-chart"></canvas>';
+    document.getElementById("analysis-metrics").innerHTML = "";
+    document.getElementById("analysis-range").textContent = "";
+}
 
 function setDefaultDateRange() {
     const today = new Date();
@@ -92,12 +201,30 @@ function setDefaultDateRange() {
 }
 
 async function loadStrategiesOptions() {
+    const requestToken = ++_strategyLoadToken;
+    setStrategiesLoading();
+    setAnalysisStatus("Loading strategies...", "loading");
     try {
-        const strategies = await fetchJson("/api/strategies");
-        _allStrategies = strategies;
+        const historyType = document.getElementById("param-history-type").value;
+        const strategies = await fetchJson(`/api/strategies?history_type=${encodeURIComponent(historyType)}`);
+        if (requestToken !== _strategyLoadToken) return;
+        _advancedAllStrategies = strategies;
+        _allStrategies = _advancedAllStrategies;
+        _modalLastClickedIdx = null;
         renderModalStrategiesTable();
+        if (!strategies.length) {
+            setAnalysisStatus(`No strategies available for ${historyType}.`, "error");
+            showStrategiesError(`No strategies found for history type "${historyType}".`);
+            return;
+        }
+        setAnalysisStatus(`Loaded ${strategies.length} strategies.`, "success");
     } catch (e) {
-        document.getElementById("analysis-status").textContent = `Failed to load strategies: ${e.message}`;
+        if (requestToken !== _strategyLoadToken) return;
+        _advancedAllStrategies = [];
+        _allStrategies = [];
+        const message = extractErrorMessage(e, "Failed to load strategies.");
+        showStrategiesError(message);
+        setAnalysisStatus(message, "error");
     }
 }
 
@@ -106,8 +233,28 @@ function filterModalStrategies() {
     renderModalStrategiesTable();
 }
 
+function strategyMatchesAdvancedHistoryType(strategy, historyType) {
+    const accountType = String(strategy.account_type || "").trim().toLowerCase();
+    if (historyType === "backtest") return true;
+    if (accountType.includes("demo")) return historyType === "demo";
+    if (accountType.includes("real")) return historyType === "real";
+    if (historyType === "real") return Boolean(strategy.real_account);
+    if (historyType === "demo") return !Boolean(strategy.real_account);
+    return true;
+}
+
+function applyAdvancedStrategyFilter() {
+    const historyType = document.getElementById("param-history-type").value;
+    _allStrategies = _advancedAllStrategies.filter((strategy) =>
+        strategyMatchesAdvancedHistoryType(strategy, historyType)
+    );
+    _modalLastClickedIdx = null;
+    renderModalStrategiesTable();
+}
+
 async function loadBenchmarksOptions() {
     const select = document.getElementById("param-benchmark");
+    select.innerHTML = '<option value="">Loading benchmarks...</option>';
     try {
         const benchmarks = await fetchJson("/api/benchmarks");
         const options = ['<option value="">Default / None</option>'];
@@ -119,12 +266,126 @@ async function loadBenchmarksOptions() {
         select.innerHTML = options.join("");
     } catch (e) {
         select.innerHTML = '<option value="">Default / None</option>';
-        document.getElementById("analysis-status").textContent = `Failed to load benchmarks: ${e.message}`;
+        setAnalysisStatus(extractErrorMessage(e, "Failed to load benchmarks."), "error");
     }
 }
 
 function getSelectedStrategies() {
     return [...document.querySelectorAll("#new-strategy-list input.modal-strat-checkbox:checked")].map(el => el.value);
+}
+
+let positiveContribChart = null;
+let negativeContribChart = null;
+
+const CONTRIB_COLORS = [
+    "#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6",
+    "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16",
+    "#6366f1", "#d946ef", "#0ea5e9", "#22c55e", "#eab308",
+];
+
+function renderContributionCharts(contributions) {
+    const posSection = document.getElementById("positive-contrib-section");
+    const negSection = document.getElementById("negative-contrib-section");
+
+    if (!contributions || !contributions.length) {
+        posSection.style.display = "none";
+        negSection.style.display = "none";
+        return;
+    }
+
+    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+    const textColor = isDark ? "#e2e8f0" : "#334155";
+
+    const positive = contributions.filter(c => c.profit > 0);
+    const negative = contributions.filter(c => c.profit < 0);
+
+    // ── Positive pie ────────────────────────────────────
+    if (positive.length) {
+        const totalPos = positive.reduce((s, c) => s + c.profit, 0);
+        const positiveLabels = positive.map((c) => {
+            const pct = totalPos > 0 ? ((c.profit / totalPos) * 100).toFixed(1) : "0.0";
+            return `${c.name} (${pct}%)`;
+        });
+        const posWrap = document.getElementById("positive-contrib-chart").parentElement;
+        posWrap.innerHTML = '<canvas id="positive-contrib-chart"></canvas>';
+        const ctx = document.getElementById("positive-contrib-chart").getContext("2d");
+
+        if (positiveContribChart) positiveContribChart.destroy();
+        positiveContribChart = new Chart(ctx, {
+            type: "pie",
+            data: {
+                labels: positiveLabels,
+                datasets: [{
+                    data: positive.map(c => c.profit),
+                    backgroundColor: positive.map((_, i) => CONTRIB_COLORS[i % CONTRIB_COLORS.length]),
+                    borderWidth: 1,
+                    borderColor: isDark ? "#1e293b" : "#ffffff",
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { position: "right", labels: { color: textColor, padding: 12, font: { size: 12 } } },
+                    tooltip: {
+                        callbacks: {
+                            label: (c) => {
+                                const pct = ((c.parsed / totalPos) * 100).toFixed(1);
+                                return ` ${c.label}: ${fmt(c.parsed)} (${pct}%)`;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        posSection.style.display = "block";
+    } else {
+        posSection.style.display = "none";
+    }
+
+    // ── Negative pie ────────────────────────────────────
+    if (negative.length) {
+        const totalNeg = negative.reduce((s, c) => s + Math.abs(c.profit), 0);
+        const negativeLabels = negative.map((c) => {
+            const pct = totalNeg > 0 ? ((Math.abs(c.profit) / totalNeg) * 100).toFixed(1) : "0.0";
+            return `${c.name} (${pct}%)`;
+        });
+        const negWrap = document.getElementById("negative-contrib-chart").parentElement;
+        negWrap.innerHTML = '<canvas id="negative-contrib-chart"></canvas>';
+        const ctx = document.getElementById("negative-contrib-chart").getContext("2d");
+
+        if (negativeContribChart) negativeContribChart.destroy();
+        negativeContribChart = new Chart(ctx, {
+            type: "pie",
+            data: {
+                labels: negativeLabels,
+                datasets: [{
+                    data: negative.map(c => Math.abs(c.profit)),
+                    backgroundColor: negative.map((_, i) => CONTRIB_COLORS[i % CONTRIB_COLORS.length]),
+                    borderWidth: 1,
+                    borderColor: isDark ? "#1e293b" : "#ffffff",
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { position: "right", labels: { color: textColor, padding: 12, font: { size: 12 } } },
+                    tooltip: {
+                        callbacks: {
+                            label: (c) => {
+                                const pct = ((c.parsed / totalNeg) * 100).toFixed(1);
+                                return ` ${c.label}: -${fmt(c.parsed)} (${pct}%)`;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        negSection.style.display = "block";
+    } else {
+        negSection.style.display = "none";
+    }
 }
 
 function renderAnalysisMetrics(metrics) {
@@ -161,9 +422,11 @@ function renderAnalysisMetrics(metrics) {
     section.style.display = "block";
 }
 
-function renderAnalysisChart(points, benchmark) {
+function renderAnalysisChart(equityPoints, comparisonPoints, benchmark) {
     const canvasWrap = document.getElementById("equity-chart").parentElement;
-    if (!points.length) {
+    const hasComparison = Array.isArray(comparisonPoints) && comparisonPoints.length > 0;
+    const hasEquity = Array.isArray(equityPoints) && equityPoints.length > 0;
+    if (!hasComparison && !hasEquity) {
         canvasWrap.innerHTML = '<p class="empty-state" style="padding:2rem 0">No equity data yet.</p>';
         document.getElementById("equity-section").style.display = "block";
         return;
@@ -174,14 +437,17 @@ function renderAnalysisChart(points, benchmark) {
     const isDark = document.documentElement.getAttribute("data-theme") !== "light";
     const tickColor = isDark ? "#64748b" : "#94a3b8";
     const gridColor = isDark ? "#334155" : "#e2e8f0";
-    const labels = points.map((p) => {
+    const labelsSource = hasComparison ? comparisonPoints : equityPoints;
+    const labels = labelsSource.map((p) => {
         const d = new Date(p.timestamp);
         return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
     });
 
     const datasets = [{
-        label: benchmark ? "Portfolio / Strategies" : "Portfolio / Strategies",
-        data: points.map((p) => p.portfolio),
+        label: "Portfolio / Strategies",
+        data: (hasComparison ? comparisonPoints : equityPoints).map((p) =>
+            hasComparison ? p.portfolio : p.equity
+        ),
         borderColor: "#10b981",
         backgroundColor: "rgba(16,185,129,0.06)",
         fill: true,
@@ -190,10 +456,10 @@ function renderAnalysisChart(points, benchmark) {
         borderWidth: 2.5,
     }];
 
-    if (benchmark) {
+    if (benchmark && hasComparison && comparisonPoints.some((p) => p.benchmark != null)) {
         datasets.push({
             label: benchmark.name,
-            data: points.map((p) => p.benchmark),
+            data: comparisonPoints.map((p) => p.benchmark),
             borderColor: "#f59e0b",
             backgroundColor: "transparent",
             fill: false,
@@ -226,14 +492,17 @@ function renderAnalysisChart(points, benchmark) {
 }
 
 async function runAdvancedAnalysis() {
-    const status = document.getElementById("analysis-status");
+    const requestToken = ++_analysisRequestToken;
     const strategyIds = getSelectedStrategies();
     if (!strategyIds.length) {
-        status.textContent = "Select at least one strategy.";
+        clearAnalysisError();
+        setAnalysisStatus("Select at least one strategy.", "error");
         return;
     }
 
-    status.textContent = "Updating…";
+    clearAnalysisError();
+    setAnalysisLoading(true);
+    setAnalysisStatus("Running analysis...", "loading");
     const params = new URLSearchParams();
     strategyIds.forEach((id) => params.append("strategy_ids", id));
     params.set("history_type", document.getElementById("param-history-type").value);
@@ -249,20 +518,34 @@ async function runAdvancedAnalysis() {
 
     try {
         const data = await fetchJson(`/api/advanced-analysis?${params.toString()}`);
-        status.textContent = "";
+        if (requestToken !== _analysisRequestToken) return;
 
         _allEquityPoints = data.equity_curve || [];
-        renderAnalysisChart(data.comparison_curve || [], data.benchmark || null);
+        renderAnalysisChart(
+            data.equity_curve || [],
+            data.comparison_curve || [],
+            data.benchmark || null
+        );
 
         renderAnalysisMetrics(data.metrics || {});
+        renderContributionCharts(data.strategy_contributions || []);
 
         const rangeText = dateFrom || dateTo
             ? `${dateFrom || "beginning"} → ${dateTo || "now"}`
             : "All time";
         const benchmarkText = data.benchmark ? ` · benchmark: ${data.benchmark.name}` : "";
         document.getElementById("analysis-range").textContent = `${rangeText}${benchmarkText}`;
+        setAnalysisStatus("Analysis updated.", "success");
     } catch (e) {
-        status.textContent = `Error: ${e.message}`;
+        if (requestToken !== _analysisRequestToken) return;
+        const message = extractErrorMessage(e, "Failed to update analysis.");
+        resetAnalysisOutput();
+        showAnalysisError(message);
+        setAnalysisStatus(message, "error");
+    } finally {
+        if (requestToken === _analysisRequestToken) {
+            setAnalysisLoading(false);
+        }
     }
 }
 
@@ -270,6 +553,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setDefaultDateRange();
     loadStrategiesOptions();
     loadBenchmarksOptions();
+    document.getElementById("param-history-type").addEventListener("change", loadStrategiesOptions);
 });
 </script>
 {% endblock %}

@@ -668,7 +668,10 @@ def update_account(
 
 
 @router.get("/strategies", response_model=list[StrategyResponse])
-def list_strategies(db: Session = Depends(get_db)):
+def list_strategies(
+    history_type: Literal["backtest", "demo", "real"] | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
     from collections import defaultdict
 
     net_profits: dict[str, float] = dict(
@@ -724,6 +727,23 @@ def list_strategies(db: Session = Depends(get_db)):
 
     now_utc = datetime.now(UTC)
     strategies = db.query(Strategy).options(joinedload(Strategy.account)).all()
+    if history_type in {"real", "demo"}:
+        strategies = [
+            strategy
+            for strategy in strategies
+            if _strategy_matches_history_type(strategy, history_type)
+        ]
+    elif history_type == "backtest":
+        backtest_strategy_ids = {
+            strategy_id
+            for (strategy_id,) in (
+                db.query(Backtest.strategy_id)
+                .filter(or_(Backtest.status == "complete", Backtest.status.is_(None)))
+                .distinct()
+                .all()
+            )
+        }
+        strategies = [s for s in strategies if s.id in backtest_strategy_ids]
     result = []
     for s in strategies:
         r = StrategyResponse.model_validate(s)
@@ -1686,6 +1706,7 @@ def get_advanced_analysis(
             else None,
             "selected_strategies": [s.id for s in selected_strategies],
             "history_type": history_type,
+            "strategy_contributions": [],
         }
 
     combined_deals = pd.concat(deal_frames).sort_index()
@@ -1795,6 +1816,14 @@ def get_advanced_analysis(
                 )
                 metrics["Correlation vs Benchmark"] = correlation
             else:
+                comparison_curve = [
+                    {
+                        "timestamp": to_iso(ts),
+                        "portfolio": float(v),
+                        "benchmark": None,
+                    }
+                    for ts, v in chart_series.items()
+                ]
                 metrics["Benchmark Status"] = (
                     "Selected benchmark has no synced local prices."
                 )
@@ -1814,6 +1843,20 @@ def get_advanced_analysis(
             benchmark_to_dict(db, selected_benchmark) if selected_benchmark else None
         )
 
+    # Per-strategy profit contribution for pie charts.
+    strategy_name_map = {s.id: s.name or s.id for s in selected_strategies}
+    strategy_contributions: list[dict[str, object]] = []
+    if not combined_deals.empty and "strategy_id" in combined_deals.columns:
+        grouped = combined_deals.groupby("strategy_id")["profit"].sum()
+        for sid, total_profit in grouped.items():
+            strategy_contributions.append(
+                {
+                    "strategy_id": sid,
+                    "name": strategy_name_map.get(sid, sid),
+                    "profit": round(float(total_profit), 2),
+                }
+            )
+
     return {
         "metrics": _sanitize_metrics(metrics),
         "equity_curve": equity_curve,
@@ -1821,6 +1864,7 @@ def get_advanced_analysis(
         "benchmark": benchmark_payload,
         "selected_strategies": [s.id for s in selected_strategies],
         "history_type": history_type,
+        "strategy_contributions": strategy_contributions,
     }
 
 
