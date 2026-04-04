@@ -443,9 +443,10 @@ class DataManagerCLI(cmd.Cmd):
                         return
 
                     width = self.terminal_width
+                    title_len = max(10, width - 80)
                     print(f"\n{Fore.CYAN}{Style.BRIGHT}FRED SERIES:{Style.RESET_ALL}")
                     print(f"{Fore.WHITE}=" * width)
-                    header = f"{'SERIES ID':<18} | {'TITLE':<36} | {'FREQ':<10} | {'ROWS':<8} | {'START':<16} | {'END':<16}"
+                    header = f"{'SERIES ID':<18} | {'TITLE':<{title_len}} | {'FREQ':<10} | {'ROWS':<8} | {'START':<16} | {'END':<16}"
                     print(f"{Fore.YELLOW}{header}")
                     print(f"{Fore.WHITE}{'-' * width}")
                     for item in items:
@@ -454,7 +455,7 @@ class DataManagerCLI(cmd.Cmd):
                         rows = item.get("rows", "N/A")
                         row = (
                             f"{Fore.GREEN}{str(item.get('series_id', '')):<18} {Fore.WHITE}| "
-                            f"{Fore.WHITE}{str(item.get('title', ''))[:34]:<36} | "
+                            f"{Fore.WHITE}{str(item.get('title', ''))[:title_len]:<{title_len}} | "
                             f"{Fore.CYAN}{str(item.get('frequency', '')):<10} {Fore.WHITE}| "
                             f"{Fore.YELLOW}{str(rows):<8} {Fore.WHITE}| "
                             f"{Fore.BLUE}{start:<16} {Fore.WHITE}| "
@@ -475,9 +476,10 @@ class DataManagerCLI(cmd.Cmd):
             return
 
         width = self.terminal_width
+        asset_len = max(8, width - 75)
         print(f"\n{Fore.CYAN}{Style.BRIGHT}PERSISTED DATABASES:")
         print(f"{Fore.WHITE}=" * width)
-        header = f"{'ID':<3} | {'SOURCE':<10} | {'ASSET':<8} | {'TF':<4} | {'ROWS':<8} | {'START':<16} | {'END':<16}"
+        header = f"{'ID':<3} | {'SOURCE':<10} | {'ASSET':<{asset_len}} | {'TF':<4} | {'ROWS':<8} | {'START':<16} | {'END':<16}"
         print(f"{Fore.YELLOW}{header}")
         print(f"{Fore.WHITE}-" * width)
 
@@ -489,7 +491,7 @@ class DataManagerCLI(cmd.Cmd):
             row = (
                 f"{Fore.YELLOW}{idx + 1:<3} {Fore.WHITE}| "
                 f"{Fore.CYAN}{db['source'].upper()[:10]:<10} {Fore.WHITE}| "
-                f"{Fore.GREEN}{db['asset'].upper()[:8]:<8} {Fore.WHITE}| "
+                f"{Fore.GREEN}{db['asset'].upper()[:asset_len]:<{asset_len}} {Fore.WHITE}| "
                 f"{Fore.MAGENTA}{db['timeframe'].upper()[:4]:<4} {Fore.WHITE}| "
                 f"{Fore.WHITE}{str(rows):<8} | "
                 f"{Fore.BLUE}{start:<16} {Fore.WHITE}| "
@@ -579,17 +581,20 @@ class DataManagerCLI(cmd.Cmd):
 
             if source_key == "OPENBB":
                 print(f"{Fore.WHITE}{'=' * width}")
-                header = f"{'TICKER':<15} | {'COMPANY NAME':<55} | {'EXCHANGE':<15}"
+                name_len = max(10, width - 35)
+                header = (
+                    f"{'TICKER':<15} | {'COMPANY NAME':<{name_len}} | {'EXCHANGE':<15}"
+                )
                 print(f"{Fore.YELLOW}{header}")
                 print(f"{Fore.WHITE}{'-' * width}")
                 df = df.reset_index().fillna("")
                 for _, row in df.head(20).iterrows():
                     symbol = str(row.get("symbol", ""))
-                    name = str(row.get("name", ""))[:53]
+                    name = str(row.get("name", ""))[:name_len]
                     exc = str(row.get("exchange", ""))
                     row_str = (
                         f"{Fore.GREEN}{symbol:<15} {Fore.WHITE}| "
-                        f"{Fore.WHITE}{name:<55} | "
+                        f"{Fore.WHITE}{name:<{name_len}} | "
                         f"{Fore.CYAN}{exc:<15}"
                     )
                     print(row_str)
@@ -797,15 +802,16 @@ class DataManagerCLI(cmd.Cmd):
                 logger.info("No scheduled jobs.")
                 return
             width = self.terminal_width
+            asset_len = max(10, width - 103)
             print(
-                f"\n{'JOB ID':<38} | {'SOURCE':<10} | {'ASSET':<10} | {'TF':<4} | {'TRIGGER':<20} | NEXT RUN"
+                f"\n{'JOB ID':<38} | {'SOURCE':<10} | {'ASSET':<{asset_len}} | {'TF':<4} | {'TRIGGER':<20} | NEXT RUN"
             )
             print(f"{Fore.WHITE}-" * width)
             for j in jobs:
                 row = (
                     f"{Fore.WHITE}{j['job_id']:<38} | "
                     f"{Fore.CYAN}{j['source']:<10} | "
-                    f"{Fore.GREEN}{j['asset']:<10} | "
+                    f"{Fore.GREEN}{j['asset']:<{asset_len}} | "
                     f"{Fore.MAGENTA}{j['timeframe']:<4} | "
                     f"{Fore.YELLOW}{j['trigger']:<20} | "
                     f"{Fore.BLUE}{j['next_run']}"
