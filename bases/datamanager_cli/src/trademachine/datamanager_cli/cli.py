@@ -542,22 +542,21 @@ class DataManagerCLI(cmd.Cmd):
                 print(f"\nFound {len(df)} series. Displaying the first 20:")
                 width = self.terminal_width
                 print(f"{Fore.WHITE}{'=' * width}")
-                header = (
-                    f"{'SERIES ID':<18} | {'TITLE':<50} | {'FREQ':<10} | {'UNITS':<18}"
-                )
+                title_len = max(10, width - 52)
+                header = f"{'SERIES ID':<18} | {'TITLE':<{title_len}} | {'FREQ':<10} | {'UNITS':<18}"
                 print(f"{Fore.YELLOW}{header}")
                 print(f"{Fore.WHITE}{'-' * width}")
                 df = df.reset_index().fillna("")
                 for _, row in df.head(20).iterrows():
                     series_id = str(row.get("series_id", row.get("id", "")))
-                    title = str(row.get("title", row.get("name", "")))[:48]
+                    title = str(row.get("title", row.get("name", "")))[:title_len]
                     frequency = str(
                         row.get("frequency", row.get("native_frequency", ""))
                     )
                     units = str(row.get("units", ""))[:16]
                     row_str = (
                         f"{Fore.GREEN}{series_id:<18} {Fore.WHITE}| "
-                        f"{Fore.WHITE}{title:<50} | "
+                        f"{Fore.WHITE}{title:<{title_len}} | "
                         f"{Fore.CYAN}{frequency:<10} {Fore.WHITE}| "
                         f"{Fore.YELLOW}{units:<18}"
                     )
@@ -598,7 +597,8 @@ class DataManagerCLI(cmd.Cmd):
 
             elif source_key == "DUKASCOPY":
                 print(f"{Fore.WHITE}{'=' * width}")
-                header = f"{'TICKER':<20} | {'ALIAS':<15} | {'ASSET NAME':<50} | {'CATEGORY':<10}"
+                name_len = max(10, width - 51)
+                header = f"{'TICKER':<20} | {'ALIAS':<15} | {'ASSET NAME':<{name_len}} | {'CATEGORY':<10}"
                 print(f"{Fore.YELLOW}{header}")
                 print(f"{Fore.WHITE}{'-' * width}")
                 df = df.fillna("")
@@ -606,7 +606,7 @@ class DataManagerCLI(cmd.Cmd):
                     row_str = (
                         f"{Fore.GREEN}{str(row['ticker']):<20} {Fore.WHITE}| "
                         f"{Fore.CYAN}{str(row['alias']):<15} {Fore.WHITE}| "
-                        f"{Fore.WHITE}{str(row['nome_do_ativo'])[:48]:<50} | "
+                        f"{Fore.WHITE}{str(row['nome_do_ativo'])[:name_len]:<{name_len}} | "
                         f"{Fore.YELLOW}{str(row['categoria']):<10}"
                     )
                     print(row_str)
