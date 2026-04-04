@@ -97,24 +97,6 @@ Parsed MT5 HTML is saved as `cache.parquet` (Polars/PyArrow). Loads in <1s vs 30
 
 `H` (hourly), `D` (daily — default), `W` (weekly), `M` (monthly). Larger periods = coarser granularity = faster computation.
 
-## Gemini Pipeline
-
-Ao finalizar uma implementação, avalie se houve **nova feature** (novo método público, novo comando CLI, nova classe, novo comportamento observável). Refatorações, correções de bug, ajustes de config e formatação **não** disparam o pipeline.
-
-Se houver nova feature, execute os dois passos abaixo **em sequência**:
-
-### 1. Gemini Tests
-
-```bash
-gemini -p "Voce e um Engenheiro de QA senior do projeto PortifolioMaster (Python, uv, src/portifoliomaster/). Crie ou atualize testes unitarios em tests/ para cobrir a seguinte nova feature: <descreva a feature>. Use pytest, siga os padroes de tests/ (fixtures, mocks, dados reais de tests/reports/). Execute 'uv run pytest tests/ -v' para verificar que todos os testes passam. Se algum teste falhar, corrija-o. Apos escrever os testes, pare imediatamente." --yolo
-```
-
-### 2. Gemini Docs
-
-```bash
-gemini -p "Voce e um Engenheiro de Documentacao senior do projeto PortifolioMaster (Python, uv, src/portifoliomaster/). DIFF: \$(git diff HEAD -- src/ 2>/dev/null | head -300). Leia apenas README.md, CODEBASE_DOCS.md e docs/ para entender o que ja esta documentado — NAO leia arquivos em src/ nem em tests/. Atualize README.md, CODEBASE_DOCS.md e/ou docs/ refletindo as mudancas tecnicas — documente comportamento e arquitetura, nunca codigo linha por linha. Em seguida execute 'git add' em todos os arquivos modificados neste pipeline (docs/** + README.md + CODEBASE_DOCS.md + tests/**) e faca um unico 'git commit' com prefixo 'chore:' e rodape 'Pipeline-by: Gemini CLI'. Se nao houver mudancas pendentes, responda apenas SKIP. Apos o commit, pare imediatamente." --yolo
-```
-
 ## Ruff Workflow
 
 Always run Ruff after implementing or editing Python files.

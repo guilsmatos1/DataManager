@@ -174,4 +174,4 @@ class SeriesManager:
 
     def delete_series(self, source: str, series_id: str) -> bool:
         normalized_source = self._validate_source(source)
-        return self.storage.delete_series(normalized_source, series_id)
+        return self.storage.delete_series(normalized_source, series_id)  # type: ignore[no-any-return]

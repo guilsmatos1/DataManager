@@ -48,11 +48,6 @@ class SeriesDeleteRequest(BaseModel):
     series_id: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$")
 
 
-class SeriesSearchRequest(BaseModel):
-    source: str = Field("fred", pattern=r"^[a-zA-Z0-9_]+$")
-    query: str | None = None
-
-
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------

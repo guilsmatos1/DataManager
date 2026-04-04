@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import matplotlib
+
+matplotlib.use("Agg")
+
 import numpy as np
 import pandas as pd
 import quantstats as qs
@@ -63,9 +67,21 @@ def calculate_metrics_from_df(
 
     win_rate = compute_win_rate(trading_deals["profit"].values)
 
+    cumulative_return = None
+    if not equity_df.empty and "equity" in equity_df.columns:
+        equity_series = equity_df["equity"].dropna().astype(float)
+        if not equity_series.empty:
+            starting_equity = float(equity_series.iloc[0])
+            ending_equity = float(equity_series.iloc[-1])
+            if starting_equity != 0:
+                cumulative_return = (
+                    (ending_equity - starting_equity) / abs(starting_equity)
+                ) * 100
+
     metrics = {
         "Total Trades": len(trading_deals),
         "Net Profit": net_profit,
+        "Cumulative Return (%)": cumulative_return,
         "Gross Profit": gross_profit,
         "Gross Loss": gross_loss,
         "Profit Factor": profit_factor,
@@ -92,6 +108,7 @@ def calculate_metrics_from_df(
     ordered_keys = [
         "Total Trades",
         "Net Profit",
+        "Cumulative Return (%)",
         "Profit Factor",
         "Recovery Factor",
         "Win Rate (%)",
@@ -341,10 +358,11 @@ def calculate_portfolio_metrics(strategy_ids: list[str]) -> dict:
 def generate_qs_report(
     strategy_id: str | None = None,
     portfolio_id: int | None = None,
+    backtest_id: int | None = None,
     output_path: str = "report.html",
     title: str = "Performance Report",
 ) -> str | None:
-    """Generate a QuantStats HTML report for a strategy or portfolio.
+    """Generate a QuantStats HTML report for a strategy, portfolio, or backtest.
 
     Args:
         strategy_id: The strategy identifier. If provided, generates a report for
@@ -352,6 +370,8 @@ def generate_qs_report(
         portfolio_id: The portfolio database ID. If provided, generates a report
             combining all strategies in the portfolio. Cannot be used together
             with strategy_id.
+        backtest_id: The backtest database ID. If provided, generates a report
+            for that backtest.
         output_path: File path where the HTML report will be saved.
         title: Title displayed in the report header. Defaults to "Performance Report".
             Automatically prefixed with "Strategy Report: " or "Portfolio Report: "
@@ -367,6 +387,12 @@ def generate_qs_report(
         equity_df = get_strategy_equity_curve(strategy_id)
         if title == "Performance Report":
             title = f"Strategy Report: {strategy_id}"
+    elif backtest_id:
+        from trademachine.tradingmonitor.metrics.repository import get_backtest_equity
+
+        equity_df = get_backtest_equity(backtest_id)
+        if title == "Performance Report":
+            title = f"Backtest Report: {backtest_id}"
     elif portfolio_id:
         db = SessionLocal()
         try:

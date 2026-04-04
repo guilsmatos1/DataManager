@@ -112,25 +112,7 @@ function renderStrategiesTable() {
         const npReal = s.real_account  ? s.net_profit : null;
         const liveCls   = s.live ? "badge-live" : "badge-incubation";
         const liveLabel = s.live ? "Live" : "Incubation";
-        let signalDot = "";
-        if (s.live) {
-            if (!s.last_seen_at) {
-                signalDot = `<span class="signal-dot signal-unknown" title="Aguardando dados…"></span>`;
-            } else {
-                const age = now - new Date(s.last_seen_at).getTime();
-                const mins = Math.round(age / 60000);
-                signalDot = age > STALE_MS
-                    ? `<span class="signal-dot signal-stale" title="Sem dados há ${mins}min"></span>`
-                    : `<span class="signal-dot signal-ok"    title="Ativo (há ${mins}min)"></span>`;
-            }
-        }
         const liveBadge = `<span class="badge ${liveCls} editable-badge" onclick="event.stopPropagation();toggleStratLive('${s.id}',${s.live})">${liveLabel}</span>`;
-        let zombieBadge = "";
-        if (s.zombie_alert) {
-            const lastT = s.last_trade_at ? new Date(s.last_trade_at) : null;
-            const hoursAgo = lastT ? Math.round((Date.now() - lastT.getTime()) / 3600000) : "?";
-            zombieBadge = `<span class="badge badge-zombie" title="Sem trades há ${hoursAgo}h — verifique o robô">Zombie</span>`;
-        }
         const npPct = (np, ib) => {
             if (np == null || np === "—" || ib == null || ib <= 0) return `<td class="text-muted">—</td>`;
             const pct = (np / ib) * 100;
@@ -142,11 +124,11 @@ function renderStrategiesTable() {
             <td class="editable-cell" data-strat-id="${s.id}" data-field="name" onclick="event.stopPropagation();startEdit(this)">${s.name || "—"}</td>
             <td>${s.symbol || "—"}</td>
             <td class="editable-cell" data-strat-id="${s.id}" data-field="timeframe" onclick="event.stopPropagation();startEdit(this)">${s.timeframe || "—"}</td>
-            <td>${s.operational_style || "—"}</td>
+            <td class="editable-cell" data-strat-id="${s.id}" data-field="operational_style" onclick="event.stopPropagation();startEdit(this)">${s.operational_style || "—"}</td>
             <td class="editable-cell" data-strat-id="${s.id}" data-field="trade_duration" onclick="event.stopPropagation();startEdit(this)">${s.trade_duration || "—"}</td>
             <td class="editable-cell" data-strat-id="${s.id}" data-field="initial_balance" data-type="number" onclick="event.stopPropagation();startEdit(this)" style="font-variant-numeric:tabular-nums">${s.initial_balance != null ? fmt(s.initial_balance) : "—"}</td>
             ${npPct(npBt, s.initial_balance)}${npPct(npDemo, s.initial_balance)}${npPct(npReal, s.initial_balance)}
-            <td>${signalDot}${liveBadge}${zombieBadge}</td>
+            <td>${liveBadge}</td>
             <td><button class="btn-delete-row" title="Delete" onclick="event.stopPropagation();deleteStrategy('${s.id}','${(s.name||s.id).replace(/'/g,"\\'")}')">✕</button></td>
         </tr>`;
     }).join("");
@@ -226,7 +208,7 @@ function renderAccountsTable() {
             <td class="mono">${a.id}</td>
             <td class="editable-cell" data-account-id="${a.id}" data-field="name" onclick="event.stopPropagation();startAccountEdit(this)">${a.name || "—"}</td>
             <td>${a.broker || "—"}</td>
-            <td><span class="badge ${a.account_type?.toLowerCase().includes('real') ? 'badge-real' : 'badge-demo'}">${a.account_type || "—"}</span></td>
+            <td><span class="badge ${a.account_type?.toLowerCase().includes('real') ? 'badge-real' : 'badge-demo'} editable-badge" onclick="event.stopPropagation();toggleAccountType('${a.id}','${a.account_type}')">${a.account_type || "—"}</span></td>
             <td class="editable-cell" data-account-id="${a.id}" data-field="currency" onclick="event.stopPropagation();startAccountEdit(this)">${a.currency || "—"}</td>
             <td class="${balanceCls}" style="font-variant-numeric:tabular-nums">${a.balance != null ? fmt(a.balance) : "—"}</td>
             <td class="${marginCls}" style="font-variant-numeric:tabular-nums">${a.free_margin != null ? fmt(a.free_margin) : "—"}</td>
@@ -318,7 +300,7 @@ function renderPortfoliosTable() {
             <td class="${npCls(p.backtest_net_profit)}" style="font-variant-numeric:tabular-nums">${npPct(p.backtest_net_profit)}</td>
             <td class="${npCls(p.demo_net_profit)}" style="font-variant-numeric:tabular-nums">${npPct(p.demo_net_profit)}</td>
             <td class="${npCls(p.real_net_profit)}" style="font-variant-numeric:tabular-nums">${npPct(p.real_net_profit)}</td>
-            <td><span class="badge ${p.live ? 'badge-live' : 'badge-incubation'}">${p.live ? "Live" : "Incubation"}</span></td>
+            <td><span class="badge ${p.live ? 'badge-live' : 'badge-incubation'} editable-badge" onclick="event.stopPropagation();togglePortfolioLive(${p.id},${p.live})">${p.live ? "Live" : "Incubation"}</span></td>
             <td>
                 <button class="btn-edit-row" onclick="event.stopPropagation();openEditPortfolioModalById(${p.id})" title="Edit">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>

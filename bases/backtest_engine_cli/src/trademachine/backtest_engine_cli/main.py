@@ -152,7 +152,7 @@ class DataHandler:
         return self.catalog.bars(bar_types=[str(bar_type)], start=start, end=end)
 
 
-class MACDConfig(StrategyConfig, frozen=True):
+class MACDConfig(StrategyConfig, frozen=True):  # type: ignore[call-arg]
     instrument_id: InstrumentId
     h1_bar_type: BarType
 

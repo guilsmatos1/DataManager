@@ -67,6 +67,16 @@
                         <label for="chat_id" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Chat ID</label>
                         <input type="text" id="chat_id" name="chat_id" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: -100123456789">
                     </div>
+                    <div class="form-group" style="margin-bottom: 1.25rem; display:flex; flex-direction:column; gap:0.75rem;">
+                        <label style="display:flex; align-items:center; gap:0.6rem; color:var(--text); font-size:0.9rem;">
+                            <input type="checkbox" id="notify_closed_trades" name="notify_closed_trades">
+                            <span>Enviar mensagem quando um trade for fechado</span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:0.6rem; color:var(--text); font-size:0.9rem;">
+                            <input type="checkbox" id="notify_system_errors" name="notify_system_errors">
+                            <span>Enviar mensagem em caso de erro no sistema</span>
+                        </label>
+                    </div>
                     <div class="form-group" style="margin-bottom: 1.5rem;">
                         <label for="var_95_threshold" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.85rem;">Limite VaR 95% (%)</label>
                         <input type="number" step="0.01" id="var_95_threshold" name="var_95_threshold" class="input" style="width: 100%; padding: 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);" placeholder="Ex: 5.0">
@@ -284,6 +294,8 @@
                 const data = await response.json();
                 document.getElementById('bot_token').value = data.bot_token || '';
                 document.getElementById('chat_id').value = data.chat_id || '';
+                document.getElementById('notify_closed_trades').checked = Boolean(data.notify_closed_trades);
+                document.getElementById('notify_system_errors').checked = Boolean(data.notify_system_errors);
                 document.getElementById('var_95_threshold').value = data.var_95_threshold || '';
                 document.getElementById('default_initial_balance').value = data.default_initial_balance || 100000;
                 document.getElementById('real_page_mode').value = data.real_page_mode || 'real';
@@ -310,6 +322,8 @@
         const payload = {
             bot_token: document.getElementById('bot_token').value,
             chat_id: document.getElementById('chat_id').value,
+            notify_closed_trades: document.getElementById('notify_closed_trades').checked,
+            notify_system_errors: document.getElementById('notify_system_errors').checked,
             var_95_threshold: parseFloat(document.getElementById('var_95_threshold').value) || 0,
             default_initial_balance: parseFloat(document.getElementById('default_initial_balance').value) || 100000,
             real_page_mode: document.getElementById('real_page_mode').value || 'real'

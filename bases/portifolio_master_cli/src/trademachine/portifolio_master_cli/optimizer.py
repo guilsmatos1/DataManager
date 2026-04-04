@@ -1,0 +1,506 @@
+"""
+Optimizer Module
+================
+Portfolio optimization orchestration for PortifolioCLI.
+"""
+
+import json
+import logging
+import os
+
+import polars as pl
+from trademachine.core.logger import LOGGER_NAME
+from trademachine.portifoliomaster.core.exceptions import ValidationError
+from trademachine.portifoliomaster.services.optimization import (
+    BenchmarkResult,
+    BruteForceEngine,
+)
+
+logger = logging.getLogger(LOGGER_NAME)
+
+
+class OptimizerMixin:
+    """Portfolio optimization functionality for PortifolioCLI."""
+
+    def _build_correlation_cache_key(
+        self, all_trades_long: pl.DataFrame, corr_period: str
+    ) -> tuple:
+        """Builds a stable in-process cache key for the current optimization dataset."""
+        if all_trades_long.is_empty():
+            return (corr_period.upper(), 0)
+
+        summary = (
+            all_trades_long.group_by("Strategy")
+            .agg(
+                pl.len().alias("trade_count"),
+                pl.col("Net_Profit").sum().alias("net_profit"),
+                pl.col("Net_Profit").abs().sum().alias("gross_abs_profit"),
+                pl.col("Horário").min().alias("start"),
+                pl.col("Horário").max().alias("end"),
+            )
+            .sort("Strategy")
+        )
+
+        summary_rows = tuple(
+            (
+                str(name),
+                int(trade_count),
+                round(float(net_profit), 8),
+                round(float(gross_abs_profit), 8),
+                str(start),
+                str(end),
+            )
+            for name, trade_count, net_profit, gross_abs_profit, start, end in summary.iter_rows()
+        )
+
+        return (
+            corr_period.upper(),
+            len(all_trades_long),
+            str(all_trades_long["Horário"].min()),
+            str(all_trades_long["Horário"].max()),
+            summary_rows,
+        )
+
+    def _build_optimization_engine(
+        self, all_trades_long: pl.DataFrame, kwargs: dict
+    ) -> BruteForceEngine:
+        """Constructs the optimization engine, reusing cached correlation when possible."""
+        corr_period = kwargs.get("corr_period", "D")
+        corr_cache_key = self._build_correlation_cache_key(all_trades_long, corr_period)
+        correlation_matrix = self._correlation_cache.get(corr_cache_key)  # type: ignore[attr-defined]
+        if correlation_matrix is not None:
+            logger.info(f"Using cached correlation matrix (Period: {corr_period})")
+
+        engine = BruteForceEngine(
+            all_trades_long,
+            correlation_period=corr_period,
+            correlation_matrix=correlation_matrix,
+            num_workers=kwargs.get("num_workers", 0),
+            corr_filter_batch_size=kwargs.get(
+                "corr_filter_batch_size",
+                self.default_config.get("corr_filter_batch_size", 10000),  # type: ignore[attr-defined]
+            ),
+            matrix_algebra_batch_size=kwargs.get(
+                "matrix_algebra_batch_size",
+                self.default_config.get("matrix_algebra_batch_size", 1000),  # type: ignore[attr-defined]
+            ),
+        )
+        if correlation_matrix is None:
+            self._correlation_cache[corr_cache_key] = engine.correlation_matrix  # type: ignore[attr-defined]
+        return engine
+
+    def _prepare_optimization_trades(self, kwargs: dict) -> pl.DataFrame:
+        """Builds the optimization dataset from current memory and active filters."""
+        all_trades_long = self.portfolio_manager.get_all_trades_long()  # type: ignore[attr-defined]
+
+        if kwargs.get("include_strats") and kwargs.get("exclude_strats"):
+            raise ValidationError(
+                "--strats and --exclude-strats cannot be used together."
+            )
+
+        if kwargs.get("date_initial") or kwargs.get("date_final"):
+            all_trades_long = self._apply_date_filter(
+                all_trades_long,
+                kwargs.get("date_initial"),
+                kwargs.get("date_final"),
+            )
+
+        if kwargs.get("include_strats"):
+            all_trades_long = self._apply_strategy_filter(
+                all_trades_long, kwargs["include_strats"], kwargs["min_assets"]
+            )
+
+        if kwargs.get("exclude_strats"):
+            all_trades_long = self._apply_strategy_exclusion(
+                all_trades_long, kwargs["exclude_strats"], kwargs["min_assets"]
+            )
+
+        return all_trades_long  # type: ignore[no-any-return]
+
+    def _execute_optimization_engine(
+        self, all_trades_long: pl.DataFrame, kwargs: dict
+    ) -> BruteForceEngine:
+        """Runs one optimization cycle and returns the populated engine."""
+        greedy = kwargs.get("greedy", False)
+        engine = self._build_optimization_engine(all_trades_long, kwargs)
+
+        seed_size = kwargs["min_assets"]
+        if greedy and kwargs["min_assets"] != kwargs["max_assets"]:
+            logger.warning(
+                f"--greedy is active: --max ({kwargs['max_assets']}) is ignored. "
+                f"Using --min ({seed_size}) as seed size."
+            )
+
+        engine.run(
+            min_assets=seed_size,
+            max_assets=seed_size if greedy else kwargs["max_assets"],
+            top_n=kwargs["top_n"],
+            rank_by=kwargs["rank_by"],
+            max_corr=kwargs["max_correlation"],
+            min_metric=kwargs.get("min_metric", 0.0),
+            enrich_details=False,
+        )
+
+        if greedy and engine.best_portfolios:
+            seed_combo = engine.best_portfolios[0]["Combo"]
+            engine.run_greedy(
+                seed_combo=seed_combo,
+                rank_by=kwargs["rank_by"],
+                max_corr=kwargs["max_correlation"],
+                enrich_details=False,
+            )
+
+        return engine
+
+    def _handle_optimization_results(
+        self, engine: BruteForceEngine, kwargs: dict
+    ) -> None:
+        if not engine.best_portfolios:
+            return
+
+        if self._needs_detailed_metrics(kwargs):
+            engine.ensure_detailed_metrics()
+
+        self.last_optimization_results = engine.best_portfolios
+
+        if kwargs.get("show_terminal"):
+            engine.print_results(columns=kwargs.get("csv_columns") or None)
+
+        if kwargs.get("save_trades_prefix"):
+            self._save_best_portfolio_trades(  # type: ignore[attr-defined]
+                engine.best_portfolios, kwargs["save_trades_prefix"]
+            )
+
+        if kwargs.get("export_best_json"):
+            self._export_to_json(engine.best_portfolios[0], kwargs["export_best_json"])  # type: ignore[attr-defined]
+
+        if kwargs.get("plot_chart"):
+            report_path = self._optimization_output_service().generate_report(  # type: ignore[attr-defined]
+                engine.best_portfolios,
+                open_browser=True,
+                strategy_names=engine.strategy_names,
+                correlation_matrix=engine.correlation_matrix,
+                correlation_period=kwargs.get("corr_period", "D"),
+            )
+            logger.info(f"Portfolio report saved to: {report_path}")
+
+        if kwargs.get("montecarlo"):
+            if kwargs.get("output_dir") is not None:
+                from datetime import datetime as _dt
+
+                raw_dir = kwargs["output_dir"]
+                _ts = _dt.now().strftime("%Y-%m-%d_%H-%M")
+                _out_dir = raw_dir if raw_dir else f"run_{_ts}"
+                mc_path = os.path.join(_out_dir, "montecarlo_report.html")
+                self._run_montecarlo(  # type: ignore[attr-defined]
+                    engine.best_portfolios[0],
+                    kwargs["montecarlo"],
+                    mc_path,
+                    open_browser=False,
+                )
+            else:
+                self._run_montecarlo(  # type: ignore[attr-defined]
+                    engine.best_portfolios[0],
+                    kwargs["montecarlo"],
+                    "montecarlo_report.html",
+                    open_browser=True,
+                )
+
+        if kwargs.get("output_dir") is not None:
+            self._save_output_dir(engine, kwargs)  # type: ignore[attr-defined]
+
+    @staticmethod
+    def _needs_detailed_metrics(kwargs: dict) -> bool:
+        """Returns True when the selected outputs need full MT5-style metrics."""
+        return bool(
+            kwargs.get("show_terminal")
+            or kwargs.get("plot_chart")
+            or kwargs.get("output_dir") is not None
+        )
+
+    @staticmethod
+    def _format_duration(seconds: float | None) -> str:
+        """Formats a duration in seconds to a short human-readable label."""
+        if seconds is None:
+            return "N/A"
+        total_seconds = max(int(round(seconds)), 0)
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, secs = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours}h {minutes:02d}m {secs:02d}s"
+        if minutes > 0:
+            return f"{minutes}m {secs:02d}s"
+        return f"{secs}s"
+
+    def _print_benchmark_result(self, result: BenchmarkResult) -> None:
+        """Prints a concise terminal summary for throughput benchmark runs."""
+        print("\nBenchmark Summary")
+        print("=" * 72)
+        print(f"Search space:           {result.total_combinations:,} combinations")
+        print(
+            f"Measured window:        {result.elapsed_seconds:.2f}s "
+            f"with {result.num_workers} worker(s)"
+        )
+        print(f"Processed in sample:    {result.processed_combinations:,} combinations")
+        print(
+            f"  Valid after corr:     {result.valid_combinations:,} "
+            f"| Discarded: {result.discarded_combinations:,}"
+        )
+        print(
+            f"Throughput:             {result.combinations_per_second:,.0f} combinations/s"
+        )
+        print(
+            f"Estimated in target:    {result.estimated_combinations_in_target:,} "
+            f"in {self._format_duration(result.target_seconds)}"
+        )
+        if result.completed_search:
+            print(
+                f"Estimated completion:   completed during benchmark "
+                f"({self._format_duration(result.elapsed_seconds)})"
+            )
+        else:
+            print(
+                f"Estimated completion:   "
+                f"{self._format_duration(result.estimated_completion_seconds)}"
+            )
+        print("=" * 72)
+
+    def run_benchmark(self, **kwargs) -> bool:
+        """Measures optimization throughput and extrapolates it to a target time."""
+        if not self.loaded_expert_names:  # type: ignore[attr-defined]
+            logger.warning("No strategies loaded for benchmark.")
+            return False
+
+        try:
+            all_trades_long = self._prepare_optimization_trades(kwargs)
+            engine = self._build_optimization_engine(all_trades_long, kwargs)
+            result = engine.benchmark(
+                min_assets=kwargs["min_assets"],
+                max_assets=kwargs["max_assets"],
+                max_corr=kwargs["max_correlation"],
+                sample_seconds=kwargs.get("sample_seconds", 5.0),
+                target_seconds=kwargs.get("target_seconds", 600.0),
+            )
+            self._print_benchmark_result(result)
+            return True
+        except ValidationError as e:
+            logger.error(f"Validation error: {e}")
+            return False
+        except Exception as e:
+            logger.exception(f"Unexpected crash: {e}")
+            return False
+
+    def _run_greedy_loops(self, **kwargs) -> bool:
+        """Runs greedy optimization in sequential loops, removing winners from cache."""
+        from datetime import datetime as dt
+
+        requested_loops = kwargs.get("greedy_loops") or 1
+        root_output_dir = kwargs.get("output_dir")
+        if not root_output_dir:
+            timestamp = dt.now().strftime("%Y-%m-%d_%H-%M")
+            root_output_dir = f"run_{timestamp}"
+        os.makedirs(root_output_dir, exist_ok=True)
+
+        loop_winners: list[dict] = []
+        loop_summary: list[dict] = []
+
+        for loop_idx in range(1, requested_loops + 1):
+            if len(self.loaded_expert_names) < kwargs["min_assets"]:  # type: ignore[attr-defined]
+                logger.info(
+                    f"Stopping greedy loops at {loop_idx - 1}/{requested_loops}: "
+                    f"only {len(self.loaded_expert_names)} strategies remain."  # type: ignore[attr-defined]
+                )
+                break
+
+            logger.info(
+                f"Greedy loop {loop_idx}/{requested_loops} | "
+                f"{len(self.loaded_expert_names)} strategies available"  # type: ignore[attr-defined]
+            )
+
+            try:
+                all_trades_long = self._prepare_optimization_trades(kwargs)
+            except ValidationError as e:
+                logger.info(
+                    f"Stopping greedy loops at {loop_idx - 1}/{requested_loops}: {e}"
+                )
+                break
+
+            if all_trades_long.is_empty():
+                logger.info(
+                    f"Stopping greedy loops at {loop_idx - 1}/{requested_loops}: no trades remain."
+                )
+                break
+
+            loop_kwargs = dict(kwargs)
+            loop_label = f"loop_{loop_idx:02d}"
+            loop_kwargs["output_dir"] = os.path.join(root_output_dir, loop_label)
+            if kwargs.get("save_trades_prefix"):
+                loop_kwargs["save_trades_prefix"] = self._suffix_output_path(  # type: ignore[attr-defined]
+                    kwargs["save_trades_prefix"], loop_label
+                )
+
+            engine = self._execute_optimization_engine(all_trades_long, loop_kwargs)
+            if not engine.best_portfolios:
+                logger.info(
+                    f"Stopping greedy loops at {loop_idx - 1}/{requested_loops}: "
+                    "no valid portfolio found."
+                )
+                break
+
+            self._handle_optimization_results(engine, loop_kwargs)
+
+            winner = engine.best_portfolios[0]
+            combo = list(winner["Combo"])
+            removed = self._remove_selected_strategies(combo)  # type: ignore[attr-defined]
+            loop_winners.append(winner)
+            loop_summary.append(
+                {
+                    "loop": loop_idx,
+                    "output_dir": os.path.abspath(loop_kwargs["output_dir"]),
+                    "selected_strategies": combo,
+                    "removed_from_cache": removed,
+                    "metrics": {
+                        k: (round(v, 4) if isinstance(v, float) else v)
+                        for k, v in winner.items()
+                        if k != "Combo"
+                    },
+                    "remaining_strategies": len(self.loaded_expert_names),  # type: ignore[attr-defined]
+                }
+            )
+
+        summary_payload = {
+            "generated_at": dt.now().isoformat(timespec="seconds"),
+            "requested_loops": requested_loops,
+            "completed_loops": len(loop_summary),
+            "loops": loop_summary,
+        }
+        summary_path = os.path.join(root_output_dir, "multi_greedy_summary.json")
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(summary_payload, f, indent=2, ensure_ascii=False)
+        logger.info(
+            f"[output] multi_greedy_summary.json → {os.path.abspath(summary_path)}"
+        )
+        logger.info(f"Output directory: {os.path.abspath(root_output_dir)}")
+
+        self.last_optimization_results = loop_winners
+        return bool(loop_winners)
+
+    def run_optimization(self, **kwargs) -> bool:
+        """Orchestrates the portfolio optimization process.
+
+        Returns:
+            True if at least one portfolio was found, False otherwise.
+        """
+        if not self.loaded_expert_names:  # type: ignore[attr-defined]
+            logger.warning("No strategies loaded for optimization.")
+            return False
+
+        try:
+            greedy_loops = kwargs.get("greedy_loops") or 1
+            if kwargs.get("greedy") and greedy_loops > 1:
+                return self._run_greedy_loops(**kwargs)
+
+            all_trades_long = self._prepare_optimization_trades(kwargs)
+            engine = self._execute_optimization_engine(all_trades_long, kwargs)
+
+            self._handle_optimization_results(engine, kwargs)
+            if kwargs.get("remove_top1_from_cache") and engine.best_portfolios:
+                self._remove_selected_strategies(  # type: ignore[attr-defined]
+                    list(engine.best_portfolios[0]["Combo"])
+                )
+            return bool(engine.best_portfolios)
+
+        except ValidationError as e:
+            logger.error(str(e))
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected optimization failure: {e}", exc_info=True)
+            return False
+
+    def _apply_strategy_filter(
+        self, all_trades_long: pl.DataFrame, requested_names: list, min_assets: int
+    ) -> pl.DataFrame:
+        """Filters trades to the requested strategy names.
+
+        Raises ValidationError if fewer valid strategies are found than min_assets requires.
+        """
+        valid_names = [
+            strategy_name
+            for strategy_name in requested_names
+            if strategy_name in self.loaded_expert_names  # type: ignore[attr-defined]
+        ]
+        missing = [n for n in requested_names if n not in self.loaded_expert_names]  # type: ignore[attr-defined]
+        if missing:
+            logger.warning(
+                f"Strategies not found (check spelling): {', '.join(missing)}"
+            )
+        if len(valid_names) < min_assets:
+            raise ValidationError(
+                f"Only {len(valid_names)} valid strategies found, but {min_assets} required."
+            )
+        return all_trades_long.filter(pl.col("Strategy").is_in(valid_names))
+
+    def _apply_strategy_exclusion(
+        self, all_trades_long: pl.DataFrame, excluded_names: list, min_assets: int
+    ) -> pl.DataFrame:
+        """Removes the excluded strategy names from the optimization dataset."""
+        valid_exclusions = [
+            strategy_name
+            for strategy_name in excluded_names
+            if strategy_name in self.loaded_expert_names  # type: ignore[attr-defined]
+        ]
+        missing = [n for n in excluded_names if n not in self.loaded_expert_names]  # type: ignore[attr-defined]
+        if missing:
+            logger.warning(
+                f"Strategies not found for exclusion (check spelling): {', '.join(missing)}"
+            )
+
+        remaining_names = [
+            strategy_name
+            for strategy_name in self.loaded_expert_names  # type: ignore[attr-defined]
+            if strategy_name not in valid_exclusions
+        ]
+        if len(remaining_names) < min_assets:
+            raise ValidationError(
+                f"Only {len(remaining_names)} strategies remain after exclusion, but {min_assets} required."
+            )
+        return all_trades_long.filter(~pl.col("Strategy").is_in(valid_exclusions))
+
+    def _apply_date_filter(
+        self,
+        all_trades_long: pl.DataFrame,
+        date_initial: str | None,
+        date_final: str | None,
+    ) -> pl.DataFrame:
+        """Filters trades to the specified date range (inclusive on both ends).
+
+        Accepts dates in YYYY-MM-DD format.
+        Raises ValidationError if the resulting DataFrame is empty.
+        """
+        from datetime import datetime
+
+        mask = pl.lit(True)
+        if date_initial:
+            start_dt = datetime.strptime(date_initial, "%Y-%m-%d")
+            mask = mask & (pl.col("Horário") >= start_dt)
+        if date_final:
+            end_dt = datetime.strptime(date_final, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59
+            )
+            mask = mask & (pl.col("Horário") <= end_dt)
+
+        filtered = all_trades_long.filter(mask)
+
+        if filtered.is_empty():
+            raise ValidationError(
+                f"No trades found in the specified date range "
+                f"({date_initial or 'start'} → {date_final or 'end'})."
+            )
+
+        original_count = len(all_trades_long)
+        filtered_count = len(filtered)
+        logger.info(
+            f"Date filter applied: {date_initial or 'start'} → {date_final or 'end'} "
+            f"| {filtered_count}/{original_count} trades retained."
+        )
+        return filtered

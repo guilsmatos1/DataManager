@@ -12,6 +12,21 @@ class _FakeStorage:
 class _FakeDataManager:
     def __init__(self):
         self.storage = _FakeStorage()
+        self.calls = []
+
+    def show_search_summary(self):
+        self.calls.append(("show_search_summary",))
+
+    def list_all(self):
+        self.calls.append(("list_all",))
+        return []
+
+    def info(self, source, asset, timeframe):
+        self.calls.append(("info", source, asset, timeframe))
+        return {"status": "Not Found"}
+
+    def delete_database(self, source, asset, timeframe=None):
+        self.calls.append(("delete_database", source, asset, timeframe))
 
 
 class _FakeScheduler:
@@ -41,7 +56,7 @@ class _FakeSeriesManager:
     def __init__(self):
         self.calls = []
 
-    def search_series(self, query=None):
+    def search_series(self, source="fred", query=None):
         self.calls.append(("search", query))
         return pd.DataFrame(
             [{"series_id": "CPIAUCSL", "title": "Inflation", "frequency": "Monthly"}]
@@ -191,6 +206,44 @@ def test_fred_commands_delegate_to_series_manager(monkeypatch):
         ("info", "fred", "CPIAUCSL"),
         ("delete", "fred", "CPIAUCSL"),
     ]
+
+
+def test_standard_commands_accept_fred_source(monkeypatch):
+    monkeypatch.setattr(
+        "trademachine.datamanager_cli.cli.DataManager", _FakeDataManager
+    )
+    monkeypatch.setattr(
+        "trademachine.datamanager_cli.cli.SchedulerService", _FakeScheduler
+    )
+    monkeypatch.setattr(
+        "trademachine.datamanager_cli.cli.SeriesManager", _FakeSeriesManager
+    )
+
+    cli = DataManagerCLI()
+
+    cli.do_search("--source fred --query inflation")
+    cli.do_download("fred CPIAUCSL 2024-01-01 2024-12-31 --frequency m")
+    cli.do_update("fred CPIAUCSL --lookback 30D --frequency m")
+    cli.do_list("--source fred")
+    cli.do_info("fred CPIAUCSL")
+    cli.do_delete("fred CPIAUCSL")
+
+    assert cli.series_server.calls == [
+        ("search", "inflation"),
+        (
+            "download",
+            "fred",
+            "CPIAUCSL",
+            "2024-01-01T00:00:00",
+            "2024-12-31T00:00:00",
+            "m",
+        ),
+        ("update", "fred", "CPIAUCSL", "30D", "m"),
+        ("list",),
+        ("info", "fred", "CPIAUCSL"),
+        ("delete", "fred", "CPIAUCSL"),
+    ]
+    assert cli.server.calls == []
 
 
 def test_schedule_add_series_uses_series_job(monkeypatch):

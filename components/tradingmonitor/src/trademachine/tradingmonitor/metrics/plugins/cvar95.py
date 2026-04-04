@@ -17,6 +17,6 @@ class CVaR95(BaseMetric):
     def calculate(
         self, deals_df: pd.DataFrame, daily_returns: pd.Series | None = None, **kwargs
     ) -> float | None:
-        return self._safe_calc(
+        return self._safe_calc(  # type: ignore[no-any-return]
             lambda r: r[r <= np.percentile(r, 5)].mean(), daily_returns
         )

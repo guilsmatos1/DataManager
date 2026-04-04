@@ -17,4 +17,4 @@ class SortinoRatio(BaseMetric):
     def calculate(
         self, deals_df: pd.DataFrame, daily_returns: pd.Series | None = None, **kwargs
     ) -> float | None:
-        return self._safe_calc(qs.stats.sortino, daily_returns)
+        return self._safe_calc(qs.stats.sortino, daily_returns)  # type: ignore[no-any-return]

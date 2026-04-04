@@ -478,6 +478,10 @@ def _maybe_check_drift(strategy_id: str) -> None:
                 check_performance_drift(strategy_id)
             except Exception as e:
                 logger.error("Drift check failed for strategy %s: %s", strategy_id, e)
+                notifier.notify_system_error(
+                    context=f"Drift check strategy {strategy_id}",
+                    error=str(e),
+                )
 
         threading.Thread(target=_run_drift_check, daemon=True).start()
 
@@ -487,10 +491,11 @@ def process_deal(db: Session, data: DealSchema, account_id: str | None = None) -
     magic = str(data.magic)
     ensure_symbol_exists(db, data.symbol)
     ensure_strategy_exists(db, magic, data.symbol, account_id=account_id)
+    timestamp = datetime.fromtimestamp(data.time, tz=UTC)
     stmt = (
         pg_insert(Deal)
         .values(
-            timestamp=datetime.fromtimestamp(data.time, tz=UTC),
+            timestamp=timestamp,
             ticket=data.ticket,
             strategy_id=magic,
             symbol=data.symbol,
@@ -503,12 +508,28 @@ def process_deal(db: Session, data: DealSchema, account_id: str | None = None) -
         )
         .on_conflict_do_nothing()
     )
-    db.execute(stmt)
+    result = db.execute(stmt)
     logger.debug(
         "Deal processed: ticket=%s",
         data.ticket,
         extra={"strategy_id": magic, "ticket": data.ticket},
     )
+    inserted = bool(getattr(result, "rowcount", 0))
+    if inserted and data.type in {"buy", "sell"}:
+        strategy = db.query(Strategy).filter(Strategy.id == magic).first()
+        notifier.notify_trade_closed(
+            strategy_id=magic,
+            strategy_name=strategy.name if strategy else None,
+            symbol=data.symbol,
+            deal_type=data.type,
+            ticket=data.ticket,
+            volume=data.volume,
+            price=data.price,
+            profit=data.profit,
+            commission=data.commission,
+            swap=data.swap,
+            timestamp=timestamp,
+        )
     _maybe_check_drift(magic)
 
 
@@ -820,6 +841,10 @@ def handle_client(
 
     except Exception as e:
         logger.error("Client %s handler error: %s", addr, e)
+        notifier.notify_system_error(
+            context=f"TCP client handler {addr[0]}:{addr[1]}",
+            error=str(e),
+        )
     finally:
         with _clients_lock:
             _connected_clients.discard(addr)

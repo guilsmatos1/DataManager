@@ -733,11 +733,15 @@ class TestRealOverview:
 class TestTelegramSettings:
     def test_returns_real_page_mode_setting(self, client, session):
         session.add(Setting(key="real_page_mode", value="demo"))
+        session.add(Setting(key="telegram_notify_closed_trades", value="true"))
+        session.add(Setting(key="telegram_notify_system_errors", value="true"))
         session.flush()
 
         response = client.get("/api/settings/telegram")
         assert response.status_code == 200
         assert response.json()["real_page_mode"] == "demo"
+        assert response.json()["notify_closed_trades"] is True
+        assert response.json()["notify_system_errors"] is True
 
     def test_updates_real_page_mode_setting(self, client, session):
         response = client.post(
@@ -745,6 +749,8 @@ class TestTelegramSettings:
             json={
                 "bot_token": "",
                 "chat_id": "",
+                "notify_closed_trades": True,
+                "notify_system_errors": True,
                 "var_95_threshold": 0,
                 "default_initial_balance": 100000,
                 "real_page_mode": "demo",
@@ -756,6 +762,20 @@ class TestTelegramSettings:
         setting = session.query(Setting).filter(Setting.key == "real_page_mode").first()
         assert setting is not None
         assert setting.value == "demo"
+        notify_closed_trades = (
+            session.query(Setting)
+            .filter(Setting.key == "telegram_notify_closed_trades")
+            .first()
+        )
+        notify_system_errors = (
+            session.query(Setting)
+            .filter(Setting.key == "telegram_notify_system_errors")
+            .first()
+        )
+        assert notify_closed_trades is not None
+        assert notify_closed_trades.value == "True"
+        assert notify_system_errors is not None
+        assert notify_system_errors.value == "True"
 
 
 class TestBenchmarks:

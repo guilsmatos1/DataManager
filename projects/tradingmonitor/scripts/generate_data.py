@@ -1,7 +1,7 @@
 import random
 from datetime import datetime, timedelta
 
-import pytz
+import pytz  # type: ignore[import-untyped]
 from trademachine.tradingmonitor.db.database import SessionLocal
 from trademachine.tradingmonitor.db.models import (
     Account,
@@ -111,17 +111,19 @@ def generate_synthetic_data():
 
     for st_obj, config in strategies:
         current_balance = 2000.0
-        ticket_counter = int(config["id"]) * 1000
+        ticket_counter = int(config["id"]) * 1000  # type: ignore[call-overload]
 
         for day in range(60):
             current_time = start_date + timedelta(days=day)
 
             # Gerar N trades para o dia baseado na frequência
-            num_trades = config["freq"] + random.randint(-1, 2)
+            num_trades = config["freq"] + random.randint(-1, 2)  # type: ignore[operator]
             for _ in range(max(0, num_trades)):
-                is_win = random.random() < config["win_rate"]
-                profit = config["avg_win"] if is_win else config["avg_loss"]
-                profit *= random.uniform(0.8, 1.2)  # Adicionar variabilidade
+                is_win = random.random() < config["win_rate"]  # type: ignore[operator]
+                profit = (
+                    float(config["avg_win"]) if is_win else float(config["avg_loss"])
+                )  # type: ignore[arg-type]
+                profit *= float(random.uniform(0.8, 1.2))  # Adicionar variabilidade
 
                 commission = -1.5
                 swap = random.choice([0, 0, -0.5])

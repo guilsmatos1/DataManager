@@ -59,7 +59,7 @@ def _patch_sqlite_biginteger():
 
     if not hasattr(SQLiteTypeCompiler, "_orig_visit_BIGINT"):
         SQLiteTypeCompiler._orig_visit_BIGINT = SQLiteTypeCompiler.visit_BIGINT  # type: ignore[attr-defined]
-        SQLiteTypeCompiler.visit_BIGINT = lambda self, *_, **__: "INTEGER"  # type: ignore[attr-defined]
+        SQLiteTypeCompiler.visit_BIGINT = lambda self, *_, **__: "INTEGER"  # type: ignore[method-assign]
 
 
 # ── SQLite compat: Composite PK with Autoincrement ────────────────────────────

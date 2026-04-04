@@ -338,6 +338,35 @@ async function toggleStratLive(stratId, currentLive) {
     } catch (e) {}
 }
 
+async function togglePortfolioLive(portfolioId, currentLive) {
+    const nextLive = !currentLive;
+    const portfolio = _allPortfolios.find(p => String(p.id) === String(portfolioId));
+    const previousLive = portfolio ? portfolio.live : currentLive;
+
+    if (portfolio) {
+        portfolio.live = nextLive;
+        renderPortfoliosTable();
+    }
+
+    try {
+        await patchPortfolio(portfolioId, { live: nextLive });
+        loadPortfolios();
+    } catch (e) {
+        if (portfolio) {
+            portfolio.live = previousLive;
+            renderPortfoliosTable();
+        }
+    }
+}
+
+async function toggleAccountType(accountId, currentType) {
+    const newType = currentType?.toLowerCase().includes("real") ? "Demo" : "Real";
+    try {
+        await patchAccount(accountId, { account_type: newType });
+        await loadAccounts();
+    } catch (e) {}
+}
+
 /* ── CSV Export ── */
 function exportTableCSV(type) {
     let headers, rows;

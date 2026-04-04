@@ -210,14 +210,14 @@ class SchedulerService:
             extra: dict[str, Any] = {}
             if apsjob.func is execute_update_series_job:
                 if len(args) >= 2:
-                    source, asset = args[:2]
+                    source, asset = args[:2]  # type: ignore[misc]
                 timeframe = "SERIES"
                 if len(args) >= 3:
-                    extra["lookback_period"] = args[2]
+                    extra["lookback_period"] = args[2]  # type: ignore[misc]
                 if len(args) >= 4:
-                    extra["frequency"] = args[3]
+                    extra["frequency"] = args[3]  # type: ignore[misc]
             elif len(args) == 3:
-                source, asset, timeframe = args
+                source, asset, timeframe = args  # type: ignore[misc]
 
             trigger_repr = str(apsjob.trigger)
 

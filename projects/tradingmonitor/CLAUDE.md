@@ -69,24 +69,6 @@ MT5 EA (MQL5) → TCP PUB (port 5555) → components/tradingmonitor (TCP Server)
 - **TimescaleDB hypertables** — `deals` and `equity_curve` are hypertables partitioned by timestamp.
 - **Auto-discovery** — Unknown strategies/accounts are created automatically on the first trade.
 
-## Gemini Pipeline
-
-Ao finalizar uma implementação, avalie se houve **nova feature** (novo método público, nova rota, nova classe, novo comportamento observável). Refatorações, correções de bug, ajustes de config e formatação **não** disparam o pipeline.
-
-Se houver nova feature, execute os dois passos abaixo **em sequência**:
-
-### 1. Gemini Tests
-
-```bash
-gemini -p "Voce e um Engenheiro de QA senior do projeto TradingMonitor (Python, uv, Polylith). Crie ou atualize testes unitarios em components/tradingmonitor/test para cobrir a seguinte nova feature: <descreva a feature>. Use pytest, siga os padroes de tests/ (fixtures, mocks). Execute 'uv run pytest components/tradingmonitor/test -v' para verificar que todos os testes passam. Se algum teste falhar, corrija-o. Apos escrever os testes, pare imediatamente." --yolo
-```
-
-### 2. Gemini Docs
-
-```bash
-gemini -p "Voce e um Engenheiro de Documentacao senior do projeto TradingMonitor (Python, uv, Polylith). DIFF: \$(git diff HEAD -- components/tradingmonitor/ bases/trading_monitor_* 2>/dev/null | head -300). Leia apenas README.md, GEMINI.md e CLAUDE.md para entender o que ja esta documentado. Atualize README.md, GEMINI.md e/ou CLAUDE.md refletindo as mudancas tecnicas — documente comportamento e arquitetura, nunca codigo linha por linha. Em seguida execute 'git add' em todos os arquivos modificados e faca um unico 'git commit' com prefixo 'chore:' e rodape 'Pipeline-by: Gemini CLI'. Se nao houver mudancas pendentes, responda apenas SKIP. Apos o commit, pare imediatamente." --yolo
-```
-
 ## Ruff Workflow
 
 Always run Ruff after implementing or editing Python files.

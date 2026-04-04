@@ -100,7 +100,9 @@ def _side_types(side: str | None) -> list[DealType]:
     return [DealType.BUY, DealType.SELL]
 
 
-def _synthetic_equity(deals_df: pd.DataFrame) -> pd.DataFrame:
+def _synthetic_equity(
+    deals_df: pd.DataFrame, balance_baseline: float | None = None
+) -> pd.DataFrame:
     """Build a synthetic equity curve from cumulative deal P&L.
 
     Used when filtering by side, since the real EquityCurve table is
@@ -109,7 +111,114 @@ def _synthetic_equity(deals_df: pd.DataFrame) -> pd.DataFrame:
     if deals_df.empty:
         return pd.DataFrame()
     pnl = deals_df["profit"] + deals_df["commission"] + deals_df["swap"]
-    return pd.DataFrame({"equity": pnl.cumsum()})
+    baseline = float(balance_baseline or 0.0)
+    return pd.DataFrame({"equity": pnl.cumsum() + baseline})
+
+
+def _closed_trades_for_side(deals_df: pd.DataFrame, side: str | None) -> pd.DataFrame:
+    """Infer closed trades by direction from raw BUY/SELL deal rows.
+
+    MT5 history stores execution-side deals, not the position direction directly.
+    A long trade is typically opened with BUY and closed with SELL; a short trade
+    does the opposite. For side-filtered metrics we therefore attribute realized
+    P&L to the side being closed, not to the raw deal type itself.
+    """
+    if (
+        side not in {"long", "short"}
+        or deals_df.empty
+        or "type" not in deals_df.columns
+    ):
+        return deals_df
+
+    trading_deals = deals_df[deals_df["type"].isin(["BUY", "SELL"])].copy()
+    if trading_deals.empty:
+        return trading_deals
+
+    open_volume_by_symbol: dict[str, dict[str, float]] = {}
+    closed_rows: list[tuple[object, dict[str, object]]] = []
+    epsilon = 1e-9
+
+    for timestamp, row in trading_deals.sort_index(kind="stable").iterrows():
+        symbol = str(row.get("symbol") or "")
+        deal_type = str(row.get("type") or "").upper()
+        volume = float(row.get("volume") or 0.0)
+        if volume <= epsilon or deal_type not in {"BUY", "SELL"}:
+            continue
+
+        slots = open_volume_by_symbol.setdefault(symbol, {"long": 0.0, "short": 0.0})
+        closing_side = "short" if deal_type == "BUY" else "long"
+        opening_side = "long" if deal_type == "BUY" else "short"
+        closed_volume = min(volume, slots[closing_side])
+
+        if closed_volume > epsilon:
+            slots[closing_side] -= closed_volume
+            if side == closing_side:
+                ratio = closed_volume / volume
+                closed_rows.append(
+                    (
+                        timestamp,
+                        {
+                            "strategy_id": row.get("strategy_id"),
+                            "symbol": symbol,
+                            "type": deal_type,
+                            "volume": closed_volume,
+                            "price": float(row.get("price") or 0.0),
+                            "profit": float(row.get("profit") or 0.0) * ratio,
+                            "commission": float(row.get("commission") or 0.0) * ratio,
+                            "swap": float(row.get("swap") or 0.0) * ratio,
+                        },
+                    )
+                )
+
+        remaining_volume = volume - closed_volume
+        if remaining_volume > epsilon:
+            slots[opening_side] += remaining_volume
+
+    if not closed_rows:
+        return trading_deals.iloc[0:0].copy()
+
+    closed_df = pd.DataFrame([row for _, row in closed_rows])
+    closed_df.index = pd.Index(
+        [ts for ts, _ in closed_rows], name=trading_deals.index.name
+    )
+    return closed_df.sort_index(kind="stable")
+
+
+def _equity_points_from_deals(
+    deals_df: pd.DataFrame,
+    *,
+    balance_baseline: float | None,
+    id_field: str,
+    id_value: str | int,
+) -> list[dict[str, Any]]:
+    """Build equity-point payloads from realized P&L rows."""
+    if deals_df.empty:
+        return []
+
+    pnl = (
+        deals_df["profit"].fillna(0)
+        + deals_df["commission"].fillna(0)
+        + deals_df["swap"].fillna(0)
+    )
+    baseline = float(balance_baseline or 0.0)
+    equity = pnl.cumsum() + baseline
+
+    points: list[dict[str, Any]] = []
+    for timestamp, value in equity.items():
+        point_timestamp = (
+            timestamp.to_pydatetime()
+            if hasattr(timestamp, "to_pydatetime")
+            else timestamp
+        )
+        points.append(
+            {
+                "timestamp": point_timestamp,
+                id_field: id_value,
+                "balance": float(value),
+                "equity": float(value),
+            }
+        )
+    return points
 
 
 # ── Authentication ────────────────────────────────────────────────────────────
@@ -425,6 +534,47 @@ def _strategy_matches_history_type(strategy: Strategy, history_type: str) -> boo
     return True
 
 
+def _strategy_ids_with_saved_runtime_history(db: Session) -> set[str]:
+    deal_strategy_ids = {
+        strategy_id
+        for (strategy_id,) in (
+            db.query(Deal.strategy_id)
+            .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
+            .distinct()
+            .all()
+        )
+    }
+    equity_strategy_ids = {
+        strategy_id
+        for (strategy_id,) in db.query(EquityCurve.strategy_id).distinct().all()
+    }
+    return deal_strategy_ids | equity_strategy_ids
+
+
+def _strategy_ids_with_saved_backtest_history(db: Session) -> set[str]:
+    backtest_deal_strategy_ids = {
+        strategy_id
+        for (strategy_id,) in (
+            db.query(Backtest.strategy_id)
+            .join(BacktestDeal, BacktestDeal.backtest_id == Backtest.id)
+            .filter(or_(Backtest.status == "complete", Backtest.status.is_(None)))
+            .distinct()
+            .all()
+        )
+    }
+    backtest_equity_strategy_ids = {
+        strategy_id
+        for (strategy_id,) in (
+            db.query(Backtest.strategy_id)
+            .join(BacktestEquity, BacktestEquity.backtest_id == Backtest.id)
+            .filter(or_(Backtest.status == "complete", Backtest.status.is_(None)))
+            .distinct()
+            .all()
+        )
+    }
+    return backtest_deal_strategy_ids | backtest_equity_strategy_ids
+
+
 @router.get("/real")
 def get_real_overview(
     max_points_per_strategy: int = Query(
@@ -581,7 +731,7 @@ def get_real_daily(
 
 @router.get("/real/recent-deals")
 def get_real_recent_deals(
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=20, ge=1, le=250),
     db: Session = Depends(get_db),
 ):
     real_page_mode = _setting_str(db, "real_page_mode", default="real")
@@ -632,7 +782,7 @@ def list_accounts(db: Session = Depends(get_db)):
         .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
         .filter(Strategy.account_id.isnot(None))
         .group_by(Strategy.account_id)
-        .all()  # type: ignore[arg-type]
+        .all()
     )
     result = []
     for a in accounts:
@@ -678,7 +828,7 @@ def list_strategies(
         db.query(Deal.strategy_id, func.sum(Deal.profit + Deal.commission + Deal.swap))
         .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
         .group_by(Deal.strategy_id)
-        .all()  # type: ignore[arg-type]
+        .all()
     )
     bt_net_profits: dict[str, float] = dict(
         db.query(
@@ -688,13 +838,13 @@ def list_strategies(
         .join(BacktestDeal, BacktestDeal.backtest_id == Backtest.id)
         .filter(BacktestDeal.type.in_([DealType.BUY, DealType.SELL]))
         .group_by(Backtest.strategy_id)
-        .all()  # type: ignore[arg-type]
+        .all()
     )
     trades_counts: dict[str, int] = dict(
         db.query(Deal.strategy_id, func.count(Deal.ticket))
         .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
         .group_by(Deal.strategy_id)
-        .all()  # type: ignore[arg-type]
+        .all()
     )
     # Last and first trade timestamps per strategy (for zombie detection)
     deal_range_rows = (
@@ -727,23 +877,26 @@ def list_strategies(
 
     now_utc = datetime.now(UTC)
     strategies = db.query(Strategy).options(joinedload(Strategy.account)).all()
+    runtime_history_ids = (
+        _strategy_ids_with_saved_runtime_history(db)
+        if history_type in {"real", "demo"}
+        else set()
+    )
+    backtest_history_ids = (
+        _strategy_ids_with_saved_backtest_history(db)
+        if history_type == "backtest"
+        else set()
+    )
     if history_type in {"real", "demo"}:
         strategies = [
             strategy
             for strategy in strategies
             if _strategy_matches_history_type(strategy, history_type)
+            and strategy.id in runtime_history_ids
         ]
     elif history_type == "backtest":
-        backtest_strategy_ids = {
-            strategy_id
-            for (strategy_id,) in (
-                db.query(Backtest.strategy_id)
-                .filter(or_(Backtest.status == "complete", Backtest.status.is_(None)))
-                .distinct()
-                .all()
-            )
-        }
-        strategies = [s for s in strategies if s.id in backtest_strategy_ids]
+        strategies = [s for s in strategies if s.id in backtest_history_ids]
+
     result = []
     for s in strategies:
         r = StrategyResponse.model_validate(s)
@@ -796,6 +949,16 @@ def get_strategy(strategy_id: str, db: Session = Depends(get_db)):
     r = StrategyResponse.model_validate(s)
     r.account_name = s.account.name if s.account else None
     return r
+
+
+@router.get("/portfolios/nav", response_model=list[dict[str, Any]])
+def list_portfolios_nav(db: Session = Depends(get_db)):
+    rows = (
+        db.query(Portfolio.id, Portfolio.name)
+        .order_by(Portfolio.name.asc().nullslast(), Portfolio.id.asc())
+        .all()
+    )
+    return [{"id": row.id, "name": row.name} for row in rows]
 
 
 @router.patch("/strategies/{strategy_id}", response_model=StrategyResponse)
@@ -870,122 +1033,19 @@ def get_strategy_metrics(
 
     try:
         deals_df = get_strategy_deals(strategy_id)
-        side_values = [t.value for t in _side_types(side)]
-        if not deals_df.empty:
-            deals_df = deals_df[deals_df["type"].isin(side_values)]
         if side in ("long", "short"):
-            equity_df = _synthetic_equity(deals_df)
+            deals_df = _closed_trades_for_side(deals_df, side)
+            equity_df = _synthetic_equity(
+                deals_df, balance_baseline=strategy.initial_balance
+            )
         else:
+            side_values = [t.value for t in _side_types(side)]
+            if not deals_df.empty:
+                deals_df = deals_df[deals_df["type"].isin(side_values)]
             equity_df = get_strategy_equity_curve(strategy_id)
         return _sanitize_metrics(calculate_metrics_from_df(deals_df, equity_df))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Metrics calculation failed: {e}")
-
-
-@router.get("/strategies/{strategy_id}/advanced-metrics")
-def get_strategy_advanced_metrics(
-    strategy_id: str,
-    date_from: str | None = Query(
-        default=None, description="ISO date string, e.g. 2024-01-01"
-    ),
-    date_to: str | None = Query(
-        default=None, description="ISO date string, e.g. 2024-12-31"
-    ),
-    initial_balance: float | None = Query(default=None),
-    side: str | None = Query(default=None),
-    history_type: str = Query(default="real"),
-    db: Session = Depends(get_db),
-):
-    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
-    if not strategy:
-        raise HTTPException(status_code=404, detail="Strategy not found")
-
-    from trademachine.tradingmonitor.metrics.calculator import calculate_metrics_from_df
-    from trademachine.tradingmonitor.metrics.repository import (
-        get_backtest_deals,
-        get_backtest_equity,
-        get_strategy_deals,
-        get_strategy_equity_curve,
-    )
-
-    dt_from = (
-        datetime.fromisoformat(date_from).replace(tzinfo=UTC) if date_from else None
-    )
-    dt_to = datetime.fromisoformat(date_to).replace(tzinfo=UTC) if date_to else None
-    side_values = [t.value for t in _side_types(side)]
-
-    if history_type == "backtest":
-        backtests = (
-            db.query(Backtest)
-            .filter(Backtest.strategy_id == strategy_id)
-            .filter(or_(Backtest.status == "complete", Backtest.status.is_(None)))
-            .all()
-        )
-        if not backtests:
-            raise HTTPException(
-                status_code=422,
-                detail="No backtest history found for this strategy.",
-            )
-        deal_frames: list[pd.DataFrame] = []
-        equity_frames: list[pd.DataFrame] = []
-        for bt in backtests:
-            deals_df = get_backtest_deals(bt.id)
-            if not deals_df.empty:
-                if dt_from is not None:
-                    deals_df = deals_df[deals_df.index >= dt_from]
-                if dt_to is not None:
-                    deals_df = deals_df[deals_df.index <= dt_to]
-                if not deals_df.empty:
-                    deal_frames.append(deals_df)
-
-            equity_df = get_backtest_equity(bt.id)
-            if not equity_df.empty:
-                if dt_from is not None:
-                    equity_df = equity_df[equity_df.index >= dt_from]
-                if dt_to is not None:
-                    equity_df = equity_df[equity_df.index <= dt_to]
-                if not equity_df.empty:
-                    equity_frames.append(equity_df)
-
-        deals_df = pd.concat(deal_frames) if deal_frames else pd.DataFrame()
-        equity_df = pd.concat(equity_frames) if equity_frames else pd.DataFrame()
-    else:
-        if not _strategy_matches_history_type(strategy, history_type):
-            raise HTTPException(
-                status_code=422,
-                detail=f"Strategy does not have {history_type} history.",
-            )
-
-        deals_df = get_strategy_deals(strategy_id, since=dt_from)
-        if not deals_df.empty and dt_to is not None:
-            deals_df = deals_df[deals_df.index <= dt_to]
-
-        if side in ("long", "short"):
-            equity_df = _synthetic_equity(deals_df)
-        else:
-            equity_df = get_strategy_equity_curve(strategy_id)
-            if not equity_df.empty:
-                if dt_from is not None:
-                    equity_df = equity_df[equity_df.index >= dt_from]
-                if dt_to is not None:
-                    equity_df = equity_df[equity_df.index <= dt_to]
-
-    if not deals_df.empty and side_values:
-        deals_df = deals_df[deals_df["type"].isin(side_values)]
-
-    try:
-        metrics = calculate_metrics_from_df(deals_df, equity_df, advanced=True)
-        if (
-            initial_balance
-            and "Net Profit" in metrics
-            and metrics["Net Profit"] is not None
-        ):
-            metrics["Return on Capital (%)"] = (
-                metrics["Net Profit"] / initial_balance
-            ) * 100
-        return _sanitize_metrics(metrics)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/strategies/{strategy_id}/trade-stats")
@@ -1068,10 +1128,24 @@ def get_strategy_daily(
 @router.get(
     "/strategies/{strategy_id}/equity", response_model=list[EquityPointResponse]
 )
-def get_strategy_equity(strategy_id: str, db: Session = Depends(get_db)):
+def get_strategy_equity(
+    strategy_id: str,
+    side: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
         raise HTTPException(status_code=404, detail="Strategy not found")
+    if side in ("long", "short"):
+        from trademachine.tradingmonitor.metrics.repository import get_strategy_deals
+
+        deals_df = _closed_trades_for_side(get_strategy_deals(strategy_id), side)
+        return _equity_points_from_deals(
+            deals_df,
+            balance_baseline=strategy.initial_balance,
+            id_field="strategy_id",
+            id_value=strategy_id,
+        )
     return (
         db.query(EquityCurve)
         .filter(EquityCurve.strategy_id == strategy_id)
@@ -1281,7 +1355,7 @@ def get_portfolio_strategies(portfolio_id: int, db: Session = Depends(get_db)):
         .filter(Deal.strategy_id.in_(strategy_ids))
         .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
         .group_by(Deal.strategy_id)
-        .all()  # type: ignore[arg-type]
+        .all()
     )
     # Backtest net profits
     bt_net_profits: dict[str, float] = dict(
@@ -1293,7 +1367,7 @@ def get_portfolio_strategies(portfolio_id: int, db: Session = Depends(get_db)):
         .filter(Backtest.strategy_id.in_(strategy_ids))
         .filter(BacktestDeal.type.in_([DealType.BUY, DealType.SELL]))
         .group_by(Backtest.strategy_id)
-        .all()  # type: ignore[arg-type]
+        .all()
     )
     # Trades count
     trades_counts: dict[str, int] = dict(
@@ -1301,7 +1375,7 @@ def get_portfolio_strategies(portfolio_id: int, db: Session = Depends(get_db)):
         .filter(Deal.strategy_id.in_(strategy_ids))
         .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
         .group_by(Deal.strategy_id)
-        .all()  # type: ignore[arg-type]
+        .all()
     )
     # Equity for max drawdown
     equity_rows = (
@@ -1467,76 +1541,6 @@ def get_portfolio_metrics(portfolio_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Metrics calculation failed: {e}")
 
 
-@router.get("/portfolios/{portfolio_id}/advanced-metrics")
-def get_portfolio_advanced_metrics(
-    portfolio_id: int,
-    date_from: str | None = Query(
-        default=None, description="ISO date string, e.g. 2024-01-01"
-    ),
-    date_to: str | None = Query(
-        default=None, description="ISO date string, e.g. 2024-12-31"
-    ),
-    initial_balance: float | None = Query(default=None),
-    db: Session = Depends(get_db),
-):
-    portfolio = _get_portfolio_or_404(db, portfolio_id)
-    strategy_ids = _get_portfolio_strategy_ids(
-        portfolio,
-        required_count=1,
-        detail="No strategies in this portfolio",
-    )
-
-    from trademachine.tradingmonitor.metrics.calculator import calculate_metrics_from_df
-    from trademachine.tradingmonitor.metrics.repository import (
-        get_strategy_deals,
-        get_strategy_equity_curve,
-    )
-
-    dt_from = (
-        datetime.fromisoformat(date_from).replace(tzinfo=UTC) if date_from else None
-    )
-    dt_to = datetime.fromisoformat(date_to).replace(tzinfo=UTC) if date_to else None
-
-    all_deals = []
-    all_equity = []
-    for sid in strategy_ids:
-        deals_df = get_strategy_deals(sid, since=dt_from)
-        if not deals_df.empty and dt_to is not None:
-            deals_df = deals_df[deals_df.index <= dt_to]
-        if not deals_df.empty:
-            all_deals.append(deals_df)
-
-        equity_df = get_strategy_equity_curve(sid)
-        if not equity_df.empty:
-            if dt_from is not None:
-                equity_df = equity_df[equity_df.index >= dt_from]
-            if dt_to is not None:
-                equity_df = equity_df[equity_df.index <= dt_to]
-        if not equity_df.empty:
-            all_equity.append(equity_df)
-
-    combined_deals = pd.concat(all_deals).sort_index() if all_deals else pd.DataFrame()
-    combined_equity = (
-        pd.concat(all_equity).sort_index() if all_equity else pd.DataFrame()
-    )
-
-    try:
-        metrics = calculate_metrics_from_df(
-            combined_deals, combined_equity, advanced=True
-        )
-        if (
-            initial_balance
-            and "Net Profit" in metrics
-            and metrics["Net Profit"] is not None
-        ):
-            metrics["Return on Capital (%)"] = (
-                metrics["Net Profit"] / initial_balance
-            ) * 100
-        return _sanitize_metrics(metrics)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/portfolios/{portfolio_id}/strategy-contributions")
 def get_portfolio_strategy_contributions(
     portfolio_id: int,
@@ -1588,31 +1592,96 @@ def get_portfolio_strategy_contributions(
     return {"positive": pos_pct, "negative": neg_pct}
 
 
-@router.get("/advanced-analysis")
-def get_advanced_analysis(
-    strategy_ids: list[str] = Query(default=[]),
-    history_type: str = Query(default="real"),
-    date_from: str | None = Query(default=None),
-    date_to: str | None = Query(default=None),
-    initial_balance: float | None = Query(default=None),
-    benchmark_id: int | None = Query(default=None),
-    db: Session = Depends(get_db),
-):
-    if not strategy_ids:
-        raise HTTPException(status_code=422, detail="Select at least one strategy.")
+def _build_comparison_curve(
+    db: Session,
+    chart_series: pd.Series,
+    selected_benchmark,
+    dt_from: datetime | None,
+    dt_to: datetime | None,
+    metrics: dict[str, object],
+) -> list[dict[str, object]]:
+    if not selected_benchmark:
+        return [
+            {
+                "timestamp": to_iso(ts),
+                "portfolio": float(v),
+                "benchmark": None,
+            }
+            for ts, v in chart_series.items()
+        ]
 
-    history_type = history_type.lower()
-    if history_type not in {"backtest", "demo", "real"}:
-        raise HTTPException(
-            status_code=422, detail="history_type must be one of backtest, demo, real."
-        )
-
-    dt_from = (
-        datetime.fromisoformat(date_from).replace(tzinfo=UTC) if date_from else None
+    benchmark_df = load_benchmark_curve(
+        db,
+        selected_benchmark.id,
+        date_from=dt_from,
+        date_to=dt_to,
     )
-    dt_to = datetime.fromisoformat(date_to).replace(tzinfo=UTC) if date_to else None
+    if benchmark_df.empty:
+        metrics["Benchmark Status"] = "Selected benchmark has no synced local prices."
+        return [
+            {
+                "timestamp": to_iso(ts),
+                "portfolio": float(v),
+                "benchmark": None,
+            }
+            for ts, v in chart_series.items()
+        ]
 
-    from trademachine.tradingmonitor.metrics.calculator import calculate_metrics_from_df
+    first_equity = float(chart_series.iloc[0])
+    scaled_benchmark = _normalize_series_to_base(
+        benchmark_df["close"].astype(float),
+        first_equity,
+    )
+    joined = (
+        pd.concat(
+            [
+                chart_series.rename("portfolio"),
+                scaled_benchmark.rename("benchmark"),
+            ],
+            axis=1,
+            join="outer",
+        )
+        .sort_index()
+        .ffill()
+        .dropna(how="all")
+    )
+
+    benchmark_return = _series_return_pct(benchmark_df["close"].astype(float))
+    benchmark_drawdown = _series_max_drawdown_pct(benchmark_df["close"].astype(float))
+    portfolio_return = _series_return_pct(chart_series)
+    correlation = _series_correlation(chart_series, benchmark_df["close"].astype(float))
+
+    metrics["Benchmark Return (%)"] = benchmark_return
+    metrics["Benchmark Max Drawdown (%)"] = benchmark_drawdown
+    metrics["Portfolio Return (%)"] = portfolio_return
+    metrics["Excess Return vs Benchmark (%)"] = (
+        portfolio_return - benchmark_return
+        if portfolio_return is not None and benchmark_return is not None
+        else None
+    )
+    metrics["Correlation vs Benchmark"] = correlation
+
+    return [
+        {
+            "timestamp": to_iso(ts),
+            "portfolio": float(row["portfolio"])
+            if not pd.isna(row["portfolio"])
+            else None,
+            "benchmark": float(row["benchmark"])
+            if not pd.isna(row["benchmark"])
+            else None,
+        }
+        for ts, row in joined.iterrows()
+    ]
+
+
+def _collect_deal_and_equity_frames(
+    db: Session,
+    history_type: str,
+    selected_strategies,
+    dt_from: datetime | None,
+    dt_to: datetime | None,
+) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
     from trademachine.tradingmonitor.metrics.repository import (
         get_backtest_deals,
         get_backtest_equity,
@@ -1620,29 +1689,13 @@ def get_advanced_analysis(
         get_strategy_equity_curve,
     )
 
-    strategies = db.query(Strategy).filter(Strategy.id.in_(strategy_ids)).all()
-    if not strategies:
-        raise HTTPException(status_code=404, detail="Strategies not found.")
-
-    selected_strategies = strategies
-    if history_type in {"real", "demo"}:
-        selected_strategies = [
-            s for s in strategies if _strategy_matches_history_type(s, history_type)
-        ]
-
-    if history_type in {"real", "demo"} and not selected_strategies:
-        raise HTTPException(
-            status_code=422,
-            detail=f"No selected strategies with {history_type} history.",
-        )
-
     deal_frames: list[pd.DataFrame] = []
     equity_frames: list[pd.DataFrame] = []
 
     if history_type == "backtest":
         backtests = (
             db.query(Backtest)
-            .filter(Backtest.strategy_id.in_(strategy_ids))
+            .filter(Backtest.strategy_id.in_([s.id for s in selected_strategies]))
             .filter(or_(Backtest.status == "complete", Backtest.status.is_(None)))
             .all()
         )
@@ -1687,6 +1740,67 @@ def get_advanced_analysis(
                 if not equity_df.empty:
                     equity_frames.append(equity_df)
 
+    return deal_frames, equity_frames
+
+
+@router.get("/advanced-analysis")
+def get_advanced_analysis(
+    strategy_ids: list[str] = Query(default=[]),
+    history_type: str = Query(default="real"),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    initial_balance: float | None = Query(default=None),
+    benchmark_id: int | None = Query(default=None),
+    side: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    if not strategy_ids:
+        raise HTTPException(status_code=422, detail="Select at least one strategy.")
+
+    history_type = history_type.lower()
+    if history_type not in {"backtest", "demo", "real"}:
+        raise HTTPException(
+            status_code=422, detail="history_type must be one of backtest, demo, real."
+        )
+
+    dt_from = (
+        datetime.fromisoformat(date_from).replace(tzinfo=UTC) if date_from else None
+    )
+    dt_to = datetime.fromisoformat(date_to).replace(tzinfo=UTC) if date_to else None
+
+    from trademachine.tradingmonitor.metrics.calculator import calculate_metrics_from_df
+
+    strategies = db.query(Strategy).filter(Strategy.id.in_(strategy_ids)).all()
+    if not strategies:
+        raise HTTPException(status_code=404, detail="Strategies not found.")
+
+    selected_strategies = strategies
+    if history_type in {"real", "demo"}:
+        runtime_history_ids = _strategy_ids_with_saved_runtime_history(db)
+        selected_strategies = [
+            s
+            for s in strategies
+            if _strategy_matches_history_type(s, history_type)
+            and s.id in runtime_history_ids
+        ]
+        if not selected_strategies:
+            raise HTTPException(
+                status_code=422,
+                detail=f"No selected strategies with saved {history_type} history.",
+            )
+    elif history_type == "backtest":
+        backtest_history_ids = _strategy_ids_with_saved_backtest_history(db)
+        selected_strategies = [s for s in strategies if s.id in backtest_history_ids]
+        if not selected_strategies:
+            raise HTTPException(
+                status_code=422,
+                detail="No backtest history found for selected strategies.",
+            )
+
+    deal_frames, equity_frames = _collect_deal_and_equity_frames(
+        db, history_type, selected_strategies, dt_from, dt_to
+    )
+
     if not deal_frames:
         selected_benchmark = None
         if benchmark_id is not None:
@@ -1710,7 +1824,16 @@ def get_advanced_analysis(
         }
 
     combined_deals = pd.concat(deal_frames).sort_index()
-    combined_equity = _combine_equity_frames(equity_frames)
+
+    # Apply side filter after combining all deals
+    if side in ("long", "short"):
+        combined_deals = _closed_trades_for_side(combined_deals, side)
+        combined_equity = _synthetic_equity(
+            combined_deals,
+            balance_baseline=initial_balance,
+        )
+    else:
+        combined_equity = _combine_equity_frames(equity_frames)
 
     metrics = calculate_metrics_from_df(combined_deals, combined_equity, advanced=True)
     if (
@@ -1744,106 +1867,18 @@ def get_advanced_analysis(
     comparison_curve: list[dict[str, object]] = []
     if not combined_equity.empty:
         chart_series = combined_equity["equity"].astype(float)
-        chart_base = (
-            float(initial_balance)
-            if initial_balance and initial_balance > 0
-            else float(chart_series.iloc[0])
-        )
         benchmark_payload = (
             benchmark_to_dict(db, selected_benchmark) if selected_benchmark else None
         )
-
-        if selected_benchmark:
-            benchmark_df = load_benchmark_curve(
-                db,
-                selected_benchmark.id,
-                date_from=dt_from,
-                date_to=dt_to,
-            )
-            if not benchmark_df.empty:
-                normalized_portfolio = _normalize_series_to_base(
-                    chart_series, chart_base
-                )
-                normalized_benchmark = _normalize_series_to_base(
-                    benchmark_df["close"].astype(float),
-                    chart_base,
-                )
-                joined = (
-                    pd.concat(
-                        [
-                            normalized_portfolio.rename("portfolio"),
-                            normalized_benchmark.rename("benchmark"),
-                        ],
-                        axis=1,
-                        join="outer",
-                    )
-                    .sort_index()
-                    .ffill()
-                    .dropna(how="all")
-                )
-
-                comparison_curve = [
-                    {
-                        "timestamp": to_iso(ts),
-                        "portfolio": float(row["portfolio"])
-                        if not pd.isna(row["portfolio"])
-                        else None,
-                        "benchmark": float(row["benchmark"])
-                        if not pd.isna(row["benchmark"])
-                        else None,
-                    }
-                    for ts, row in joined.iterrows()
-                ]
-
-                benchmark_return = _series_return_pct(
-                    benchmark_df["close"].astype(float)
-                )
-                benchmark_drawdown = _series_max_drawdown_pct(
-                    benchmark_df["close"].astype(float)
-                )
-                portfolio_return = _series_return_pct(chart_series)
-                correlation = _series_correlation(
-                    chart_series, benchmark_df["close"].astype(float)
-                )
-
-                metrics["Benchmark Return (%)"] = benchmark_return
-                metrics["Benchmark Max Drawdown (%)"] = benchmark_drawdown
-                metrics["Portfolio Return (%)"] = portfolio_return
-                metrics["Excess Return vs Benchmark (%)"] = (
-                    portfolio_return - benchmark_return
-                    if portfolio_return is not None and benchmark_return is not None
-                    else None
-                )
-                metrics["Correlation vs Benchmark"] = correlation
-            else:
-                comparison_curve = [
-                    {
-                        "timestamp": to_iso(ts),
-                        "portfolio": float(v),
-                        "benchmark": None,
-                    }
-                    for ts, v in chart_series.items()
-                ]
-                metrics["Benchmark Status"] = (
-                    "Selected benchmark has no synced local prices."
-                )
-        else:
-            comparison_curve = [
-                {
-                    "timestamp": to_iso(ts),
-                    "portfolio": float(v),
-                    "benchmark": None,
-                }
-                for ts, v in chart_series.items()
-            ]
-        if not selected_benchmark:
-            benchmark_payload = None
+        comparison_curve = _build_comparison_curve(
+            db, chart_series, selected_benchmark, dt_from, dt_to, metrics
+        )
     else:
         benchmark_payload = (
             benchmark_to_dict(db, selected_benchmark) if selected_benchmark else None
         )
 
-    # Per-strategy profit contribution for pie charts.
+    # ── Per-strategy profit contribution for pie charts ────────────────
     strategy_name_map = {s.id: s.name or s.id for s in selected_strategies}
     strategy_contributions: list[dict[str, object]] = []
     if not combined_deals.empty and "strategy_id" in combined_deals.columns:
@@ -1935,7 +1970,7 @@ def list_strategy_backtests(strategy_id: str, db: Session = Depends(get_db)):
             BacktestDeal.type.in_([DealType.BUY, DealType.SELL]),
         )
         .group_by(BacktestDeal.backtest_id)
-        .all()  # type: ignore[arg-type]
+        .all()
     )
 
     result = []
@@ -1981,12 +2016,13 @@ def get_backtest_metrics(
 
     try:
         deals_df = get_backtest_deals(backtest_id)
-        side_values = [t.value for t in _side_types(side)]
-        if not deals_df.empty:
-            deals_df = deals_df[deals_df["type"].isin(side_values)]
         if side in ("long", "short"):
-            equity_df = _synthetic_equity(deals_df)
+            deals_df = _closed_trades_for_side(deals_df, side)
+            equity_df = _synthetic_equity(deals_df, balance_baseline=bt.initial_balance)
         else:
+            side_values = [t.value for t in _side_types(side)]
+            if not deals_df.empty:
+                deals_df = deals_df[deals_df["type"].isin(side_values)]
             equity_df = get_backtest_equity(backtest_id)
         return _sanitize_metrics(calculate_metrics_from_df(deals_df, equity_df))
     except Exception as e:
@@ -1996,10 +2032,24 @@ def get_backtest_metrics(
 @router.get(
     "/backtests/{backtest_id}/equity", response_model=list[BacktestEquityPointResponse]
 )
-def get_backtest_equity_endpoint(backtest_id: int, db: Session = Depends(get_db)):
+def get_backtest_equity_endpoint(
+    backtest_id: int,
+    side: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
     bt = db.query(Backtest).filter(Backtest.id == backtest_id).first()
     if not bt:
         raise HTTPException(status_code=404, detail="Backtest not found")
+    if side in ("long", "short"):
+        from trademachine.tradingmonitor.metrics.repository import get_backtest_deals
+
+        deals_df = _closed_trades_for_side(get_backtest_deals(backtest_id), side)
+        return _equity_points_from_deals(
+            deals_df,
+            balance_baseline=bt.initial_balance,
+            id_field="backtest_id",
+            id_value=backtest_id,
+        )
     return (
         db.query(BacktestEquity)
         .filter(BacktestEquity.backtest_id == backtest_id)
@@ -2184,6 +2234,12 @@ def get_backtest_trade_stats(
 def get_telegram_settings(db: Session = Depends(get_db)):
     bot_token = db.query(Setting).filter(Setting.key == "telegram_bot_token").first()
     chat_id = db.query(Setting).filter(Setting.key == "telegram_chat_id").first()
+    notify_closed_trades = _setting_bool(
+        db, "telegram_notify_closed_trades", default=False
+    )
+    notify_system_errors = _setting_bool(
+        db, "telegram_notify_system_errors", default=False
+    )
     var_95_threshold = db.query(Setting).filter(Setting.key == "var_95_limit").first()
     default_ib = (
         db.query(Setting).filter(Setting.key == "default_initial_balance").first()
@@ -2194,6 +2250,8 @@ def get_telegram_settings(db: Session = Depends(get_db)):
     return TelegramSettings(
         bot_token=bot_token.value if bot_token else None,
         chat_id=chat_id.value if chat_id else None,
+        notify_closed_trades=notify_closed_trades,
+        notify_system_errors=notify_system_errors,
         var_95_threshold=float(var_95_threshold.value) if var_95_threshold else None,
         default_initial_balance=float(default_ib.value)
         if default_ib and default_ib.value
@@ -2214,6 +2272,8 @@ def update_telegram_settings(payload: TelegramSettings, db: Session = Depends(ge
 
     _set("telegram_bot_token", payload.bot_token)
     _set("telegram_chat_id", payload.chat_id)
+    _set("telegram_notify_closed_trades", payload.notify_closed_trades)
+    _set("telegram_notify_system_errors", payload.notify_system_errors)
     _set("var_95_limit", payload.var_95_threshold)
     _set("default_initial_balance", payload.default_initial_balance)
     _set("real_page_mode", payload.real_page_mode)
@@ -2246,7 +2306,7 @@ def test_telegram_settings(db: Session = Depends(get_db)):
                 status_code=502, detail=f"Erro do Telegram: {resp.text}"
             )
         return {"ok": True}
-    except httpx.Timeout:
+    except httpx.Timeout:  # type: ignore[misc]
         raise HTTPException(status_code=504, detail="Timeout ao enviar mensagem")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

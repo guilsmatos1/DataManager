@@ -314,7 +314,7 @@ class BruteForceEngine:
             )
         else:
             logger.info("Pairwise correlation — no valid pairs (single strategy?).")
-        return corr_matrix
+        return corr_matrix  # type: ignore[no-any-return]
 
     def _filter_combos_by_correlation(
         self, combo_generator, batch_size: int, max_corr: float
@@ -692,21 +692,3 @@ class BruteForceEngine:
             print(row)
 
         print("=" * len(header))
-
-    def save_to_csv(self, filepath: str, columns: list[str] | None = None):
-        if not self.best_portfolios:
-            return
-        df = pl.DataFrame(self.best_portfolios)
-        df = df.with_columns(
-            pl.col("Combo").map_elements(
-                lambda x: ", ".join(x), return_dtype=pl.String
-            ),
-            pl.col("Net_Profit").round(2),
-            pl.col("RetDD").round(2),
-            pl.col("Maximum_Drawdown").round(2),
-        )
-        if columns:
-            valid_cols = [c for c in columns if c in df.columns]
-            df = df.select(valid_cols)
-        df.write_csv(filepath)
-        logger.info(f"Results saved to CSV: {filepath}")

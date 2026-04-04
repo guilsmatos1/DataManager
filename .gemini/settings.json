@@ -1,0 +1,17 @@
+{
+    "hooks": {
+        "AfterTool": [
+            {
+                "matcher": "write_file|replace",
+                "hooks": [
+                    {
+                        "name": "auto-lint",
+                        "type": "command",
+                        "command": "uv run ruff check --fix . && uv run ruff format .",
+                        "description": "Executa lint e format após cada edição de arquivo"
+                    }
+                ]
+            }
+        ]
+    }
+}

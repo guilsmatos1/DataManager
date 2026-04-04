@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 from trademachine.core.logger import LOGGER_NAME, setup_logger
 from trademachine.trading_monitor_dashboard.bridge import init_bridge, push_event
 from trademachine.trading_monitor_dashboard.routes import router
@@ -154,7 +155,31 @@ def create_app(
         fd, tmp_path = tempfile.mkstemp(suffix=".html")
         os.close(fd)
         try:
-            result = generate_qs_report(strategy_id=strategy_id, output_path=tmp_path)
+            result = await run_in_threadpool(
+                generate_qs_report, strategy_id=strategy_id, output_path=tmp_path
+            )
+            if result is None:
+                return HTMLResponse(
+                    content="<h1>Not enough data to generate report.</h1>",
+                    status_code=404,
+                )
+            with open(tmp_path) as f:
+                html_content = f.read()
+            return HTMLResponse(content=html_content)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    @app.get("/backtest/{backtest_id}/quantstats-report", response_class=HTMLResponse)
+    async def backtest_quantstats_report(backtest_id: int):
+        from trademachine.tradingmonitor.metrics.calculator import generate_qs_report
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".html")
+        os.close(fd)
+        try:
+            result = await run_in_threadpool(
+                generate_qs_report, backtest_id=backtest_id, output_path=tmp_path
+            )
             if result is None:
                 return HTMLResponse(
                     content="<h1>Not enough data to generate report.</h1>",
@@ -174,7 +199,9 @@ def create_app(
         fd, tmp_path = tempfile.mkstemp(suffix=".html")
         os.close(fd)
         try:
-            result = generate_qs_report(portfolio_id=portfolio_id, output_path=tmp_path)
+            result = await run_in_threadpool(
+                generate_qs_report, portfolio_id=portfolio_id, output_path=tmp_path
+            )
             if result is None:
                 return HTMLResponse(
                     content="<h1>Not enough data to generate report.</h1>",

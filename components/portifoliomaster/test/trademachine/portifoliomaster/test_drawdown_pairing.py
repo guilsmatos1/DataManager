@@ -5,7 +5,7 @@ import pytest
 from trademachine.portifolio_master_cli.cli import PortifolioCLI
 
 
-def _make_cli(*names, lots: dict = None, data: dict = None):
+def _make_cli(*names, lots: dict = None, data: dict = None):  # type: ignore[assignment]
     """Helper: CLI with mocked portfolio_manager and explicit strategy_lots."""
     cli = PortifolioCLI()
     cli.loaded_expert_names = list(names)

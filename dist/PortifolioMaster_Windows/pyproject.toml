@@ -1,0 +1,38 @@
+[project]
+name = "portifoliomaster-windows-bundle"
+version = "0.1.0"
+description = "Standalone workspace for PortifolioMaster on Windows"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "colorama>=0.4.6",
+    "lxml>=6.0.2",
+    "numpy>=2.4.3",
+    "pandas>=2.2.3,<3.0.0",
+    "plotly>=6.6.0",
+    "polars>=1.39.3",
+    "prompt-toolkit>=3.0.52",
+    "pyarrow>=23.0.1",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "tqdm>=4.67.3",
+    "typer>=0.24.1",
+    "trademachine-core>=0.1.0",
+    "trademachine-mt5>=0.1.0",
+    "trademachine-portifoliomaster>=0.1.0",
+    "trademachine-portifolio-master-cli>=0.1.0",
+]
+
+[tool.uv.workspace]
+members = [
+    "bases/portifolio_master_cli",
+    "components/core",
+    "components/mt5",
+    "components/portifoliomaster",
+]
+
+[tool.uv.sources]
+trademachine-core = { workspace = true }
+trademachine-mt5 = { workspace = true }
+trademachine-portifoliomaster = { workspace = true }
+trademachine-portifolio-master-cli = { workspace = true }

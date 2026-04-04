@@ -33,7 +33,7 @@ class SeriesStorageManager:
         if isinstance(dt, pd.Timestamp):
             if dt.tzinfo is None:
                 dt = dt.tz_localize(UTC)
-            return dt.to_pydatetime()
+            return dt.to_pydatetime()  # type: ignore[no-any-return]
         return cast(datetime, dt)
 
     @classmethod

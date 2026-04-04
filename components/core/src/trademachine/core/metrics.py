@@ -23,26 +23,6 @@ def compute_sharpe_ratio(returns: np.ndarray, risk_free: float = 0.0) -> float:
     return float(np.mean(excess) / np.std(excess))
 
 
-def compute_sortino_ratio(returns: np.ndarray, risk_free: float = 0.0) -> float:
-    """Compute Sortino ratio from returns array.
-
-    Args:
-        returns: Array of returns (daily or any frequency).
-        risk_free: Risk-free rate (annualized if returns are annualized).
-
-    Returns:
-        Sortino ratio as float.
-    """
-    if len(returns) < 2:
-        return 0.0
-    excess = returns - risk_free
-    downside = np.minimum(excess, 0)
-    downside_std = np.sqrt(np.mean(downside**2))
-    if downside_std == 0:
-        return 0.0
-    return float(np.mean(excess) / downside_std)
-
-
 def compute_max_drawdown(returns: np.ndarray) -> float:
     """Compute maximum drawdown percentage from returns array.
 
@@ -60,27 +40,6 @@ def compute_max_drawdown(returns: np.ndarray) -> float:
     peaks = np.maximum.accumulate(equity)
     drawdowns = peaks - equity
     return float(np.max(drawdowns))
-
-
-def compute_max_drawdown_pct(returns: np.ndarray) -> float:
-    """Compute maximum drawdown as percentage of peak equity.
-
-    Args:
-        returns: Array of returns.
-
-    Returns:
-        Maximum drawdown as a positive percentage.
-    """
-    if len(returns) < 1:
-        return 0.0
-    equity = np.cumsum(np.insert(returns, 0, 0.0))
-    peaks = np.maximum.accumulate(equity)
-    drawdowns = peaks - equity
-    max_dd = float(np.max(drawdowns))
-    max_peak = float(np.max(peaks))
-    if max_peak == 0:
-        return 0.0
-    return (max_dd / max_peak) * 100
 
 
 def compute_equity_curve(returns: np.ndarray) -> np.ndarray:
@@ -128,11 +87,6 @@ def compute_profit_factor(returns: np.ndarray) -> float:
     if gross_loss == 0:
         return float("inf") if gross_profit > 0 else 0.0
     return gross_profit / gross_loss
-
-
-def compute_sharpe(returns: np.ndarray, risk_free: float = 0.0) -> float:
-    """Alias for compute_sharpe_ratio."""
-    return compute_sharpe_ratio(returns, risk_free)
 
 
 def compute_retdd(returns: np.ndarray) -> float:

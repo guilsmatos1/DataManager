@@ -48,18 +48,3 @@ def invalidate_cache(
     if account_id is not None:
         with _accounts_lock:
             EXISTING_ACCOUNTS.discard(account_id)
-
-
-def clear_all_caches() -> None:
-    """Clear all in-memory caches. Useful for testing."""
-    global _active_backtests, _deal_counters
-    with _strategies_lock:
-        EXISTING_STRATEGIES.clear()
-    with _accounts_lock:
-        EXISTING_ACCOUNTS.clear()
-    with _symbols_lock:
-        EXISTING_SYMBOLS.clear()
-    with _backtests_lock:
-        _active_backtests.clear()
-    with _counters_lock:
-        _deal_counters.clear()

@@ -177,6 +177,21 @@ document.body.addEventListener("htmx:wsAfterMessage", function(evt) {
     }
 });
 
+// ── Export Chart utility ───────────────────────────────────────────────────
+function exportChart(canvasId, filename = "chart.png") {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    // If we want to ensure the background is captured (for dark mode)
+    // we might need to draw to a temp canvas with background, but
+    // Chart.js usually doesn't fill the canvas background.
+    // However, for simplicity and "what you see is what you get":
+    const link = document.createElement("a");
+    link.download = filename;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+}
+
 async function setupNavDropdown({ wrapperId, toggleId, itemsId, stateId, loader }) {
     const wrapper = document.getElementById(wrapperId);
     const toggle = document.getElementById(toggleId);
@@ -249,7 +264,7 @@ async function loadStrategiesDropdown(items, state) {
 
 async function loadPortfoliosDropdown(items, state) {
     try {
-        const portfolios = await fetchJson("/api/portfolios");
+        const portfolios = await fetchJson("/api/portfolios/nav");
         const sorted = [...portfolios].sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
 
         if (!sorted.length) {

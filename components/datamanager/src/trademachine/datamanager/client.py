@@ -167,11 +167,6 @@ class DataManagerClient:
         series = data.get("series", [])
         return list(series)
 
-    def series_info(self, source: str, series_id: str) -> dict:
-        """Returns metadata of the specified economic series on the server."""
-        res = self.session.get(f"{self.base_url}/series/info/{source}/{series_id}")
-        return self._handle_response(res)
-
     def get_series_data(
         self,
         source: str,

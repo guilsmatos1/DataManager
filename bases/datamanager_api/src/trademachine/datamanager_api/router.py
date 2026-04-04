@@ -130,22 +130,16 @@ def download_data(
 
         assets = [a.strip() for a in req.asset.split(",") if a.strip()]
 
-        # Validation to prevent duplicate downloads
-        for asset in assets:
-            info = manager.storage.get_database_info(req.source, asset, "M1")
-            if info.get("status") != "Not Found":
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"The database for {asset} via {req.source} already exists on the server. Use the /update request to update the data.",  # noqa: E501
-                )
-
         for asset in assets:
             background_tasks.add_task(
                 manager.download_data, req.source, asset, start_dt, end_dt
             )
         return {
             "status": "success",
-            "message": f"Download of {req.asset} via {req.source} started in background",
+            "message": (
+                f"Download of {req.asset} via {req.source} started in background "
+                "(idempotent if data already exists)"
+            ),
         }
     except HTTPException:
         raise

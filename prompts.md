@@ -11,13 +11,6 @@ O projeto gerencia:
 - **PortfolioMaster**: Otimização de portfólios e análise de backtesting
 - **BacktestEngine**: Backtesting baseado em NautilusTrader
 
-**Projeto pessoal — decisões de design priorizam simplicidade sobre escalabilidade enterprise.**
-
-- **Usuário único** — sem multi-usuário, sem deploy comercial
-- Rate limiting em memória apenas (sem Redis) — aceitável para single uvicorn worker
-- Sem requisitos de horizontal scaling ou caching distribuído
-- Simplicidade sobre completude de funcionalidades em todas as decisões arquiteturais
-
 ---
 
 ## Estrutura do Projeto (Polylith)
@@ -323,8 +316,39 @@ Copiar `.env.example` para `.env` e configurar:
 
 Cada projeto possui documentação detalhada:
 
-- `projects/datamanager/CLAUDE.md` — Arquitetura e workflows do DataManager
-- `projects/tradingmonitor/CLAUDE.md` — Arquitetura do TradingMonitor
-- `projects/portifoliomaster/CLAUDE.md` — Arquitetura do PortfolioMaster
+- `projects/datamanager/{GEMINI,CLAUDE,AGENTS}.md` — Arquitetura e workflows do DataManager
+- `projects/tradingmonitor/{GEMINI,CLAUDE,AGENTS}.md` — Arquitetura e workflows do TradingMonitor
+- `projects/portifoliomaster/{GEMINI,CLAUDE,AGENTS}.md` — Arquitetura e workflows do PortfolioMaster
+
+## Ruff Workflow
+
+Always run Ruff after implementing or editing Python files.
+
+```bash
+# Lint and auto-fix
+uv run ruff check --fix .
+
+# Format
+uv run ruff format .
+
+# Full run (recommended)
+uv run ruff check --fix . && uv run ruff format .
+```
+
+---
+
+### Workflow Rules
+
+1. Implement the requested functionality.
+2. Run `uv run ruff check --fix . && uv run ruff format .`
+3. Check if any warnings remain.
+
+## Notas Importantes
+
+- Projeto pessoal — decisões de design priorizam simplicidade sobre escalabilidade enterprise.
+- Usuário único — sem multi-usuário, sem deploy comercial
+- Rate limiting em memória apenas (sem Redis) — aceitável para single uvicorn worker
+- Sem requisitos de horizontal scaling ou caching distribuído
+- Simplicidade sobre completude de funcionalidades em todas as decisões arquiteturais
 
 > Este arquivo (`prompts.md`) é a fonte da verdade para a arquitetura do monorepo. Instruções específicas de sub-projetos nos arquivos de contexto complementam este documento.

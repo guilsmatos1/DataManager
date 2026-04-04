@@ -112,7 +112,7 @@ class PortfolioManager:
                 if len(positive):
                     median_val = positive.median()
                     if median_val is not None:
-                        self.strategy_lots[name] = float(median_val)  # type: ignore[arg-type]
+                        self.strategy_lots[name] = float(median_val)
             except Exception:
                 logger.debug(
                     f"Could not extract lot for '{name}'; will default to 1.0."
@@ -227,6 +227,9 @@ class PortfolioManager:
 
                 pair_corr = float(np.corrcoef(left_overlap, right_overlap)[0, 1])
                 corr[i, j] = pair_corr
-                corr[j, i] = pair_corr
-
         return corr
+
+    @staticmethod
+    def round_lot(lot: float) -> float:
+        """Rounds a lot to the MT5 standard representation (usually 2 decimals, to nearest 0.01)."""
+        return round(float(lot), 2)

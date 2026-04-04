@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradingMonitor Login</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container" style="min-height:100vh;display:flex;align-items:center;justify-content:center;">
+        <section class="card" style="max-width:420px;width:100%;">
+            <div class="section-header">
+                <h1 style="margin:0;font-size:1.25rem;">TradingMonitor</h1>
+            </div>
+            <p class="text-muted" style="margin:0 0 1rem;">Enter the dashboard API key to start a session.</p>
+            {% if error %}
+            <p class="error" style="margin:0 0 1rem;">{{ error }}</p>
+            {% endif %}
+            <form method="post" action="/login" style="display:flex;flex-direction:column;gap:0.9rem;">
+                <input type="hidden" name="next" value="{{ next }}">
+                <div class="field-group">
+                    <span class="field-label">API Key</span>
+                    <input class="field-input" type="password" name="api_key" autocomplete="current-password" required autofocus>
+                </div>
+                <button class="btn btn-primary btn-sm" type="submit">Sign in</button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

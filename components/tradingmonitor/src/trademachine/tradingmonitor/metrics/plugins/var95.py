@@ -17,4 +17,4 @@ class VaR95(BaseMetric):
     def calculate(
         self, deals_df: pd.DataFrame, daily_returns: pd.Series | None = None, **kwargs
     ) -> float | None:
-        return self._safe_calc(lambda r: np.percentile(r, 5), daily_returns)
+        return self._safe_calc(lambda r: np.percentile(r, 5), daily_returns)  # type: ignore[no-any-return]

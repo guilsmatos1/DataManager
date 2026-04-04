@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import pytest
@@ -62,3 +63,56 @@ def test_notifications_disabled():
         with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
             asyncio.run(manager.send_document("test.html"))
             assert not mock_post.called
+
+
+def test_notify_trade_closed_uses_db_settings(notification_manager):
+    with patch.object(
+        notification_manager,
+        "_get_runtime_config",
+        return_value={
+            "token": "db_token",
+            "chat_id": "db_chat",
+            "notify_closed_trades": True,
+            "notify_system_errors": False,
+        },
+    ):
+        with patch.object(notification_manager, "send_message_sync") as mock_send:
+            notification_manager.notify_trade_closed(
+                strategy_id="123",
+                strategy_name="Alpha",
+                symbol="EURUSD",
+                deal_type="buy",
+                ticket=456,
+                volume=0.1,
+                price=1.23456,
+                profit=10.0,
+                commission=-0.5,
+                swap=0.0,
+                timestamp=datetime(2026, 4, 3, 12, 0, 0),
+            )
+
+            assert mock_send.called
+            kwargs = mock_send.call_args.kwargs
+            assert kwargs["token"] == "db_token"  # noqa: S105
+            assert kwargs["chat_id"] == "db_chat"
+            assert kwargs["enabled"] is True
+
+
+def test_notify_system_error_respects_toggle(notification_manager):
+    with patch.object(
+        notification_manager,
+        "_get_runtime_config",
+        return_value={
+            "token": "db_token",
+            "chat_id": "db_chat",
+            "notify_closed_trades": False,
+            "notify_system_errors": False,
+        },
+    ):
+        with patch.object(notification_manager, "send_message_sync") as mock_send:
+            notification_manager.notify_system_error(
+                context="Ingestion pipeline",
+                error="boom",
+                topic="DEAL",
+            )
+            assert not mock_send.called

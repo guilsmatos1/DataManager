@@ -2,11 +2,21 @@
 {% block title %}TradingMonitor — Strategy {{ strategy_id }}{% endblock %}
 
 {% block content %}
+<style>
+    #metrics-container.metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    @media (max-width: 900px) {
+        #metrics-container.metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+        #metrics-container.metrics-grid { grid-template-columns: 1fr; }
+    }
+</style>
 <div class="page-header">
     <a href="/" class="back-link">← Overview</a>
     <h1 id="strategy-title">Strategy <span class="mono">{{ strategy_id }}</span></h1>
     <span id="strategy-status-badge" class="badge"></span>
     <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
+        <a class="btn btn-ghost btn-sm" href="/advanced-analysis">Advanced Analysis</a>
         <div class="period-tabs" id="side-filter-tabs">
             <button class="period-tab active" data-side="both"  onclick="setSideFilter('both')">Both</button>
             <button class="period-tab"        data-side="long"  onclick="setSideFilter('long')">Long</button>
@@ -108,8 +118,10 @@
         <div class="section-header">
             <h2>Performance Metrics</h2>
             <span id="updated-metrics" class="updated-at"></span>
-            <a href="/strategy/{{ strategy_id }}/advanced-metrics" class="btn btn-ghost btn-sm" style="margin-left:auto">Advanced Metrics</a>
-            <a href="/strategy/{{ strategy_id }}/quantstats-report" class="btn btn-ghost btn-sm" target="_blank">Full Report</a>
+            <div style="margin-left:auto; display:flex; gap:0.5rem">
+                <a href="/advanced-analysis" class="btn btn-ghost btn-sm">Advanced Analysis</a>
+                <a href="/strategy/{{ strategy_id }}/quantstats-report" class="btn btn-ghost btn-sm" target="_blank" id="full-report-btn">Full Report</a>
+            </div>
         </div>
         <div id="metrics-container" class="metrics-grid">
             <div class="skel skel-metric"></div><div class="skel skel-metric"></div>
@@ -124,8 +136,15 @@
             <h2>Equity Curve</h2>
             <span id="updated-equity" class="updated-at"></span>
             <span id="equity-side-info" class="badge badge-neutral" style="display:none;margin-left:0.5rem">Equity shows all trades</span>
-            <button class="btn-zoom-reset" style="margin-left:0.5rem" onclick="equityChart&&equityChart.resetZoom()" title="Reset zoom">⤢ Reset</button>
-            <div class="period-tabs" style="margin-left:0.75rem">
+            <div style="margin-left:auto; display:flex; gap:0.4rem">
+                <button class="btn-chart-action" onclick="exportChart('equity-chart', 'equity.png')" title="Export image">⭳ Export</button>
+                <button class="btn-chart-action" onclick="equityChart&&equityChart.resetZoom()" title="Reset zoom">⤢ Reset</button>
+            </div>
+            <div class="period-tabs" style="margin-left:0.75rem" id="equity-scale-tabs">
+                <button class="period-tab" data-es="monetary" onclick="setEquityScale('monetary')">$</button>
+                <button class="period-tab" data-es="pct"      onclick="setEquityScale('pct')">%</button>
+            </div>
+            <div class="period-tabs" style="margin-left:0.5rem">
                 <button class="period-tab active" data-ep="all" onclick="setEquityPeriod('all')">All</button>
                 <button class="period-tab" data-ep="1Y"  onclick="setEquityPeriod('1Y')">1Y</button>
                 <button class="period-tab" data-ep="6M"  onclick="setEquityPeriod('6M')">6M</button>
@@ -142,6 +161,7 @@
     <section class="card full-width" id="underwater-section">
         <div class="section-header">
             <h2>Drawdown Underwater</h2>
+            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('underwater-chart', 'drawdown.png')" title="Export image">⭳ Export</button>
         </div>
         <div class="chart-wrapper" style="height:150px">
             <canvas id="underwater-chart"></canvas>
@@ -152,6 +172,10 @@
     <section class="card full-width" id="monthly-section">
         <div class="section-header">
             <h2>P&amp;L Analysis</h2>
+            <div style="margin-left:auto; display:flex; gap:0.4rem">
+                <button class="btn-chart-action" onclick="exportChart('monthly-pnl-chart', 'pnl_analysis_month.png')" title="Export P&amp;L by Month">⭳ Export Month</button>
+                <button class="btn-chart-action" onclick="exportChart('annual-pnl-chart', 'pnl_analysis_year.png')" title="Export P&amp;L by Year">⭳ Export Year</button>
+            </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
             <div>
@@ -167,7 +191,13 @@
 
     <!-- Trade Distribution -->
     <section class="card full-width" id="distribution-section">
-        <h2>Trade Distribution</h2>
+        <div class="section-header">
+            <h2>Trade Distribution</h2>
+            <div style="margin-left:auto; display:flex; gap:0.4rem">
+                <button class="btn-chart-action" onclick="exportChart('dist-hour-chart', 'distribution_hour.png')" title="Export Distribution by Hour">⭳ Export Hour</button>
+                <button class="btn-chart-action" onclick="exportChart('dist-dow-chart', 'distribution_dow.png')" title="Export Distribution by Day">⭳ Export Day</button>
+            </div>
+        </div>
         <div class="two-col-charts">
             <div>
                 <p class="chart-subtitle">By Hour of Day</p>
@@ -221,6 +251,7 @@ let _currentStrategy = null;
 let _currentMetrics = null;
 let _allEquityPoints = [];
 let _equityPeriod = localStorage.getItem("tm-equity-period") || "all";
+let _equityScale  = localStorage.getItem("tm-equity-scale")  || "monetary";
 let underwaterChart = null;
 let _distHourChart = null;
 let _distDowChart  = null;
@@ -262,19 +293,41 @@ function renderChartEmptyState(wrapperId, message = "No data yet.") {
 
 function refreshCurrentView() {
     const signal = beginViewRequest();
+    const reportBtn = document.getElementById("full-report-btn");
+
     if (_pageMode === "backtest") {
         if (_selectedBtId) {
+            if (reportBtn) {
+                reportBtn.href = `/backtest/${_selectedBtId}/quantstats-report`;
+                reportBtn.style.display = "";
+            }
+            loadBtEquityInMain(_selectedBtId, signal);
             loadBtMetricsInMain(_selectedBtId, signal);
             loadBtMonthlyPnL(_selectedBtId, signal);
             loadBtDistribution(_selectedBtId, signal);
             loadBtDealsInMain(_selectedBtId, 1, signal);
+        } else {
+            if (reportBtn) reportBtn.style.display = "none";
         }
         return;
     }
+
+    if (reportBtn) {
+        reportBtn.href = `/strategy/${STRATEGY_ID}/quantstats-report`;
+        reportBtn.style.display = "";
+    }
+    loadEquity(signal);
     loadMetrics(signal);
     loadMonthlyPnL(signal);
     loadDistribution(signal);
     loadDeals(1, signal);
+}
+
+function showMetricsSkeleton() {
+    document.getElementById("metrics-container").innerHTML =
+        '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>' +
+        '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>' +
+        '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>';
 }
 
 function setSideFilter(side) {
@@ -282,7 +335,16 @@ function setSideFilter(side) {
     document.querySelectorAll("#side-filter-tabs .period-tab").forEach(b =>
         b.classList.toggle("active", b.dataset.side === side));
     const eqInfo = document.getElementById("equity-side-info");
-    if (eqInfo) eqInfo.style.display = side === "both" ? "none" : "";
+    if (eqInfo) {
+        if (side === "both") {
+            eqInfo.style.display = "none";
+        } else {
+            eqInfo.textContent = `Equity filtered: ${side[0].toUpperCase()}${side.slice(1)}`;
+            eqInfo.style.display = "";
+        }
+    }
+    _currentMetrics = null;
+    showMetricsSkeleton();
     refreshCurrentView();
 }
 
@@ -316,7 +378,6 @@ function setPageMode(mode) {
     document.getElementById("deals-live-panel").style.display  = isBt ? "none" : "";
 
     if (!isBt) {
-        loadEquity();
         refreshCurrentView();
     } else {
         // Reset metrics to skeleton
@@ -351,7 +412,6 @@ function setPageMode(mode) {
 async function selectBtRun(btId) {
     _selectedBtId = btId;
     renderBacktestsList(); // re-render to highlight selected row
-    loadBtEquityInMain(btId);
     refreshCurrentView();
 }
 
@@ -397,11 +457,11 @@ async function loadBtDistribution(btId, signal = null) {
 async function loadBtMetricsInMain(btId, signal = null) {
     const requestKey = currentViewKey();
     const container = document.getElementById("metrics-container");
-    container.innerHTML =
-        '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>' +
-        '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>';
+    showMetricsSkeleton();
     try {
-        const res = await fetch(`/api/backtests/${btId}/metrics?_=1${sideParam()}`, { signal });
+        const qs = new URLSearchParams({ _: String(Date.now()) });
+        if (_sideFilter !== "both") qs.set("side", _sideFilter);
+        const res = await fetch(`/api/backtests/${btId}/metrics?${qs.toString()}`, { signal });
         const data = await res.json();
         if (requestKey !== currentViewKey()) return;
         if (data.error) { container.innerHTML = `<p class="empty-state">${data.error}</p>`; return; }
@@ -423,7 +483,7 @@ async function loadBtMetricsInMain(btId, signal = null) {
             const isTotal = keyLower === "total trades";
             let cls = "metric-value";
             if (!isTotal && typeof v === "number" && v !== null) {
-                cls += v >= 0 ? " profit-positive" : " profit-negative";
+                cls += v > 0 ? " profit-positive" : v < 0 ? " profit-negative" : "";
             }
             let displayVal = val;
             return `<div class="metric-item">
@@ -438,10 +498,14 @@ async function loadBtMetricsInMain(btId, signal = null) {
     }
 }
 
-async function loadBtEquityInMain(btId) {
+async function loadBtEquityInMain(btId, signal = null) {
+    const requestKey = currentViewKey();
     try {
-        const res = await fetch(`/api/backtests/${btId}/equity`);
+        const qs = new URLSearchParams({ _: String(Date.now()) });
+        if (_sideFilter !== "both") qs.set("side", _sideFilter);
+        const res = await fetch(`/api/backtests/${btId}/equity?${qs.toString()}`, { signal });
         const points = await res.json();
+        if (requestKey !== currentViewKey()) return;
         if (!points.length) {
             const wrapper = document.querySelector("#chart-section .chart-wrapper");
             if (wrapper) wrapper.innerHTML = '<p class="empty-state" style="padding:2rem 0">No equity data yet.</p>';
@@ -456,7 +520,9 @@ async function loadBtEquityInMain(btId) {
             if (wrapper) wrapper.innerHTML = '<canvas id="equity-chart"></canvas>';
         }
         renderEquityChart(filterEquityPoints(_allEquityPoints, _equityPeriod));
-    } catch(e) { console.error("BT equity (main) error:", e); }
+    } catch(e) {
+        if (!isAbortError(e)) console.error("BT equity (main) error:", e);
+    }
 }
 
 async function loadBtDealsInMain(btId, page = 1, signal = null) {
@@ -618,8 +684,11 @@ async function loadInfo() {
 
 async function loadMetrics(signal = null) {
     const requestKey = currentViewKey();
+    showMetricsSkeleton();
     try {
-        const res = await fetch(`/api/strategies/${STRATEGY_ID}/metrics?_=1${sideParam()}`, { signal });
+        const qs = new URLSearchParams({ _: String(Date.now()) });
+        if (_sideFilter !== "both") qs.set("side", _sideFilter);
+        const res = await fetch(`/api/strategies/${STRATEGY_ID}/metrics?${qs.toString()}`, { signal });
         const data = await res.json();
         if (requestKey !== currentViewKey()) return;
         const container = document.getElementById("metrics-container");
@@ -645,7 +714,7 @@ async function loadMetrics(signal = null) {
             const isTotal = keyLower === "total trades";
             let cls = "metric-value";
             if (!isTotal && typeof v === "number" && v !== null) {
-                cls += v >= 0 ? " profit-positive" : " profit-negative";
+                cls += v > 0 ? " profit-positive" : v < 0 ? " profit-negative" : "";
             }
             let displayVal = val;
             if (k === "Gross Loss" && typeof v === "number" && v !== null) {
@@ -685,13 +754,19 @@ function checkDrawdownAlert() {
     banner.style.display = "flex";
 }
 
-async function loadEquity() {
+async function loadEquity(signal = null) {
+    const requestKey = currentViewKey();
     try {
-        const res = await fetch(`/api/strategies/${STRATEGY_ID}/equity`);
+        const qs = new URLSearchParams({ _: String(Date.now()) });
+        if (_sideFilter !== "both") qs.set("side", _sideFilter);
+        const res = await fetch(`/api/strategies/${STRATEGY_ID}/equity?${qs.toString()}`, { signal });
         _allEquityPoints = await res.json();
+        if (requestKey !== currentViewKey()) return;
         renderEquityChart(filterEquityPoints(_allEquityPoints, _equityPeriod));
         markUpdated("equity");
-    } catch(e) { console.error("Equity load error:", e); }
+    } catch(e) {
+        if (!isAbortError(e)) console.error("Equity load error:", e);
+    }
 }
 
 function filterEquityPoints(pts, period) {
@@ -710,6 +785,14 @@ function setEquityPeriod(period) {
     renderEquityChart(filterEquityPoints(_allEquityPoints, period));
 }
 
+function setEquityScale(scale) {
+    _equityScale = scale;
+    localStorage.setItem("tm-equity-scale", scale);
+    document.querySelectorAll(".period-tab[data-es]").forEach(b =>
+        b.classList.toggle("active", b.dataset.es === scale));
+    renderEquityChart(filterEquityPoints(_allEquityPoints, _equityPeriod));
+}
+
 function renderEquityChart(points) {
     // Ensure canvas exists
     if (!document.getElementById("equity-chart")) {
@@ -721,6 +804,9 @@ function renderEquityChart(points) {
         ctx.canvas.parentElement.innerHTML = '<p class="empty-state" style="padding:2rem 0">No equity data yet.</p>';
         return;
     }
+    const isPct = _equityScale === "pct";
+    const firstEq = points[0].equity || 1;
+
     const isDark = document.documentElement.getAttribute("data-theme") !== "light";
     const tickColor = isDark ? "#64748b" : "#94a3b8";
     const gridColor = isDark ? "#334155" : "#e2e8f0";
@@ -728,7 +814,15 @@ function renderEquityChart(points) {
         const d = new Date(p.timestamp);
         return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
     });
-    const equityValues = points.map(p => p.equity);
+
+    const chartValues = isPct
+        ? points.map(p => parseFloat((((p.equity / firstEq) - 1) * 100).toFixed(4)))
+        : points.map(p => p.equity);
+
+    const yTickCb = isPct ? v => `${v.toFixed(2)}%` : v => fmt(v);
+    const tooltipCb = isPct
+        ? c => ` Return: ${c.parsed.y.toFixed(2)}%`
+        : c => ` Equity: ${fmt(c.parsed.y)}`;
 
     if (equityChart) equityChart.destroy();
     equityChart = new Chart(ctx, {
@@ -736,10 +830,10 @@ function renderEquityChart(points) {
         data: {
             labels,
             datasets: [{
-                label: "Equity",
-                data: equityValues,
+                label: isPct ? "Return (%)" : "Equity",
+                data: chartValues,
                 segment: {
-                    borderColor: ctx => ctx.p1.parsed.y >= 0 ? '#10b981' : '#ef4444',
+                    borderColor: ctx => ctx.p1.parsed.y >= (isPct ? 0 : -Infinity) ? '#10b981' : '#ef4444',
                 },
                 borderColor: '#10b981',
                 backgroundColor: "rgba(100,116,139,0.06)",
@@ -755,7 +849,7 @@ function renderEquityChart(points) {
             interaction: { mode: "index", intersect: false },
             plugins: {
                 legend: { display: false },
-                tooltip: { callbacks: { label: ctx => ` Equity: ${fmt(ctx.parsed.y)}` } },
+                tooltip: { callbacks: { label: tooltipCb } },
                 zoom: {
                     zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
                     pan:  { enabled: true, mode: "x" },
@@ -763,7 +857,10 @@ function renderEquityChart(points) {
             },
             scales: {
                 x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
-                y: { ticks: { color: tickColor }, grid: { color: gridColor } },
+                y: {
+                    ticks: { color: tickColor, callback: yTickCb },
+                    grid: { color: gridColor },
+                },
             },
         },
     });
@@ -785,12 +882,17 @@ function renderUnderwaterChart(points) {
         return;
     }
 
-    // Compute running drawdown: (peak - equity) / peak * 100, shown as negative
+    // Compute running drawdown — % or monetary depending on _equityScale
+    const isPct = _equityScale === "pct";
     let peak = -Infinity;
     const ddValues = points.map(p => {
         const eq = p.equity ?? p.balance ?? 0;
         if (eq > peak) peak = eq;
-        return peak > 0 ? -((peak - eq) / peak * 100) : 0;
+        if (isPct) {
+            return peak > 0 ? -((peak - eq) / peak * 100) : 0;
+        } else {
+            return -(peak - eq);
+        }
     });
 
     const labels = points.map(p => {
@@ -802,13 +904,19 @@ function renderUnderwaterChart(points) {
     const tickColor = isDark ? "#64748b" : "#94a3b8";
     const gridColor = isDark ? "#334155" : "#e2e8f0";
 
+    const ddLabel    = isPct ? "Drawdown %" : "Drawdown $";
+    const ddTickCb   = isPct ? v => `${v.toFixed(1)}%` : v => fmt(v);
+    const ddTooltipCb = isPct
+        ? c => ` DD: ${c.parsed.y.toFixed(2)}%`
+        : c => ` DD: ${fmt(c.parsed.y)}`;
+
     if (underwaterChart) underwaterChart.destroy();
     underwaterChart = new Chart(canvas.getContext("2d"), {
         type: "line",
         data: {
             labels,
             datasets: [{
-                label: "Drawdown %",
+                label: ddLabel,
                 data: ddValues,
                 borderColor: "#ef4444",
                 backgroundColor: "rgba(239,68,68,0.18)",
@@ -824,7 +932,7 @@ function renderUnderwaterChart(points) {
             interaction: { mode: "index", intersect: false },
             plugins: {
                 legend: { display: false },
-                tooltip: { callbacks: { label: ctx => ` DD: ${fmt(ctx.parsed.y)}%` } },
+                tooltip: { callbacks: { label: ddTooltipCb } },
                 zoom: {
                     zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
                     pan:  { enabled: true, mode: "x" },
@@ -833,7 +941,7 @@ function renderUnderwaterChart(points) {
             scales: {
                 x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
                 y: {
-                    ticks: { color: tickColor, callback: v => `${v.toFixed(1)}%` },
+                    ticks: { color: tickColor, callback: ddTickCb },
                     grid: { color: gridColor },
                     max: 0,
                 },
@@ -1012,16 +1120,27 @@ async function loadDistribution(signal = null) {
     } catch(e) { if (!isAbortError(e)) console.error("Distribution load error:", e); }
 }
 
-function renderDistChart(canvasId, chartVar, labels, _counts, profits) {
+function renderDistChart(canvasId, chartVar, labels, counts, profits) {
     const wrapperId = canvasId === "dist-hour-chart" ? "dist-hour-wrapper" : "dist-dow-wrapper";
-    if (!labels.length) {
+    const hasData = Array.isArray(counts) && counts.some(c => c > 0);
+
+    if (!labels.length || !hasData) {
+        // Safely destroy tracked chart reference
         if (window[chartVar]) { window[chartVar].destroy(); window[chartVar] = null; }
+        // Also destroy any orphaned Chart.js instance on the canvas
+        const orphan = document.getElementById(canvasId);
+        if (orphan) { const inst = Chart.getChart(orphan); if (inst) inst.destroy(); }
         renderChartEmptyState(wrapperId, "No trade distribution for this side.");
         return;
     }
+
     const canvas = ensureCanvas(wrapperId, canvasId);
     if (!canvas) return;
+
+    // Destroy tracked reference first, then fall back to Chart.js registry
     if (window[chartVar]) { window[chartVar].destroy(); window[chartVar] = null; }
+    const orphan = Chart.getChart(canvas);
+    if (orphan) orphan.destroy();
 
     const isDark = document.documentElement.getAttribute("data-theme") !== "light";
     const tickColor = isDark ? "#64748b" : "#94a3b8";
@@ -1192,10 +1311,11 @@ window.addEventListener("ws-event", function(e) {
     const stratId = data && (data.magic ? String(data.magic) : data.strategy_id);
     if (stratId !== STRATEGY_ID) return;
     if (topic === "DEAL" && _pageMode !== "backtest") {
-        loadEquity();
         refreshCurrentView();
     } else if (topic === "EQUITY" && _pageMode !== "backtest") {
-        loadEquity(); loadMetrics();
+        const signal = beginViewRequest();
+        loadEquity(signal);
+        loadMetrics(signal);
     } else if (topic === "BACKTEST_END") {
         loadBacktests();
     }
@@ -1223,7 +1343,6 @@ function renderBacktestsList() {
     // Auto-select first run when entering backtest mode with no previous selection
     if (_pageMode === "backtest" && !_selectedBtId && _backtests.length > 0) {
         _selectedBtId = _backtests[0].id;
-        loadBtEquityInMain(_selectedBtId);
         refreshCurrentView();
     }
 
@@ -1299,6 +1418,8 @@ window.addEventListener("tm-theme-change", function() {
 // ── Restore persisted UI preferences ──────────────────────────────────────
 document.querySelectorAll(".period-tab[data-ep]").forEach(b =>
     b.classList.toggle("active", b.dataset.ep === _equityPeriod));
+document.querySelectorAll(".period-tab[data-es]").forEach(b =>
+    b.classList.toggle("active", b.dataset.es === _equityScale));
 document.querySelectorAll(".period-tab[data-mp]").forEach(b =>
     b.classList.toggle("active", b.dataset.mp === _monthlyView));
 const _savedPs = localStorage.getItem("tm-deals-page-size");

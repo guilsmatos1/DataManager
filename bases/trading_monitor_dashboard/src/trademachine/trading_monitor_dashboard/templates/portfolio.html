@@ -2,13 +2,21 @@
 {% block title %}TradingMonitor — Portfolio {{ portfolio_id }}{% endblock %}
 
 {% block content %}
+<style>
+    #metrics-container.metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    @media (max-width: 900px) {
+        #metrics-container.metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+        #metrics-container.metrics-grid { grid-template-columns: 1fr; }
+    }
+</style>
 <div class="page-header">
     <a href="/" class="back-link">← Overview</a>
     <h1 id="portfolio-title">Portfolio <span class="mono">#{{ portfolio_id }}</span></h1>
     <span id="portfolio-status-badge" class="badge"></span>
     <div style="margin-left:auto;display:flex;gap:0.5rem">
         <a href="/advanced-analysis" class="btn btn-ghost btn-sm">Advanced Analysis</a>
-        <a href="/portfolio/{{ portfolio_id }}/advanced-metrics" class="btn btn-ghost btn-sm">Advanced Metrics</a>
         <a href="/portfolio/{{ portfolio_id }}/quantstats-report" class="btn btn-ghost btn-sm" target="_blank">Full Report</a>
         <a id="corr-link" href="/portfolio/{{ portfolio_id }}/correlation" class="btn btn-ghost btn-sm">Correlation</a>
         <button class="btn btn-sm" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3)" onclick="confirmDelete()">Delete</button>
@@ -76,7 +84,10 @@
         <div class="section-header">
             <h2>Equity Curve</h2>
             <span id="updated-equity" class="updated-at"></span>
-            <button class="btn-zoom-reset" style="margin-left:0.5rem" onclick="equityChart&&equityChart.resetZoom()" title="Reset zoom">⤢ Reset</button>
+            <div style="margin-left:auto; display:flex; gap:0.4rem">
+                <button class="btn-chart-action" onclick="exportChart('equity-chart', 'equity.png')" title="Export image">⭳ Export</button>
+                <button class="btn-chart-action" onclick="equityChart&&equityChart.resetZoom()" title="Reset zoom">⤢ Reset</button>
+            </div>
             <div class="period-tabs" style="margin-left:0.75rem">
                 <button class="period-tab active" data-ep="all" onclick="setEquityPeriod('all')">All</button>
                 <button class="period-tab" data-ep="1Y"  onclick="setEquityPeriod('1Y')">1Y</button>

@@ -116,6 +116,8 @@ a { color: inherit; text-decoration: none; }
 
 .nav-dropdown {
     position: relative;
+    display: flex;
+    align-items: center;
 }
 
 .nav-dropdown-toggle {
@@ -123,67 +125,120 @@ a { color: inherit; text-decoration: none; }
     font-size: 0.85rem;
     padding: 0.35rem 0.75rem;
     border-radius: var(--radius-sm);
-    transition: background 0.15s, color 0.15s;
+    transition: all 0.2s ease;
     background: transparent;
     border: none;
     cursor: pointer;
     font-family: inherit;
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    line-height: 1.6;
-    height: 100%;
+    gap: 0.3rem;
+    line-height: 1;
+    height: auto;
     appearance: none;
     -webkit-appearance: none;
     vertical-align: middle;
 }
 
+.nav-dropdown-toggle::after {
+    content: "▾";
+    font-size: 0.75rem;
+    opacity: 0.7;
+    margin-left: 2px;
+    transition: transform 0.2s ease;
+}
+
+.nav-dropdown.open .nav-dropdown-toggle::after {
+    transform: rotate(180deg);
+}
+
 .nav-dropdown-toggle:hover,
-.nav-dropdown.open .nav-dropdown-toggle {
+.nav-dropdown.open .nav-dropdown-toggle,
+.nav-dropdown-toggle.active {
     background: var(--surface-hover);
     color: var(--text);
 }
 
 .nav-dropdown-menu {
     position: absolute;
-    top: calc(100% + 0.4rem);
+    top: calc(100% + 5px);
     left: 0;
     min-width: 260px;
-    max-height: 360px;
+    max-height: 380px;
     overflow-y: auto;
-    background: var(--surface);
+
+    background: rgba(30, 41, 59, 0.85); /* fallback */
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    padding: 0.35rem;
-    display: none;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05);
+    padding: 0.4rem;
+
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px) scale(0.98);
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.2s;
+
     z-index: 150;
     text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+html[data-theme="light"] .nav-dropdown-menu {
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.5);
+}
+
+.nav-dropdown-menu::-webkit-scrollbar {
+    width: 4px;
+}
+.nav-dropdown-menu::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
 }
 
 .nav-dropdown.open .nav-dropdown-menu {
-    display: block;
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
 }
 
 .nav-dropdown-item {
     display: flex !important;
     flex-direction: column !important;
     align-items: flex-start !important;
-    justify-content: flex-start !important;
+    justify-content: center !important;
     text-align: left !important;
     width: 100%;
-    padding: 0.55rem 0.7rem;
+    padding: 0.5rem 0.7rem;
     border-radius: var(--radius-sm);
     color: var(--text);
-    font-size: 0.84rem;
+    font-size: 0.85rem;
     line-height: 1.3;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+    text-decoration: none;
 }
+
 .nav-dropdown-item > span:first-child {
+    font-weight: 500;
     text-align: left !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
 }
 
 .nav-dropdown-item:hover {
     background: var(--surface-hover);
+    color: var(--accent);
+    transform: translateX(2px);
+    border-color: rgba(255,255,255,0.03);
 }
 
 .nav-dropdown-item-static {
@@ -193,14 +248,18 @@ a { color: inherit; text-decoration: none; }
 
 .nav-dropdown-item-static:hover {
     background: transparent;
+    color: var(--text);
+    transform: none;
+    border-color: transparent;
 }
 
 .nav-dropdown-item-meta {
     display: block;
     color: var(--text-muted);
-    font-size: 0.75rem;
-    margin-top: 0.1rem;
+    font-size: 0.72rem;
+    margin-top: 0.15rem;
     text-align: left !important;
+    font-family: var(--mono);
 }
 
 .nav-item-icon {
@@ -211,9 +270,10 @@ a { color: inherit; text-decoration: none; }
 
 .nav-dropdown-state {
     color: var(--text-muted);
-    font-size: 0.8rem;
-    padding: 0.55rem 0.7rem;
-    text-align: left !important;
+    font-size: 0.85rem;
+    padding: 0.8rem;
+    text-align: center !important;
+    font-style: italic;
 }
 
 .nav-status { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; color: var(--text-muted); }
@@ -483,7 +543,7 @@ a { color: inherit; text-decoration: none; }
 
 .badge-live       { background: var(--green-glow);  color: var(--green);  border: 1px solid rgba(16,185,129,0.3); }
 .badge-incubation { background: rgba(245,158,11,0.1); color: var(--yellow); border: 1px solid rgba(245,158,11,0.3); }
-.badge-real       { background: var(--accent-glow);  color: var(--accent); border: 1px solid rgba(59,130,246,0.3); }
+.badge-real       { background: var(--green-glow);   color: var(--green);  border: 1px solid rgba(16,185,129,0.3); }
 .badge-demo       { background: rgba(139,92,246,0.1); color: var(--purple); border: 1px solid rgba(139,92,246,0.3); }
 .badge-inactive   { background: var(--red-glow);     color: var(--red);    border: 1px solid rgba(239,68,68,0.3); }
 .badge-active     { background: var(--green-glow);   color: var(--green);  border: 1px solid rgba(16,185,129,0.3); }
@@ -1268,6 +1328,22 @@ tr:hover .btn-copy-id,
 .lb-profit { font-size: 0.85rem; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .lb-spark  { display: flex; justify-content: flex-end; }
 
+/* ── Chart action buttons (Zoom reset, Export) ── */
+.btn-chart-action {
+    padding: 0.18rem 0.55rem;
+    font-size: 0.7rem;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+.btn-chart-action:hover { border-color: var(--accent); color: var(--accent); }
+
 /* ── Monthly P&L chart section ── */
 .chart-wrapper-sm { position: relative; height: 160px; }
 
@@ -1324,9 +1400,9 @@ html[data-theme="light"] .badge-incubation {
     color: #d97706;
 }
 html[data-theme="light"] .badge-real {
-    background: rgba(37,99,235,0.10);
-    border-color: rgba(37,99,235,0.3);
-    color: #2563eb;
+    background: rgba(5,150,105,0.12);
+    border-color: rgba(5,150,105,0.3);
+    color: #059669;
 }
 html[data-theme="light"] .badge-demo {
     background: rgba(124,58,237,0.10);

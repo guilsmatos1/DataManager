@@ -31,16 +31,16 @@
         <span class="summary-label">Pending Orders</span>
     </div>
     <div class="summary-card">
+        <span class="summary-num" id="sum-floating">—</span>
+        <span class="summary-label">Open P&amp;L (Floating)</span>
+    </div>
+    <div class="summary-card">
         <span class="summary-num" id="sum-day-pnl">—</span>
         <span class="summary-label">P&amp;L Today</span>
     </div>
     <div class="summary-card">
         <span class="summary-num" id="sum-net-profit">—</span>
         <span class="summary-label">Total Net Profit</span>
-    </div>
-    <div class="summary-card">
-        <span class="summary-num" id="sum-floating">—</span>
-        <span class="summary-label">Open P&amp;L (Floating)</span>
     </div>
 </div>
 <p id="real-summary-note" class="summary-footnote" style="display:none"></p>
@@ -50,6 +50,7 @@
     <div class="section-header">
         <h2>Aggregated P&amp;L</h2>
         <span class="badge badge-neutral" id="pnl-badge"></span>
+        <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('real-pnl-chart', 'aggregated_pnl.png')" title="Export image">⭳ Export</button>
         <div class="period-tabs" style="margin-left:0.75rem">
             <button class="period-tab active" data-rp="all" onclick="setRealPnlPeriod('all')">All</button>
             <button class="period-tab" data-rp="1Y" onclick="setRealPnlPeriod('1Y')">1Y</button>
@@ -102,18 +103,26 @@
         <h2>Recent Deals</h2>
         <span id="badge-recent-deals" class="badge badge-neutral">0</span>
     </div>
+    <div style="padding:0.4rem 0 0.25rem;display:flex;align-items:center;gap:0.5rem">
+        <select id="recent-deals-page-size" class="field-input" style="width:auto" onchange="renderRecentDealsTable()">
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+        </select>
+        <span class="text-muted" style="font-size:0.8rem">per page</span>
+    </div>
     <div class="table-wrap">
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Time</th>
-                    <th>Strategy</th>
-                    <th>Symbol</th>
-                    <th>Type</th>
-                    <th>Profit</th>
-                    <th>Commission</th>
-                    <th>Swap</th>
-                    <th>Net Profit</th>
+                    <th class="sortable" onclick="recentDealsSortBy('timestamp')">Time<span id="recent-deals-arrow-timestamp"></span></th>
+                    <th class="sortable" onclick="recentDealsSortBy('strategy_name')">Strategy<span id="recent-deals-arrow-strategy_name"></span></th>
+                    <th class="sortable" onclick="recentDealsSortBy('symbol')">Symbol<span id="recent-deals-arrow-symbol"></span></th>
+                    <th class="sortable" onclick="recentDealsSortBy('type')">Type<span id="recent-deals-arrow-type"></span></th>
+                    <th class="sortable" onclick="recentDealsSortBy('profit')">Profit<span id="recent-deals-arrow-profit"></span></th>
+                    <th class="sortable" onclick="recentDealsSortBy('commission')">Commission<span id="recent-deals-arrow-commission"></span></th>
+                    <th class="sortable" onclick="recentDealsSortBy('swap')">Swap<span id="recent-deals-arrow-swap"></span></th>
+                    <th class="sortable" onclick="recentDealsSortBy('net_profit')">Net Profit<span id="recent-deals-arrow-net_profit"></span></th>
                 </tr>
             </thead>
             <tbody id="recent-deals-body">
@@ -121,6 +130,7 @@
             </tbody>
         </table>
     </div>
+    <div id="recent-deals-pagination" class="pagination"></div>
 </div>
 {% endblock %}
 
@@ -131,6 +141,10 @@ let _allRealPnlPoints = [];
 let _realPnlPeriod = localStorage.getItem("tm-real-pnl-period") || "all";
 let _realPnlDataKey = "";
 let _realPnlRenderedKey = "";
+let _recentDeals = [];
+let _recentDealsSortCol = "timestamp";
+let _recentDealsSortAsc = false;
+let _recentDealsPage = 1;
 
 async function loadReal() {
     let data;
@@ -143,8 +157,8 @@ async function loadReal() {
         return;
     }
 
-    const modeLabel = (data.mode || "real") === "demo" ? "Demo" : "Real";
-    document.getElementById("real-page-title").textContent = `Account Monitor (${modeLabel})`;
+    const isDemoMode = (data.mode || "real") === "demo";
+    document.getElementById("real-page-title").textContent = "Account Monitor";
 
     if (!data.strategies || data.strategies.length === 0) {
         document.getElementById("real-empty").style.display = "block";
@@ -173,8 +187,8 @@ async function loadReal() {
     } else {
         note.style.display = "none";
     }
-    document.getElementById("real-status-badge").textContent = "Live";
-    document.getElementById("real-status-badge").className = "badge badge-live";
+    document.getElementById("real-status-badge").textContent = isDemoMode ? "Demo" : "Real";
+    document.getElementById("real-status-badge").className = `badge ${isDemoMode ? "badge-demo" : "badge-real"}`;
 
     // Strategies table
     const tbody = document.getElementById("real-strategies-body");
@@ -380,43 +394,102 @@ async function loadRecentDeals() {
     const container = document.getElementById("recent-deals-body");
     const badge = document.getElementById("badge-recent-deals");
     try {
-        const res = await fetch("/api/real/recent-deals?limit=20");
+        const res = await fetch("/api/real/recent-deals?limit=250");
         const deals = await res.json();
-        if (!deals.length) {
-            container.innerHTML = `<tr><td colspan="8" class="empty-state" style="padding: 2rem;">No recent deals found.</td></tr>`;
-            badge.textContent = "0";
-            return;
-        }
+        _recentDeals = deals;
         badge.textContent = String(deals.length);
-        container.innerHTML = deals.map(d => {
-            const ts = d.timestamp ? new Date(d.timestamp).toLocaleString() : "—";
-            const profit = d.profit ?? 0;
-            const commission = d.commission ?? 0;
-            const swap = d.swap ?? 0;
-            const net = d.net_profit ?? 0;
-            const profitCls = profit > 0 ? "profit-positive" : profit < 0 ? "profit-negative" : "";
-            const commissionCls = commission > 0 ? "profit-positive" : commission < 0 ? "profit-negative" : "";
-            const swapCls = swap > 0 ? "profit-positive" : swap < 0 ? "profit-negative" : "";
-            const cls = net > 0 ? "profit-positive" : net < 0 ? "profit-negative" : "";
-            return `
-                <tr>
-                    <td style="font-variant-numeric:tabular-nums;white-space:nowrap">${ts}</td>
-                    <td>
-                        <a href="/strategy/${d.strategy_id}" style="color:var(--accent)">${d.strategy_name || d.strategy_id || "—"}</a>
-                    </td>
-                    <td><span class="badge badge-neutral">${d.symbol || "—"}</span></td>
-                    <td><span class="badge badge-neutral">${d.type || "—"}</span></td>
-                    <td class="${profitCls}" style="font-variant-numeric:tabular-nums">${fmt(profit)}</td>
-                    <td class="${commissionCls}" style="font-variant-numeric:tabular-nums">${fmt(commission)}</td>
-                    <td class="${swapCls}" style="font-variant-numeric:tabular-nums">${fmt(swap)}</td>
-                    <td class="${cls}" style="font-variant-numeric:tabular-nums;font-weight:600">${fmt(net)}</td>
-                </tr>
-            `;
-        }).join("");
+        renderRecentDealsTable();
     } catch (e) {
+        _recentDeals = [];
         container.innerHTML = `<tr><td colspan="8" class="empty-state" style="padding: 2rem;">Failed to load recent deals.</td></tr>`;
         badge.textContent = "—";
+        document.getElementById("recent-deals-pagination").innerHTML = "";
     }
+}
+
+function recentDealsSortBy(col) {
+    if (_recentDealsSortCol === col) _recentDealsSortAsc = !_recentDealsSortAsc;
+    else {
+        _recentDealsSortCol = col;
+        _recentDealsSortAsc = col !== "timestamp";
+    }
+    _recentDealsPage = 1;
+    renderRecentDealsTable();
+}
+
+function recentDealsGoPage(page) {
+    _recentDealsPage = page;
+    renderRecentDealsTable();
+}
+
+function renderRecentDealsTable() {
+    const container = document.getElementById("recent-deals-body");
+    const pagination = document.getElementById("recent-deals-pagination");
+    const pageSize = parseInt(document.getElementById("recent-deals-page-size")?.value || "25", 10);
+
+    ["timestamp", "strategy_name", "symbol", "type", "profit", "commission", "swap", "net_profit"].forEach(col => {
+        const el = document.getElementById(`recent-deals-arrow-${col}`);
+        if (el) el.textContent = _recentDealsSortCol === col ? (_recentDealsSortAsc ? " ↑" : " ↓") : "";
+    });
+
+    if (!_recentDeals.length) {
+        container.innerHTML = `<tr><td colspan="8" class="empty-state" style="padding: 2rem;">No recent deals found.</td></tr>`;
+        pagination.innerHTML = "";
+        return;
+    }
+
+    const sorted = [..._recentDeals].sort((a, b) => {
+        let va = a[_recentDealsSortCol];
+        let vb = b[_recentDealsSortCol];
+
+        if (_recentDealsSortCol === "timestamp") {
+            va = va ? new Date(va).getTime() : 0;
+            vb = vb ? new Date(vb).getTime() : 0;
+        } else if (["profit", "commission", "swap", "net_profit"].includes(_recentDealsSortCol)) {
+            va = Number(va ?? 0);
+            vb = Number(vb ?? 0);
+        } else {
+            va = String(va || "").toLowerCase();
+            vb = String(vb || "").toLowerCase();
+        }
+
+        if (va === vb) return 0;
+        return _recentDealsSortAsc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
+    });
+
+    const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+    if (_recentDealsPage > totalPages) _recentDealsPage = 1;
+    const pageDeals = sorted.slice((_recentDealsPage - 1) * pageSize, _recentDealsPage * pageSize);
+
+    container.innerHTML = pageDeals.map(d => {
+        const ts = d.timestamp ? new Date(d.timestamp).toLocaleString() : "—";
+        const profit = d.profit ?? 0;
+        const commission = d.commission ?? 0;
+        const swap = d.swap ?? 0;
+        const net = d.net_profit ?? 0;
+        const profitCls = profit > 0 ? "profit-positive" : profit < 0 ? "profit-negative" : "";
+        const commissionCls = commission > 0 ? "profit-positive" : commission < 0 ? "profit-negative" : "";
+        const swapCls = swap > 0 ? "profit-positive" : swap < 0 ? "profit-negative" : "";
+        const cls = net > 0 ? "profit-positive" : net < 0 ? "profit-negative" : "";
+        return `
+            <tr>
+                <td style="font-variant-numeric:tabular-nums;white-space:nowrap">${ts}</td>
+                <td><a href="/strategy/${d.strategy_id}" style="color:var(--accent)">${d.strategy_name || d.strategy_id || "—"}</a></td>
+                <td><span class="badge badge-neutral">${d.symbol || "—"}</span></td>
+                <td><span class="badge badge-neutral">${d.type || "—"}</span></td>
+                <td class="${profitCls}" style="font-variant-numeric:tabular-nums">${fmt(profit)}</td>
+                <td class="${commissionCls}" style="font-variant-numeric:tabular-nums">${fmt(commission)}</td>
+                <td class="${swapCls}" style="font-variant-numeric:tabular-nums">${fmt(swap)}</td>
+                <td class="${cls}" style="font-variant-numeric:tabular-nums;font-weight:600">${fmt(net)}</td>
+            </tr>
+        `;
+    }).join("");
+
+    pagination.innerHTML = totalPages <= 1 ? "" : `
+        <button onclick="recentDealsGoPage(${_recentDealsPage - 1})" ${_recentDealsPage <= 1 ? "disabled" : ""}>← Previous</button>
+        <span>Page ${_recentDealsPage} of ${totalPages}</span>
+        <button onclick="recentDealsGoPage(${_recentDealsPage + 1})" ${_recentDealsPage >= totalPages ? "disabled" : ""}>Next →</button>
+    `;
 }
 
 syncRealPnlPeriodButtons();

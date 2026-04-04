@@ -85,7 +85,7 @@ class FredFetcher:
             search_args["query"] = query
 
         try:
-            res = cast(Any, obb.economy.fred_search(**search_args))
+            res = cast(Any, obb.economy.fred_search(**search_args))  # type: ignore[union-attr]
             df = res.to_df()
         except Exception as exc:
             raise RuntimeError(f"Error searching FRED series: {exc}") from exc
@@ -123,7 +123,7 @@ class FredFetcher:
 
         row = exact.iloc[0].to_dict()
         row.setdefault("series_id", series_id)
-        return row
+        return row  # type: ignore[no-any-return]
 
     def fetch_data(
         self, asset: str, start_date: datetime, end_date: datetime, **kwargs
@@ -149,7 +149,7 @@ class FredFetcher:
             reraise=True,
         )
         def _fetch() -> Any:
-            return cast(Any, obb.economy.fred_series(**fred_kwargs))
+            return cast(Any, obb.economy.fred_series(**fred_kwargs))  # type: ignore[union-attr]
 
         try:
             res = _fetch()

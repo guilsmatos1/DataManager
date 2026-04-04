@@ -125,27 +125,6 @@ class AccountRepository:
         finally:
             db.close()
 
-    def update_balance(
-        self,
-        account_id: str,
-        balance: float,
-        free_margin: float,
-        total_deposits: float,
-        total_withdrawals: float,
-    ) -> None:
-        """Update account balance fields."""
-        db = SessionLocal()
-        try:
-            acc = db.query(Account).filter(Account.id == account_id).first()
-            if acc:
-                acc.balance = balance
-                acc.free_margin = free_margin
-                acc.total_deposits = total_deposits
-                acc.total_withdrawals = total_withdrawals
-                db.commit()
-        finally:
-            db.close()
-
     def delete(self, account_id: str) -> bool:
         """Delete an account by ID. Returns True if deleted."""
         db = SessionLocal()
@@ -230,8 +209,8 @@ class StrategyRepository:
         initial_balance: float | None = None,
         base_currency: str | None = None,
         description: str | None = None,
-        live: bool = False,
-        real_account: bool = False,
+        live: bool | None = None,
+        real_account: bool | None = None,
     ) -> None:
         """Create or update a strategy."""
         db = SessionLocal()
@@ -400,7 +379,7 @@ class PortfolioRepository:
             db.add(portfolio)
             db.commit()
             db.refresh(portfolio)
-            return portfolio.id
+            return portfolio.id  # type: ignore[no-any-return]
         finally:
             db.close()
 
@@ -663,7 +642,7 @@ class DealRepository:
             return [
                 {
                     "hour": int(r.hour),
-                    "count": int(r.count),  # type: ignore[call-overload]
+                    "count": int(r.count),
                     "net_profit": round(float(r.net_profit or 0), 2),
                 }
                 for r in rows
@@ -1050,7 +1029,7 @@ class BacktestDealRepository:
             return [
                 {
                     "hour": int(r.hour),
-                    "count": int(r.count),  # type: ignore[call-overload]
+                    "count": int(r.count),
                     "net_profit": round(float(r.net_profit or 0), 2),
                 }
                 for r in rows
@@ -1179,7 +1158,7 @@ class SymbolRepository:
             db.add(sym)
             db.commit()
             db.refresh(sym)
-            return sym.id
+            return sym.id  # type: ignore[no-any-return]
         finally:
             db.close()
 

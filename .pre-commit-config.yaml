@@ -46,7 +46,7 @@ repos:
 
       - id: vulture
         name: Vulture (Dead Code Detection)
-        entry: uv run vulture . vulture_whitelist.py --min-confidence 80 --exclude venv,.venv,build,.pytest_cache,.ruff_cache,.mypy_cache
+        entry: uv run vulture . vulture_whitelist.py --min-confidence 80 --exclude venv,.venv,build,.pytest_cache,.ruff_cache,.mypy_cache,dist
         language: system
         pass_filenames: false
         always_run: true

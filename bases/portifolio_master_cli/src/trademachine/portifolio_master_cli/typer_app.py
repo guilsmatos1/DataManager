@@ -98,7 +98,7 @@ def cache_info(
 ):
     """Show cache information."""
     path = cache_path or state.config.cache_path
-    state.cli_app.cache_info(cache_path=path)
+    state.cli_app.cache_info(cache_path=path)  # type: ignore[union-attr]
 
 
 @cache_app.command("rebuild")
@@ -108,7 +108,7 @@ def cache_rebuild(
 ):
     """Rebuild the cache from a directory of reports."""
     path = cache_path or state.config.cache_path
-    state.cli_app.cache_rebuild(directory, cache_path=path)
+    state.cli_app.cache_rebuild(directory, cache_path=path)  # type: ignore[union-attr]
 
 
 @cache_app.command("clear")
@@ -117,7 +117,7 @@ def cache_clear(
 ):
     """Clear the cache."""
     path = cache_path or state.config.cache_path
-    state.cli_app.cache_clear(cache_path=path)
+    state.cli_app.cache_clear(cache_path=path)  # type: ignore[union-attr]
 
 
 # --- Config Commands ---
@@ -128,7 +128,7 @@ def config_show(
     path: str = typer.Option("config.json", "--config", help="Config file path"),
 ):
     """Show current configuration."""
-    state.cli_app.config_show(path)
+    state.cli_app.config_show(path)  # type: ignore[union-attr]
 
 
 @config_app.command("validate")
@@ -136,7 +136,7 @@ def config_validate(
     path: str = typer.Option("config.json", "--config", help="Config file path"),
 ):
     """Validate configuration file."""
-    state.cli_app.config_validate(path)
+    state.cli_app.config_validate(path)  # type: ignore[union-attr]
 
 
 # --- Inspect Commands ---
@@ -152,8 +152,8 @@ def inspect_correlations(
 ):
     """Show strategy correlations."""
     period = period or state.config.corr_period
-    state.cli_app.load_reports()
-    state.cli_app.inspect_correlations(period=period, top_n=top_n, threshold=threshold)
+    state.cli_app.load_reports()  # type: ignore[union-attr]
+    state.cli_app.inspect_correlations(period=period, top_n=top_n, threshold=threshold)  # type: ignore[union-attr]
 
 
 @inspect_app.command("strategy")
@@ -162,8 +162,8 @@ def inspect_strategy(
     chart: bool = typer.Option(False, "--chart", help="Show equity chart"),
 ):
     """Show detailed strategy metrics."""
-    state.cli_app.load_reports()
-    state.cli_app.inspect_strategy(name, show_chart=chart)
+    state.cli_app.load_reports()  # type: ignore[union-attr]
+    state.cli_app.inspect_strategy(name, show_chart=chart)  # type: ignore[union-attr]
 
 
 # --- Drawdown Commands ---
@@ -176,8 +176,8 @@ def drawdown_pairing(
     apply: bool = typer.Option(False, "--apply", help="Apply scaling to cache"),
 ):
     """Calculate and apply drawdown pairing/scaling."""
-    state.cli_app.load_reports()
-    state.cli_app.drawdown_pairing(target_dd=target, lot_tick=tick, apply=apply)
+    state.cli_app.load_reports()  # type: ignore[union-attr]
+    state.cli_app.drawdown_pairing(target_dd=target, lot_tick=tick, apply=apply)  # type: ignore[union-attr]
 
 
 # --- Adherence Command ---
@@ -198,7 +198,7 @@ def adherence(
     pearson_threshold = (
         pearson if pearson is not None else state.config.adherence_pearson
     )
-    success = state.cli_app.adherence_run(
+    success = state.cli_app.adherence_run(  # type: ignore[union-attr]
         mt5_dir=mt5_dir,
         sqx_dir=sqx_dir,
         output_dir=output,
@@ -217,7 +217,7 @@ def adherence(
 @app.command("interactive", help="Launch interactive shell")
 def interactive():
     """Enter interactive mode."""
-    state.cli_app.start_interactive_shell(default_csv_cols=state.config.csv_columns)
+    state.cli_app.start_interactive_shell(default_csv_cols=state.config.csv_columns)  # type: ignore[union-attr]
 
 
 # --- Main Optimization Command ---
@@ -277,16 +277,16 @@ def optimize(
 
     # Load strategies
     if load:
-        cli_app.load_reports(load)
-    elif not cli_app.loaded_expert_names:
-        cli_app.load_reports()
+        cli_app.load_reports(load)  # type: ignore[union-attr]
+    elif not cli_app.loaded_expert_names:  # type: ignore[union-attr]
+        cli_app.load_reports()  # type: ignore[union-attr]
 
     if import_p:
-        cli_app.import_saved_portfolio(import_p, plot_after_load=True)
+        cli_app.import_saved_portfolio(import_p, plot_after_load=True)  # type: ignore[union-attr]
         return
 
     if list_strats:
-        cli_app.list_loaded_strategies()
+        cli_app.list_loaded_strategies()  # type: ignore[union-attr]
 
     strategy_filter = (
         [s.strip() for s in strats.split(",")]
@@ -294,7 +294,7 @@ def optimize(
         else None
     )
 
-    found = cli_app.run_optimization(
+    found = cli_app.run_optimization(  # type: ignore[union-attr]
         min_assets=min_assets,
         max_assets=max_assets,
         top_n=top,

@@ -34,7 +34,7 @@ def _install_openbb(
         return _DummyResult(series_df if series_df is not None else pd.DataFrame())
 
     module = types.ModuleType("openbb")
-    module.obb = SimpleNamespace(
+    module.obb = SimpleNamespace(  # type: ignore[attr-defined]
         economy=SimpleNamespace(
             fred_search=fred_search,
             fred_series=fred_series,

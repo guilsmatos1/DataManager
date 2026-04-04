@@ -8,6 +8,18 @@
 </div>
 
 <style>
+    #advanced-analysis-params {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        width: 100%;
+        max-width: none;
+    }
+    #advanced-analysis-params .field-group {
+        min-width: 0;
+    }
+    #advanced-analysis-params #new-strategy-search {
+        width: 100%;
+        max-width: none;
+    }
     #analysis-metrics.metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .analysis-status { margin-left:0.75rem; font-size:0.85rem; color:var(--text-muted); }
     .analysis-status.is-loading { color: var(--text-muted); }
@@ -36,7 +48,7 @@
         <div class="section-header">
             <h2>Parameters</h2>
         </div>
-        <div class="edit-grid" style="max-width:980px">
+        <div id="advanced-analysis-params" class="edit-grid">
             <div class="field-group">
                 <span class="field-label">Date From</span>
                 <input class="field-input" type="date" id="param-date-from">
@@ -53,7 +65,7 @@
                 <span class="field-label">History Type</span>
                 <select class="field-input" id="param-history-type">
                     <option value="real">Real</option>
-                    <option value="demo">Demo</option>
+                    <option value="demo" selected>Demo</option>
                     <option value="backtest">Backtest</option>
                 </select>
             </div>
@@ -61,9 +73,17 @@
                 <span class="field-label">Benchmark</span>
                 <select class="field-input" id="param-benchmark"></select>
             </div>
+            <div class="field-group">
+                <span class="field-label">Side</span>
+                <div class="period-tabs" id="param-side-tabs" style="margin-top:0.25rem">
+                    <button class="period-tab active" data-side="both"  onclick="setAdvancedSide('both')">Both</button>
+                    <button class="period-tab"        data-side="long"  onclick="setAdvancedSide('long')">Long</button>
+                    <button class="period-tab"        data-side="short" onclick="setAdvancedSide('short')">Short</button>
+                </div>
+            </div>
             <div class="field-group" style="grid-column:1 / -1">
                 <span class="field-label" style="margin-bottom:0.4rem">Strategies</span>
-                <input class="field-input" type="text" id="new-strategy-search" placeholder="Search strategies…" oninput="filterModalStrategies()" style="margin-bottom:0.5rem; max-width:300px">
+                <input class="field-input" type="text" id="new-strategy-search" placeholder="Search strategies…" oninput="filterModalStrategies()" style="margin-bottom:0.5rem">
                 <div id="new-strategy-list" class="strategy-checklist" style="padding:0; max-height:400px; overflow-y:auto; border:1px solid var(--border-color); border-radius:4px;"><div class="loading" style="padding:0.5rem">Loading…</div></div>
             </div>
         </div>
@@ -122,6 +142,13 @@
 let _advancedAllStrategies = [];
 let _analysisRequestToken = 0;
 let _strategyLoadToken = 0;
+let _advancedSide = "both";
+
+function setAdvancedSide(side) {
+    _advancedSide = side;
+    document.querySelectorAll("#param-side-tabs .period-tab").forEach(b =>
+        b.classList.toggle("active", b.dataset.side === side));
+}
 
 function setAnalysisStatus(message = "", tone = "") {
     const status = document.getElementById("analysis-status");
@@ -286,8 +313,18 @@ const CONTRIB_COLORS = [
 function renderContributionCharts(contributions) {
     const posSection = document.getElementById("positive-contrib-section");
     const negSection = document.getElementById("negative-contrib-section");
+    const posWrap = document.querySelector("#positive-contrib-section .chart-wrapper");
+    const negWrap = document.querySelector("#negative-contrib-section .chart-wrapper");
 
     if (!contributions || !contributions.length) {
+        if (positiveContribChart) {
+            positiveContribChart.destroy();
+            positiveContribChart = null;
+        }
+        if (negativeContribChart) {
+            negativeContribChart.destroy();
+            negativeContribChart = null;
+        }
         posSection.style.display = "none";
         negSection.style.display = "none";
         return;
@@ -301,16 +338,19 @@ function renderContributionCharts(contributions) {
 
     // ── Positive pie ────────────────────────────────────
     if (positive.length) {
+        posSection.style.display = "block";
         const totalPos = positive.reduce((s, c) => s + c.profit, 0);
         const positiveLabels = positive.map((c) => {
             const pct = totalPos > 0 ? ((c.profit / totalPos) * 100).toFixed(1) : "0.0";
             return `${c.name} (${pct}%)`;
         });
-        const posWrap = document.getElementById("positive-contrib-chart").parentElement;
+        if (positiveContribChart) {
+            positiveContribChart.destroy();
+            positiveContribChart = null;
+        }
         posWrap.innerHTML = '<canvas id="positive-contrib-chart"></canvas>';
         const ctx = document.getElementById("positive-contrib-chart").getContext("2d");
 
-        if (positiveContribChart) positiveContribChart.destroy();
         positiveContribChart = new Chart(ctx, {
             type: "pie",
             data: {
@@ -338,23 +378,30 @@ function renderContributionCharts(contributions) {
                 },
             },
         });
-        posSection.style.display = "block";
     } else {
+        if (positiveContribChart) {
+            positiveContribChart.destroy();
+            positiveContribChart = null;
+        }
+        posWrap.innerHTML = '<p class="empty-state" style="padding:2rem 0">No positive contribution in this range.</p>';
         posSection.style.display = "none";
     }
 
     // ── Negative pie ────────────────────────────────────
     if (negative.length) {
+        negSection.style.display = "block";
         const totalNeg = negative.reduce((s, c) => s + Math.abs(c.profit), 0);
         const negativeLabels = negative.map((c) => {
             const pct = totalNeg > 0 ? ((Math.abs(c.profit) / totalNeg) * 100).toFixed(1) : "0.0";
             return `${c.name} (${pct}%)`;
         });
-        const negWrap = document.getElementById("negative-contrib-chart").parentElement;
+        if (negativeContribChart) {
+            negativeContribChart.destroy();
+            negativeContribChart = null;
+        }
         negWrap.innerHTML = '<canvas id="negative-contrib-chart"></canvas>';
         const ctx = document.getElementById("negative-contrib-chart").getContext("2d");
 
-        if (negativeContribChart) negativeContribChart.destroy();
         negativeContribChart = new Chart(ctx, {
             type: "pie",
             data: {
@@ -382,8 +429,12 @@ function renderContributionCharts(contributions) {
                 },
             },
         });
-        negSection.style.display = "block";
     } else {
+        if (negativeContribChart) {
+            negativeContribChart.destroy();
+            negativeContribChart = null;
+        }
+        negWrap.innerHTML = '<p class="empty-state" style="padding:2rem 0">No negative contribution in this range.</p>';
         negSection.style.display = "none";
     }
 }
@@ -480,11 +531,24 @@ function renderAnalysisChart(equityPoints, comparisonPoints, benchmark) {
             interaction: { mode: "index", intersect: false },
             plugins: {
                 legend: { display: true, labels: { color: tickColor } },
-                tooltip: { callbacks: { label: (c) => ` ${c.dataset.label}: ${fmt(c.parsed.y)}` } },
+                tooltip: {
+                    callbacks: {
+                        label: (c) => {
+                            if (c.parsed.y == null) return null;
+                            const isBenchmark = c.datasetIndex > 0;
+                            const prefix = isBenchmark ? ` ${c.dataset.label}: ` : " Portfolio: ";
+                            return `${prefix}${fmt(c.parsed.y)}`;
+                        },
+                    },
+                },
             },
             scales: {
                 x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
-                y: { ticks: { color: tickColor }, grid: { color: gridColor } },
+                y: {
+                    ticks: { color: tickColor, callback: (v) => fmt(v) },
+                    grid: { color: gridColor },
+                    title: { display: true, text: "Capital", color: tickColor, font: { size: 11 } },
+                },
             },
         },
     });
@@ -515,6 +579,7 @@ async function runAdvancedAnalysis() {
     if (dateTo) params.set("date_to", dateTo);
     if (initialBalance) params.set("initial_balance", initialBalance);
     if (benchmarkId) params.set("benchmark_id", benchmarkId);
+    if (_advancedSide !== "both") params.set("side", _advancedSide);
 
     try {
         const data = await fetchJson(`/api/advanced-analysis?${params.toString()}`);
@@ -551,6 +616,7 @@ async function runAdvancedAnalysis() {
 
 document.addEventListener("DOMContentLoaded", () => {
     setDefaultDateRange();
+    document.getElementById("param-history-type").value = "demo";
     loadStrategiesOptions();
     loadBenchmarksOptions();
     document.getElementById("param-history-type").addEventListener("change", loadStrategiesOptions);

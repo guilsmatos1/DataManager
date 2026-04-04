@@ -13,4 +13,4 @@ class SharpeRatio(BaseMetric):
     def calculate(
         self, deals_df: pd.DataFrame, daily_returns: pd.Series | None = None, **kwargs
     ) -> float | None:
-        return self._safe_calc(qs.stats.sharpe, daily_returns)
+        return self._safe_calc(qs.stats.sharpe, daily_returns)  # type: ignore[no-any-return]

@@ -303,6 +303,8 @@ class BenchmarkUpdate(BaseModel):
 class TelegramSettings(BaseModel):
     bot_token: str | None = None
     chat_id: str | None = None
+    notify_closed_trades: bool = False
+    notify_system_errors: bool = False
     var_95_threshold: float | None = None
     default_initial_balance: float | None = None
     real_page_mode: Literal["real", "demo"] = "real"

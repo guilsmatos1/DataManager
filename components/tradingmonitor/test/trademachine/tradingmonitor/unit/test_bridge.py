@@ -29,7 +29,7 @@ def reset_bridge_state():
 class TestInitBridge:
     def test_init_bridge_sets_queue_and_loop(self):
         # Arrange
-        fake_queue = asyncio.Queue()
+        fake_queue = asyncio.Queue()  # type: ignore[var-annotated]
         fake_loop = MagicMock(spec=asyncio.AbstractEventLoop)
         # Act
         init_bridge(fake_queue, fake_loop)
@@ -39,8 +39,8 @@ class TestInitBridge:
 
     def test_init_bridge_overwrites_previous_state(self):
         # Arrange
-        q1, l1 = asyncio.Queue(), MagicMock()
-        q2, l2 = asyncio.Queue(), MagicMock()
+        q1, l1 = asyncio.Queue(), MagicMock()  # type: ignore[var-annotated]
+        q2, l2 = asyncio.Queue(), MagicMock()  # type: ignore[var-annotated]
         init_bridge(q1, l1)
         # Act — re-initialise
         init_bridge(q2, l2)
