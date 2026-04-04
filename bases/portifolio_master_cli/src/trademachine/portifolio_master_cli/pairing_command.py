@@ -73,18 +73,27 @@ class PairingMixin:
             print("No strategies loaded.")
             return
 
-        mode = "  [--apply: cache will be updated]" if apply else ""
+        from colorama import Fore, Style
+
+        width = getattr(self, "terminal_width", 100)
+        name_len = max(20, width - 85)
+
+        mode = (
+            f"  {Fore.YELLOW}[--apply: cache will be updated]{Style.RESET_ALL}"
+            if apply
+            else ""
+        )
         header = (
-            f"{'Strategy':<30} | {'Base Lot':>9} | {'Paired Lot':>10} | "
+            f"{'Strategy':<{name_len}} | {'Base Lot':>9} | {'Paired Lot':>10} | "
             f"{'DD (orig)':>12} | {'DD (paired)':>12} | {'Diff':>10} | {'Profit (paired)':>15}"
         )
-        sep = "─" * len(header)
+        sep = f"{Fore.WHITE}{'=' * width}"
         print(
-            f"\nDrawdown Pairing  |  Target: {target_dd:,.0f}  |  Lot tick: {lot_tick}{mode}"
+            f"\n{Fore.CYAN}{Style.BRIGHT}Drawdown Pairing  |  Target: {target_dd:,.0f}  |  Lot tick: {lot_tick}{mode}"
         )
         print(sep)
-        print(header)
-        print(sep)
+        print(f"{Fore.YELLOW}{header}")
+        print(f"{Fore.WHITE}{'-' * width}")
 
         for row in rows:
             base_str = f"{row.base_lot:.{pairing_service.decimals}f}"
@@ -94,9 +103,11 @@ class PairingMixin:
                 else "N/A"
             )
             print(
-                f"{row.name[:30]:<30} | {base_str:>9} | {lot_str:>10} | "
-                f"{row.orig_dd:>12,.2f} | {row.paired_dd:>12,.2f} | "
-                f"{row.diff:>+10,.2f} | {row.paired_profit:>15,.2f}"
+                f"{Fore.GREEN}{row.name[:name_len]:<{name_len}} {Fore.WHITE}| "
+                f"{Fore.CYAN}{base_str:>9} {Fore.WHITE}| {Fore.YELLOW}{lot_str:>10} {Fore.WHITE}| "
+                f"{Fore.MAGENTA}{row.orig_dd:>12,.2f} {Fore.WHITE}| {Fore.MAGENTA}{row.paired_dd:>12,.2f} {Fore.WHITE}| "
+                f"{Fore.RED if row.diff < 0 else Fore.GREEN}{row.diff:>+10,.2f} {Fore.WHITE}| "
+                f"{Fore.BLUE}{row.paired_profit:>15,.2f}"
             )
 
         print(sep)
@@ -104,7 +115,9 @@ class PairingMixin:
 
         if report_path:
             abs_report_path = pairing_service.export_report(rows, report_path)
-            print(f"[OK] Pairing CSV report saved to: {abs_report_path}")
+            print(
+                f"{Fore.GREEN}[OK] Pairing CSV report saved to: {abs_report_path}{Style.RESET_ALL}"
+            )
 
         if not apply:
             return
@@ -112,7 +125,7 @@ class PairingMixin:
         apply_result = pairing_service.apply(self.portfolio_manager, rows)  # type: ignore[attr-defined]
         if apply_result.changed == 0:
             print(
-                "[OK] No changes applied — all strategies already at target drawdown."
+                f"{Fore.CYAN}[OK] No changes applied — all strategies already at target drawdown.{Style.RESET_ALL}"
             )
             return
 
@@ -122,7 +135,7 @@ class PairingMixin:
             self.loaded_expert_names,  # type: ignore[attr-defined]
         )
         print(
-            f"[OK] Pairing finished: {apply_result.analyzed} analyzed, "
+            f"{Fore.GREEN}[OK] Pairing finished:{Style.RESET_ALL} {apply_result.analyzed} analyzed, "
             f"{apply_result.changed} changed, {apply_result.unchanged} unchanged. "
             "Cache updated."
         )

@@ -159,11 +159,10 @@ class PortifolioCLI(
             + "\n"
             r"  |_|   \___/|_|   \__|_|_| \___/|_|_|\___/ |_|  |_|\__,_|___/\__\___|_|   "
         )
-        separator = f"{Fore.WHITE}{'═' * 76}"
-        title = (
-            f"  {' ' * 20}{Fore.CYAN}{Style.BRIGHT}PortfolioMaster"
-            f"{Fore.WHITE} - {Fore.GREEN}v0.1.0"
-        )
+        width = self.terminal_width
+        separator = f"{Fore.WHITE}{'═' * width}"
+        title = f"  {Fore.CYAN}{Style.BRIGHT}PortfolioMaster{Fore.WHITE} - {Fore.GREEN}v0.1.0"
+
         commands = (
             f"  {Fore.CYAN}optimize{Fore.WHITE} | {Fore.CYAN}adherence{Fore.WHITE} | "
             f"{Fore.CYAN}inspect{Fore.WHITE} | {Fore.CYAN}cache{Fore.WHITE} | "

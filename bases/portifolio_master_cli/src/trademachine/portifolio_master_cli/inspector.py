@@ -36,16 +36,19 @@ class InspectorMixin:
         valid = upper_vals[~np.isnan(upper_vals)]
         n_pairs = len(valid)
 
-        sep = "─" * 60
+        from colorama import Fore, Style
+
+        width = getattr(self, "terminal_width", 80)
+        sep = f"{Fore.WHITE}{'=' * width}"
         print(
-            f"\nCorrelation Matrix — Period: {period.upper()} | {n} strategies | {n_pairs} pairs"
+            f"\n{Fore.CYAN}{Style.BRIGHT}Correlation Matrix — Period: {period.upper()} | {n} strategies | {n_pairs} pairs{Style.RESET_ALL}"
         )
         print(sep)
         if n_pairs > 0:
             print(
-                f"  Mean: {np.nanmean(valid):+.3f}  |  "
-                f"Min: {np.nanmin(valid):+.3f}  |  "
-                f"Max: {np.nanmax(valid):+.3f}"
+                f"  {Fore.YELLOW}Mean:{Fore.WHITE} {np.nanmean(valid):+.3f}  |  "
+                f"{Fore.YELLOW}Min:{Fore.WHITE} {np.nanmin(valid):+.3f}  |  "
+                f"{Fore.YELLOW}Max:{Fore.WHITE} {np.nanmax(valid):+.3f}"
             )
 
         # For small n, show full matrix; for large n, show pairs list
@@ -57,16 +60,24 @@ class InspectorMixin:
             header = " " * (name_w + 2) + "  ".join(
                 s[:col_w].rjust(col_w) for s in strategy_names
             )
-            print(header)
-            print("─" * len(header))
+            print(f"{Fore.CYAN}{header}")
+            print(f"{Fore.WHITE}{'-' * len(header)}")
             for i, row_name in enumerate(strategy_names):
                 row_vals = "  ".join(
-                    f"{corr[i, j]:+.3f}".rjust(col_w)
-                    if not np.isnan(corr[i, j])
-                    else "   N/A ".rjust(col_w)
+                    (
+                        f"{Fore.RED if corr[i, j] < 0 else Fore.GREEN}{corr[i, j]:+.3f}{Fore.WHITE}".rjust(
+                            col_w + len(Fore.RED) + len(Fore.WHITE)
+                        )
+                        if not np.isnan(corr[i, j])
+                        else f"{Fore.YELLOW}   N/A {Fore.WHITE}".rjust(
+                            col_w + len(Fore.YELLOW) + len(Fore.WHITE)
+                        )
+                    )
                     for j in range(n)
                 )
-                print(f"{row_name[:name_w]:<{name_w}}  {row_vals}")
+                print(
+                    f"{Fore.CYAN}{row_name[:name_w]:<{name_w}}{Fore.WHITE}  {row_vals}"
+                )
         else:
             # Build sorted pair list
             pairs = []
@@ -77,26 +88,38 @@ class InspectorMixin:
                     pairs.append((v, strategy_names[i], strategy_names[j]))
             pairs.sort(reverse=True)
 
+            name_len = max(28, (width - 15) // 2)
+
             if threshold is not None:
                 filtered = [(v, a, b) for v, a, b in pairs if v >= threshold]
                 print(
-                    f"\n  Pairs with correlation >= {threshold:.2f}  ({len(filtered)} found)"
+                    f"\n  {Fore.CYAN}Pairs with correlation >= {threshold:.2f}  ({len(filtered)} found){Style.RESET_ALL}"
                 )
                 print()
                 for v, a, b in filtered:
-                    print(f"  {a[:28]:<28} × {b[:28]:<28}  {v:+.3f}")
+                    print(
+                        f"  {Fore.GREEN}{a[:name_len]:<{name_len}} {Fore.WHITE}× {Fore.GREEN}{b[:name_len]:<{name_len}}  {Fore.YELLOW}{v:+.3f}"
+                    )
             else:
                 show = min(top_n, len(pairs))
                 if show > 0:
-                    print(f"\n  TOP {show} most correlated:")
+                    print(
+                        f"\n  {Fore.CYAN}TOP {show} most correlated:{Style.RESET_ALL}"
+                    )
                     for v, a, b in pairs[:show]:
-                        print(f"    {a[:28]:<28} × {b[:28]:<28}  {v:+.3f}")
+                        print(
+                            f"    {Fore.GREEN}{a[:name_len]:<{name_len}} {Fore.WHITE}× {Fore.GREEN}{b[:name_len]:<{name_len}}  {Fore.YELLOW}{v:+.3f}"
+                        )
                 if len(pairs) > show:
-                    print(f"\n  BOTTOM {show} least correlated:")
+                    print(
+                        f"\n  {Fore.CYAN}BOTTOM {show} least correlated:{Style.RESET_ALL}"
+                    )
                     for v, a, b in pairs[-show:]:
-                        print(f"    {a[:28]:<28} × {b[:28]:<28}  {v:+.3f}")
+                        print(
+                            f"    {Fore.GREEN}{a[:name_len]:<{name_len}} {Fore.WHITE}× {Fore.GREEN}{b[:name_len]:<{name_len}}  {Fore.YELLOW}{v:+.3f}"
+                        )
 
-        print()
+        print(f"{Fore.WHITE}{'=' * width}\n")
 
     def inspect_strategy(self, name: str, show_chart: bool = False) -> None:
         """Displays detailed metrics for a single strategy."""
@@ -151,19 +174,22 @@ class InspectorMixin:
         date_from = str(dates.min())[:10] if len(dates) > 0 else "N/A"
         date_to = str(dates.max())[:10] if len(dates) > 0 else "N/A"
 
-        sep = "─" * 44
-        print(f"\nStrategy: {name}")
+        from colorama import Fore, Style
+
+        width = getattr(self, "terminal_width", 80)
+        sep = f"{Fore.WHITE}{'=' * width}"
+        print(f"\n{Fore.CYAN}{Style.BRIGHT}Strategy: {name}{Style.RESET_ALL}")
         print(sep)
-        print(f"  {'Net Profit:':<22}{net_profit:>14,.2f}")
-        print(f"  {'Max Drawdown:':<22}{max_dd:>14,.2f}")
-        print(f"  {'Ret/DD:':<22}{ret_dd:>14.2f}")
-        print(f"  {'Total Trades:':<22}{total:>14}")
-        print(f"  {'Win Rate:':<22}{win_rate:>13.1f}%")
-        print(f"  {'Avg Win:':<22}{avg_win:>14,.2f}")
-        print(f"  {'Avg Loss:':<22}{avg_loss:>14,.2f}")
-        print(f"  {'Win/Loss Ratio:':<22}{wl_ratio:>14.2f}")
-        print(f"  {'Date Range:':<22}{date_from} → {date_to}")
-        print()
+        print(f"  {Fore.CYAN}{'Net Profit:':<22}{Fore.WHITE}{net_profit:>14,.2f}")
+        print(f"  {Fore.CYAN}{'Max Drawdown:':<22}{Fore.RED}{max_dd:>14,.2f}")
+        print(f"  {Fore.CYAN}{'Ret/DD:':<22}{Fore.BLUE}{ret_dd:>14.2f}")
+        print(f"  {Fore.CYAN}{'Total Trades:':<22}{Fore.WHITE}{total:>14}")
+        print(f"  {Fore.CYAN}{'Win Rate:':<22}{Fore.YELLOW}{win_rate:>13.1f}%")
+        print(f"  {Fore.CYAN}{'Avg Win:':<22}{Fore.GREEN}{avg_win:>14,.2f}")
+        print(f"  {Fore.CYAN}{'Avg Loss:':<22}{Fore.RED}{avg_loss:>14,.2f}")
+        print(f"  {Fore.CYAN}{'Win/Loss Ratio:':<22}{Fore.MAGENTA}{wl_ratio:>14.2f}")
+        print(f"  {Fore.CYAN}{'Date Range:':<22}{Fore.WHITE}{date_from} → {date_to}")
+        print(f"{Fore.WHITE}{'=' * width}\n")
 
         if show_chart:
             plot_portfolio_equity((name,), self.portfolio_manager.strategies)  # type: ignore[attr-defined]

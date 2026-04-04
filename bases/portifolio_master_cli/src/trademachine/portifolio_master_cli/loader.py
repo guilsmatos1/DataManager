@@ -160,24 +160,38 @@ class LoaderMixin:
             logger.warning("Memory is empty.")
             return
 
-        header = f"{'Name':<30} | {'Lot':>6} | {'# of Trades':<12} | {'Net Profit':<12} | {'MaxDD':<10} | {'Ret/DD':<8}"
-        print(header)
-        print("-" * len(header))
+        width = getattr(self, "terminal_width", 80)
+        name_len = max(30, width - 65)
+
+        from colorama import Fore, Style
+
+        print(f"\n{Fore.CYAN}{Style.BRIGHT}LOADED STRATEGIES:{Style.RESET_ALL}")
+        print(f"{Fore.WHITE}=" * width)
+        header = f"{'Name':<{name_len}} | {'Lot':>6} | {'# Trades':<10} | {'Net Profit':<12} | {'MaxDD':<10} | {'Ret/DD':<8}"
+        print(f"{Fore.YELLOW}{header}")
+        print(f"{Fore.WHITE}-" * width)
+
         for name in sorted(self.loaded_expert_names):
             metrics = self.portfolio_manager.calculate_strategy_metrics(name)
             lot = self.portfolio_manager.strategy_lots.get(name, 1.0)
             if metrics:
-                self._print_strategy_row(name, metrics, lot)
+                self._print_strategy_row(name, metrics, lot, name_len)
 
-    def _print_strategy_row(self, name: str, metrics: dict, lot: float):
+        print(f"{Fore.WHITE}=" * width + "\n")
+
+    def _print_strategy_row(
+        self, name: str, metrics: dict, lot: float, name_len: int = 30
+    ):
         """Prints a single formatted strategy row."""
+        from colorama import Fore
+
         print(
-            f"{name[:30]:<30} | "
-            f"{lot:>6.2f} | "
-            f"{metrics['Trades']:<12} | "
-            f"{metrics['Profit']:<12.2f} | "
-            f"{metrics['MaxDD']:<10.2f} | "
-            f"{metrics['RetDD']:<8.2f}"
+            f"{Fore.GREEN}{name[:name_len]:<{name_len}} {Fore.WHITE}| "
+            f"{Fore.YELLOW}{lot:>6.2f} {Fore.WHITE}| "
+            f"{Fore.CYAN}{metrics['Trades']:<10} {Fore.WHITE}| "
+            f"{Fore.MAGENTA}{metrics['Profit']:<12.2f} {Fore.WHITE}| "
+            f"{Fore.RED}{metrics['MaxDD']:<10.2f} {Fore.WHITE}| "
+            f"{Fore.BLUE}{metrics['Ret/DD']:<8.2f}"
         )
 
     def _reset_loaded_state(self) -> None:

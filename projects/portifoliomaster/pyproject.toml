@@ -13,7 +13,8 @@ dependencies = [
     "lxml>=6.0.2",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
-    "typer[all]>=0.12.5"
+    "typer[all]>=0.12.5",
+    "deap>=1.4.1"
 ]
 
 [tool.polylith.projects]

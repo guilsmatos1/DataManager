@@ -234,36 +234,45 @@ class OptimizerMixin:
 
     def _print_benchmark_result(self, result: BenchmarkResult) -> None:
         """Prints a concise terminal summary for throughput benchmark runs."""
-        print("\nBenchmark Summary")
-        print("=" * 72)
-        print(f"Search space:           {result.total_combinations:,} combinations")
+        from colorama import Fore, Style
+
+        width = getattr(self, "terminal_width", 80)
+        sep = f"{Fore.WHITE}{'=' * width}"
+
+        print(f"\n{Fore.CYAN}{Style.BRIGHT}Benchmark Summary{Style.RESET_ALL}")
+        print(sep)
         print(
-            f"Measured window:        {result.elapsed_seconds:.2f}s "
-            f"with {result.num_workers} worker(s)"
-        )
-        print(f"Processed in sample:    {result.processed_combinations:,} combinations")
-        print(
-            f"  Valid after corr:     {result.valid_combinations:,} "
-            f"| Discarded: {result.discarded_combinations:,}"
+            f"{Fore.CYAN}{'Search space:':<24}{Fore.WHITE}{result.total_combinations:,} combinations"
         )
         print(
-            f"Throughput:             {result.combinations_per_second:,.0f} combinations/s"
+            f"{Fore.CYAN}{'Measured window:':<24}{Fore.YELLOW}{result.elapsed_seconds:.2f}s "
+            f"{Fore.WHITE}with {result.num_workers} worker(s)"
         )
         print(
-            f"Estimated in target:    {result.estimated_combinations_in_target:,} "
-            f"in {self._format_duration(result.target_seconds)}"
+            f"{Fore.CYAN}{'Processed in sample:':<24}{Fore.GREEN}{result.processed_combinations:,} combinations"
+        )
+        print(
+            f"{Fore.CYAN}{'  Valid after corr:':<24}{Fore.GREEN}{result.valid_combinations:,} "
+            f"{Fore.WHITE}| {Fore.RED}Discarded: {result.discarded_combinations:,}"
+        )
+        print(
+            f"{Fore.CYAN}{'Throughput:':<24}{Fore.YELLOW}{result.combinations_per_second:,.0f} combinations/s"
+        )
+        print(
+            f"{Fore.CYAN}{'Estimated in target:':<24}{Fore.MAGENTA}{result.estimated_combinations_in_target:,} "
+            f"{Fore.WHITE}in {self._format_duration(result.target_seconds)}"
         )
         if result.completed_search:
             print(
-                f"Estimated completion:   completed during benchmark "
-                f"({self._format_duration(result.elapsed_seconds)})"
+                f"{Fore.CYAN}{'Estimated completion:':<24}{Fore.GREEN}completed during benchmark "
+                f"{Fore.WHITE}({self._format_duration(result.elapsed_seconds)})"
             )
         else:
             print(
-                f"Estimated completion:   "
-                f"{self._format_duration(result.estimated_completion_seconds)}"
+                f"{Fore.CYAN}{'Estimated completion:':<24}"
+                f"{Fore.YELLOW}{self._format_duration(result.estimated_completion_seconds)}"
             )
-        print("=" * 72)
+        print(f"{sep}\n")
 
     def run_benchmark(self, **kwargs) -> bool:
         """Measures optimization throughput and extrapolates it to a target time."""

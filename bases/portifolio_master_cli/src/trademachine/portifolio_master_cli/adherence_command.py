@@ -59,34 +59,40 @@ class AdherenceMixin:
 
         # Print terminal summary (suppressed in quiet mode)
         if not quiet:
-            sep = "─" * 96
+            from colorama import Fore, Style
+
+            width = getattr(self, "terminal_width", 100)
+            name_len = max(20, width - 80)
+            sep = f"{Fore.WHITE}{'=' * width}"
             print(
-                f"\nAdherence Check — trade>={threshold:.0%}  pearson>={pearson_threshold:.2f}"
+                f"\n{Fore.CYAN}{Style.BRIGHT}Adherence Check — trade>={threshold:.0%}  pearson>={pearson_threshold:.2f}{Style.RESET_ALL}"
             )
             print(sep)
             header = (
-                f"{'Strategy':<30} {'MT5':>6} {'SQX':>6} {'Trade%':>8} "
+                f"{'Strategy':<{name_len}} {'MT5':>6} {'SQX':>6} {'Trade%':>8} "
                 f"{'Pearson':>8} {'MT5 WR':>8} {'SQX WR':>8} "
                 f"{'MT5RDD':>8} {'SQXrdd':>8}  Status"
             )
-            print(header)
-            print(sep)
+            print(f"{Fore.YELLOW}{header}")
+            print(f"{Fore.WHITE}{'-' * width}")
             for s in result.strategies:
                 if s.insufficient_data:
+                    status_color = Fore.YELLOW
                     status_str = "INSUFFICIENT"
                 else:
+                    status_color = Fore.GREEN if s.passes else Fore.RED
                     status_str = "PASS" if s.passes else "FAIL"
                 print(
-                    f"{s.name:<30} {s.mt5_trades:>6} {s.sqx_trades:>6} "
-                    f"{s.trade_ratio * 100:>7.1f}% "
-                    f"{s.pearson:>8.3f} "
-                    f"{s.mt5_win_rate * 100:>7.1f}% "
-                    f"{s.sqx_win_rate * 100:>7.1f}% "
-                    f"{s.mt5_retdd:>8.2f} {s.sqx_retdd:>8.2f}  {status_str}"
+                    f"{Fore.GREEN}{s.name[:name_len]:<{name_len}} {Fore.CYAN}{s.mt5_trades:>6} {Fore.CYAN}{s.sqx_trades:>6} "
+                    f"{Fore.YELLOW}{s.trade_ratio * 100:>7.1f}% "
+                    f"{Fore.MAGENTA}{s.pearson:>8.3f} "
+                    f"{Fore.BLUE}{s.mt5_win_rate * 100:>7.1f}% "
+                    f"{Fore.BLUE}{s.sqx_win_rate * 100:>7.1f}% "
+                    f"{Fore.WHITE}{s.mt5_retdd:>8.2f} {Fore.WHITE}{s.sqx_retdd:>8.2f}  {status_color}{status_str}{Style.RESET_ALL}"
                 )
             print(sep)
             print(
-                f"Summary: {result.passed}/{result.total} passed ({result.pass_rate:.1f}% pass rate)"
+                f"{Fore.CYAN}Summary: {Fore.GREEN if result.passed == result.total else Fore.YELLOW}{result.passed}/{result.total} passed ({result.pass_rate:.1f}% pass rate){Style.RESET_ALL}"
             )
             print()
 
