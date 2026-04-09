@@ -7,75 +7,202 @@ name = DataManager logic isolation
 type = forbidden
 source_modules = trademachine.datamanager
 forbidden_modules =
+    trademachine.backtest_engine_cli
     trademachine.datamanager_api
     trademachine.datamanager_cli
-    trademachine.trading_monitor_dashboard
+    trademachine.metalabeling_master_cli
+    trademachine.portfolio_master_cli
     trademachine.trading_monitor_cli
-    trademachine.trading_monitor_ingestion
-    trademachine.portifolio_master_cli
-    trademachine.backtest_engine_cli
+    trademachine.trading_monitor_dashboard
 
-[importlinter:contract:tm-logic-isolation]
-name = TradingMonitor logic isolation
+[importlinter:contract:tm-storage-logic-isolation]
+name = TradingMonitor Storage logic isolation
 type = forbidden
-source_modules = trademachine.tradingmonitor
+source_modules = trademachine.tradingmonitor_storage
 forbidden_modules =
+    trademachine.backtest_engine_cli
     trademachine.datamanager_api
     trademachine.datamanager_cli
-    trademachine.trading_monitor_dashboard
+    trademachine.metalabeling_master_cli
+    trademachine.portfolio_master_cli
     trademachine.trading_monitor_cli
-    trademachine.trading_monitor_ingestion
-    trademachine.portifolio_master_cli
+    trademachine.trading_monitor_dashboard
+
+[importlinter:contract:tm-ingestion-logic-isolation]
+name = TradingMonitor Ingestion logic isolation
+type = forbidden
+source_modules = trademachine.tradingmonitor_ingestion
+forbidden_modules =
     trademachine.backtest_engine_cli
+    trademachine.datamanager_api
+    trademachine.datamanager_cli
+    trademachine.metalabeling_master_cli
+    trademachine.portfolio_master_cli
+    trademachine.trading_monitor_cli
+    trademachine.trading_monitor_dashboard
+
+[importlinter:contract:tm-analytics-logic-isolation]
+name = TradingMonitor Analytics logic isolation
+type = forbidden
+source_modules = trademachine.tradingmonitor_analytics
+forbidden_modules =
+    trademachine.backtest_engine_cli
+    trademachine.datamanager_api
+    trademachine.datamanager_cli
+    trademachine.metalabeling_master_cli
+    trademachine.portfolio_master_cli
+    trademachine.trading_monitor_cli
+    trademachine.trading_monitor_dashboard
 
 [importlinter:contract:pm-logic-isolation]
-name = PortifolioMaster logic isolation
+name = PortfolioMaster logic isolation
 type = forbidden
-source_modules = trademachine.portifoliomaster
+source_modules = trademachine.portfoliomaster
 forbidden_modules =
+    trademachine.backtest_engine_cli
     trademachine.datamanager_api
     trademachine.datamanager_cli
-    trademachine.trading_monitor_dashboard
+    trademachine.metalabeling_master_cli
+    trademachine.portfolio_master_cli
     trademachine.trading_monitor_cli
-    trademachine.trading_monitor_ingestion
-    trademachine.portifolio_master_cli
-    trademachine.backtest_engine_cli
-
-[importlinter:contract:be-logic-isolation]
-name = BacktestEngine logic isolation
-type = forbidden
-source_modules = trademachine.backtestengine
-forbidden_modules =
-    trademachine.datamanager_api
-    trademachine.datamanager_cli
     trademachine.trading_monitor_dashboard
-    trademachine.trading_monitor_cli
-    trademachine.trading_monitor_ingestion
-    trademachine.portifolio_master_cli
-    trademachine.backtest_engine_cli
 
 [importlinter:contract:core-logic-isolation]
 name = Core logic isolation
 type = forbidden
 source_modules = trademachine.core
 forbidden_modules =
+    trademachine.backtest_engine_cli
     trademachine.datamanager_api
     trademachine.datamanager_cli
-    trademachine.trading_monitor_dashboard
+    trademachine.metalabeling_master_cli
+    trademachine.portfolio_master_cli
     trademachine.trading_monitor_cli
-    trademachine.trading_monitor_ingestion
-    trademachine.portifolio_master_cli
-    trademachine.backtest_engine_cli
+    trademachine.trading_monitor_dashboard
 
 [importlinter:contract:mt5-logic-isolation]
 name = MT5 logic isolation
 type = forbidden
 source_modules = trademachine.mt5
 forbidden_modules =
+    trademachine.backtest_engine_cli
     trademachine.datamanager_api
     trademachine.datamanager_cli
-    trademachine.trading_monitor_dashboard
+    trademachine.metalabeling_master_cli
+    trademachine.portfolio_master_cli
     trademachine.trading_monitor_cli
-    trademachine.trading_monitor_ingestion
-    trademachine.portifolio_master_cli
+    trademachine.trading_monitor_dashboard
+
+[importlinter:contract:backtestengine-logic-isolation]
+name = BacktestEngine logic isolation
+type = forbidden
+source_modules = trademachine.backtestengine
+forbidden_modules =
     trademachine.backtest_engine_cli
+    trademachine.datamanager_api
+    trademachine.datamanager_cli
+    trademachine.metalabeling_master_cli
+    trademachine.portfolio_master_cli
+    trademachine.trading_monitor_cli
+    trademachine.trading_monitor_dashboard
+
+
+# Bases must not import other bases
+[importlinter:contract:cli-no-import-dashboard]
+name = trading_monitor_cli must not import trading_monitor_dashboard
+type = forbidden
+source_modules = trademachine.trading_monitor_cli
+forbidden_modules = trademachine.trading_monitor_dashboard
+# TODO: remove once trading_monitor_cli/main.py lazy-import is cleaned up
+ignore_imports =
+    trademachine.trading_monitor_cli.main -> trademachine.trading_monitor_dashboard.app
+
+[importlinter:contract:dashboard-no-import-cli]
+name = trading_monitor_dashboard must not import trading_monitor_cli
+type = forbidden
+source_modules = trademachine.trading_monitor_dashboard
+forbidden_modules = trademachine.trading_monitor_cli
+
+[importlinter:contract:dashboard-no-direct-datamanager-client]
+name = trading_monitor_dashboard must not import datamanager client directly
+type = forbidden
+source_modules = trademachine.trading_monitor_dashboard
+forbidden_modules = trademachine.datamanager.client
+# TODO: remove once routes.py test endpoint uses tradingmonitor_ingestion
+ignore_imports =
+    trademachine.trading_monitor_dashboard.routes -> trademachine.datamanager.client
+
+[importlinter:contract:storage-config-protected]
+name = TradingMonitor Storage config is protected behind public API
+type = protected
+protected_modules = trademachine.tradingmonitor_storage.config
+allowed_importers =
+    trademachine.tradingmonitor_storage.public
+    trademachine.tradingmonitor_storage.db
+    trademachine.tradingmonitor_storage.utils.notifications
+
+[importlinter:contract:storage-db-protected]
+name = TradingMonitor Storage database internals are protected behind public API
+type = protected
+protected_modules = trademachine.tradingmonitor_storage.db
+allowed_importers =
+    trademachine.tradingmonitor_storage.public
+    trademachine.tradingmonitor_storage.utils.notifications
+
+[importlinter:contract:storage-notifications-protected]
+name = TradingMonitor Storage notifications are protected behind public API
+type = protected
+protected_modules = trademachine.tradingmonitor_storage.utils.notifications
+allowed_importers =
+    trademachine.tradingmonitor_storage.public
+
+[importlinter:contract:datamanager-infrastructure-protected]
+name = DataManager infrastructure is protected behind public and compatibility facades
+type = protected
+protected_modules = trademachine.datamanager.infrastructure
+allowed_importers =
+    trademachine.datamanager.public
+    trademachine.datamanager.client
+    trademachine.datamanager.db.database
+    trademachine.datamanager.db.series_storage
+    trademachine.datamanager.db.storage
+
+[importlinter:contract:tm-storage-foundation-isolation]
+name = TradingMonitor Storage foundation isolation
+type = forbidden
+source_modules = trademachine.tradingmonitor_storage
+forbidden_modules =
+    trademachine.tradingmonitor_ingestion
+    trademachine.tradingmonitor_analytics
+    trademachine.datamanager
+
+[importlinter:contract:portfoliomaster-core-protected]
+name = PortfolioMaster core internals are protected behind public API
+type = protected
+protected_modules = trademachine.portfoliomaster.core
+allowed_importers =
+    trademachine.portfoliomaster.public
+    trademachine.portfoliomaster.services.portfolio
+    trademachine.portfoliomaster.services.cache
+
+[importlinter:contract:analytics-services-protected]
+name = TradingMonitor Analytics services are protected behind public API
+type = protected
+protected_modules = trademachine.tradingmonitor_analytics.services
+allowed_importers =
+    trademachine.tradingmonitor_analytics.public
+
+[importlinter:contract:analytics-analysis-protected]
+name = TradingMonitor Analytics analysis is protected behind public API
+type = protected
+protected_modules = trademachine.tradingmonitor_analytics.analysis
+allowed_importers =
+    trademachine.tradingmonitor_analytics.public
+    trademachine.tradingmonitor_analytics.services
+
+[importlinter:contract:ingestion-internals-protected]
+name = TradingMonitor Ingestion internals are protected behind public API
+type = protected
+protected_modules = trademachine.tradingmonitor_ingestion.ingestion
+allowed_importers =
+    trademachine.tradingmonitor_ingestion.public

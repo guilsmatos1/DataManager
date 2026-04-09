@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trademachine-metrics"
+version = "0.1.0"
+description = "Trading performance metrics — single source of truth"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["trademachine*"]
