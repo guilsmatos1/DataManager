@@ -48,3 +48,21 @@ def test_compute_subset_filters_keys(
         metrics={"total_profit", "profit_factor"},
     )
     assert set(subset.keys()) == {"total_profit", "profit_factor"}
+
+
+def test_compute_all_full_result_fields(
+    sample_trades, sample_equity, initial_capital
+) -> None:
+    result = public.compute_all(
+        trades=sample_trades,
+        equity=sample_equity,
+        initial_capital=initial_capital,
+        risk_per_trade=50.0,
+    )
+    assert result.total_profit is not None
+    assert result.profit_factor is not None
+    assert result.drawdown is not None
+    assert result.sqn is not None
+    assert result.stability is not None
+    assert result.symmetry is not None
+    assert result.exposure is not None
