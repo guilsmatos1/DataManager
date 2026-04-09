@@ -31,6 +31,13 @@ def test_compute_all_returns_metrics_result(
     assert isinstance(result, public.MetricsResult)
 
 
+def test_compute_all_empty_trades(initial_capital) -> None:
+    result = public.compute_all(trades=[], equity=[], initial_capital=initial_capital)
+    assert isinstance(result, public.MetricsResult)
+    assert result.total_profit == 0.0
+    assert result.daily_avg_profit is None
+
+
 def test_compute_subset_filters_keys(
     sample_trades, sample_equity, initial_capital
 ) -> None:
