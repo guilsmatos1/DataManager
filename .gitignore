@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv
+uv.lock
+
+# Environment
+.env
+.env.local
+*.env
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+log.log
+
+# Alembic
+alembic/versions/__pycache__/
+
+# Metadata runtime state
+metadata/scheduler_jobs.json
+metadata/scheduler_jobs.tmp.json
+
+# Docker
+.dockerignore
