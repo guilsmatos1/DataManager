@@ -2,6 +2,19 @@
 
 from __future__ import annotations
 
+from trademachine.metrics.formulas.drawdown import (
+    drawdown as calc_drawdown,
+)
+from trademachine.metrics.formulas.drawdown import (
+    drawdown_pct as calc_drawdown_pct,
+)
+from trademachine.metrics.formulas.drawdown import (
+    stagnation_days as calc_stagnation_days,
+)
+from trademachine.metrics.formulas.drawdown import (
+    stagnation_pct as calc_stagnation_pct,
+)
+from trademachine.metrics.formulas.exposure import exposure as calc_exposure
 from trademachine.metrics.formulas.profit import (
     average_loss,
     average_trade,
@@ -25,6 +38,7 @@ from trademachine.metrics.formulas.returns import (
     cagr,
     yearly_avg_return_pct,
 )
+from trademachine.metrics.formulas.streaks import max_consec_losses, max_consec_wins
 from trademachine.metrics.types import (
     EquityPoint,
     MetricsInput,
@@ -49,6 +63,7 @@ def compute_all(
 
     pnls = [t.pnl for t in inp.trades]
     equity_values = [e.equity for e in inp.equity]
+    equity_timestamps = [e.timestamp for e in inp.equity]
     ending_capital = equity_values[-1] if equity_values else initial_capital
 
     # ── period bounds from trade timestamps ──────────────────────────────────
@@ -83,12 +98,29 @@ def compute_all(
     wl = wins_losses_ratio(pnls)
     pr = payout_ratio(aw, al)
 
-    # drawdown is computed in PR3; placeholders for ratio formulas that need it
-    dd_val: float | None = None
-    dd_pct_val: float | None = None
+    # ── drawdown group ────────────────────────────────────────────────────────
+    dd_val = calc_drawdown(equity_values)
+    dd_pct_val = calc_drawdown_pct(equity_values)
+    stag_days = (
+        calc_stagnation_days(equity_values, equity_timestamps)
+        if equity_timestamps
+        else None
+    )
+    stag_pct = (
+        calc_stagnation_pct(equity_values, equity_timestamps)
+        if equity_timestamps
+        else None
+    )
 
-    rdd = return_dd_ratio(tp, dd_val) if dd_val is not None else None
+    rdd = return_dd_ratio(tp, dd_val) if dd_val else None
     aod = annual_over_maxdd(cagr_val, dd_pct_val)
+
+    # ── streaks group ─────────────────────────────────────────────────────────
+    mcw = max_consec_wins(pnls)
+    mcl = max_consec_losses(pnls)
+
+    # ── exposure ──────────────────────────────────────────────────────────────
+    exp = calc_exposure(inp.trades, period_start, period_end) if period_start else None
 
     return MetricsResult(
         total_profit=tp,
@@ -108,6 +140,13 @@ def compute_all(
         payout_ratio=pr,
         wins_losses_ratio=wl,
         winning_pct=wp,
+        drawdown=dd_val,
+        drawdown_pct=dd_pct_val,
+        stagnation_days=stag_days,
+        stagnation_pct=stag_pct,
+        max_consec_wins=mcw,
+        max_consec_losses=mcl,
+        exposure=exp,
     )
 
 
