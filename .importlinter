@@ -184,6 +184,9 @@ allowed_importers =
     trademachine.portfoliomaster.public
     trademachine.portfoliomaster.services.portfolio
     trademachine.portfoliomaster.services.cache
+    trademachine.portfoliomaster.services.genetic
+    trademachine.portfoliomaster.services.metrics
+    trademachine.portfoliomaster.services.optimization
 
 [importlinter:contract:analytics-services-protected]
 name = TradingMonitor Analytics services are protected behind public API
