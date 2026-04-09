@@ -2,6 +2,18 @@
 
 from __future__ import annotations
 
+from trademachine.metrics.formulas.distribution import (
+    deviation as calc_deviation,
+)
+from trademachine.metrics.formulas.distribution import (
+    stability as calc_stability,
+)
+from trademachine.metrics.formulas.distribution import (
+    z_probability as calc_z_probability,
+)
+from trademachine.metrics.formulas.distribution import (
+    z_score as calc_z_score,
+)
 from trademachine.metrics.formulas.drawdown import (
     drawdown as calc_drawdown,
 )
@@ -38,13 +50,38 @@ from trademachine.metrics.formulas.returns import (
     cagr,
     yearly_avg_return_pct,
 )
+from trademachine.metrics.formulas.risk import (
+    expectancy as calc_expectancy,
+)
+from trademachine.metrics.formulas.risk import (
+    r_expectancy as calc_r_expectancy,
+)
+from trademachine.metrics.formulas.risk import (
+    r_expectancy_score as calc_r_expectancy_score,
+)
+from trademachine.metrics.formulas.risk import (
+    sqn as calc_sqn,
+)
+from trademachine.metrics.formulas.risk import (
+    sqn_score as calc_sqn_score,
+)
 from trademachine.metrics.formulas.streaks import max_consec_losses, max_consec_wins
+from trademachine.metrics.formulas.symmetry import (
+    nsymmetry as calc_nsymmetry,
+)
+from trademachine.metrics.formulas.symmetry import (
+    symmetry as calc_symmetry,
+)
+from trademachine.metrics.formulas.symmetry import (
+    trades_symmetry as calc_trades_symmetry,
+)
 from trademachine.metrics.types import (
     EquityPoint,
     MetricsInput,
     MetricsResult,
     TradeRecord,
 )
+from trademachine.metrics.utils.time import years_between
 
 
 def compute_all(
@@ -66,14 +103,16 @@ def compute_all(
     equity_timestamps = [e.timestamp for e in inp.equity]
     ending_capital = equity_values[-1] if equity_values else initial_capital
 
-    # ── period bounds from trade timestamps ──────────────────────────────────
+    # ── period bounds ──────────────────────────────────────────────────────────
     if inp.trades:
         period_start = min(t.entry_time for t in inp.trades)
         period_end = max(t.exit_time for t in inp.trades)
+        years = years_between(period_start, period_end)
     else:
         period_start = period_end = None
+        years = 0.0
 
-    # ── profit group ─────────────────────────────────────────────────────────
+    # ── profit ────────────────────────────────────────────────────────────────
     tp = total_profit(ending_capital, initial_capital)
     gp = gross_profit(pnls)
     gl = gross_loss(pnls)
@@ -84,7 +123,7 @@ def compute_all(
     monthly = monthly_avg_profit(tp, period_start, period_end) if period_start else None
     yearly = yearly_avg_profit(tp, period_start, period_end) if period_start else None
 
-    # ── returns group ─────────────────────────────────────────────────────────
+    # ── returns ───────────────────────────────────────────────────────────────
     yar = yearly_avg_return_pct(tp, initial_capital) if period_start else None
     cagr_val = (
         cagr(initial_capital, ending_capital, period_start, period_end)
@@ -92,13 +131,13 @@ def compute_all(
         else None
     )
 
-    # ── ratios group ──────────────────────────────────────────────────────────
+    # ── ratios ────────────────────────────────────────────────────────────────
     pf = profit_factor(pnls)
     wp = winning_pct(pnls)
     wl = wins_losses_ratio(pnls)
     pr = payout_ratio(aw, al)
 
-    # ── drawdown group ────────────────────────────────────────────────────────
+    # ── drawdown ──────────────────────────────────────────────────────────────
     dd_val = calc_drawdown(equity_values)
     dd_pct_val = calc_drawdown_pct(equity_values)
     stag_days = (
@@ -111,16 +150,41 @@ def compute_all(
         if equity_timestamps
         else None
     )
-
     rdd = return_dd_ratio(tp, dd_val) if dd_val else None
     aod = annual_over_maxdd(cagr_val, dd_pct_val)
 
-    # ── streaks group ─────────────────────────────────────────────────────────
+    # ── streaks ───────────────────────────────────────────────────────────────
     mcw = max_consec_wins(pnls)
     mcl = max_consec_losses(pnls)
 
     # ── exposure ──────────────────────────────────────────────────────────────
     exp = calc_exposure(inp.trades, period_start, period_end) if period_start else None
+
+    # ── risk ──────────────────────────────────────────────────────────────────
+    exp_val = calc_expectancy(pnls)
+    re = (
+        calc_r_expectancy(pnls, inp.risk_per_trade)
+        if inp.risk_per_trade is not None
+        else None
+    )
+    res = (
+        calc_r_expectancy_score(pnls, inp.risk_per_trade, years)
+        if inp.risk_per_trade is not None
+        else None
+    )
+    sqn_val = calc_sqn(pnls)
+    sqn_score_val = calc_sqn_score(pnls, years) if years > 0 else None
+
+    # ── distribution ──────────────────────────────────────────────────────────
+    dev = calc_deviation(pnls)
+    zs = calc_z_score(pnls)
+    zp = calc_z_probability(pnls)
+    stab = calc_stability(equity_values)
+
+    # ── symmetry ──────────────────────────────────────────────────────────────
+    sym = calc_symmetry(inp.trades)
+    tsym = calc_trades_symmetry(inp.trades)
+    nsym = calc_nsymmetry(inp.trades)
 
     return MetricsResult(
         total_profit=tp,
@@ -147,6 +211,18 @@ def compute_all(
         max_consec_wins=mcw,
         max_consec_losses=mcl,
         exposure=exp,
+        expectancy=exp_val,
+        r_expectancy=re,
+        r_expectancy_score=res,
+        sqn=sqn_val,
+        sqn_score=sqn_score_val,
+        deviation=dev,
+        z_score=zs,
+        z_probability=zp,
+        stability=stab,
+        symmetry=sym,
+        trades_symmetry=tsym,
+        nsymmetry=nsym,
     )
 
 
