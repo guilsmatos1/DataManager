@@ -5,7 +5,6 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
-    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -60,32 +59,6 @@ class OhlcvM1(Base):
     asset_id: Mapped[int] = mapped_column(
         ForeignKey("assets.id"), primary_key=True, nullable=False
     )
-
-    open: Mapped[float] = mapped_column(Float, nullable=False)
-    high: Mapped[float] = mapped_column(Float, nullable=False)
-    low: Mapped[float] = mapped_column(Float, nullable=False)
-    close: Mapped[float] = mapped_column(Float, nullable=False)
-    volume: Mapped[float] = mapped_column(Float, nullable=False)
-
-
-class OhlcvResampled(Base):
-    __tablename__ = "ohlcv_resampled"
-    __table_args__ = (
-        Index(
-            "ix_ohlcv_resampled_asset_timeframe_timestamp",
-            "asset_id",
-            "timeframe",
-            "timestamp",
-        ),
-    )
-
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), primary_key=True, nullable=False
-    )
-    asset_id: Mapped[int] = mapped_column(
-        ForeignKey("assets.id"), primary_key=True, nullable=False
-    )
-    timeframe: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
 
     open: Mapped[float] = mapped_column(Float, nullable=False)
     high: Mapped[float] = mapped_column(Float, nullable=False)

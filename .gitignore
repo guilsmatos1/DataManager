@@ -51,3 +51,9 @@ metadata/scheduler_jobs.tmp.json
 
 # Docker
 .dockerignore
+
+# AI assistant context files
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+docs/

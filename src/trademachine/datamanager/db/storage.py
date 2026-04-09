@@ -1,19 +1,23 @@
+import logging
 from typing import cast
 
 import pandas as pd
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
+
+from trademachine.core.logger import LOGGER_NAME
 from trademachine.datamanager.db.models import (
     Asset,
     EconomicObservation,
     EconomicSeries,
     OhlcvM1,
-    OhlcvResampled,
     Source,
 )
 from trademachine.datamanager.db.processor import DataProcessor
 from trademachine.datamanager.infrastructure.database import SessionLocal, engine
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 class StorageManager:
@@ -21,11 +25,27 @@ class StorageManager:
 
     Layout:
         - Relational tables: sources, assets (metadata catalog)
-        - Hypertable: ohlcv_m1 (primary 1-minute data)
-        - Table: ohlcv_resampled (persisted derived timeframes)
+        - Hypertable: ohlcv_m1 (primary 1-minute data, write target)
+        - Continuous aggregates: ohlcv_{tf} — created on demand via resample command
     """
 
     SUPPORTED_TIMEFRAMES = frozenset(DataProcessor.TF_MAPPING)
+
+    # Maps each derived timeframe to its TimescaleDB time_bucket interval string.
+    TF_TO_BUCKET: dict[str, str] = {
+        "M2": "2 minutes",
+        "M5": "5 minutes",
+        "M10": "10 minutes",
+        "M15": "15 minutes",
+        "M30": "30 minutes",
+        "H1": "1 hour",
+        "H2": "2 hours",
+        "H3": "3 hours",
+        "H4": "4 hours",
+        "H6": "6 hours",
+        "D1": "1 day",
+        "W1": "7 days",
+    }
 
     def __init__(self):
         pass
@@ -82,25 +102,22 @@ class StorageManager:
 
         return df_records
 
-    def _upsert_ohlcv_records(
-        self,
-        db: Session,
-        model: type,
-        index_elements: list,
-        records: list[dict],
-        desc: str,
-    ) -> None:
+    _INSERT_BATCH_SIZE = 5_000
+
+    def _upsert_m1_records(self, db: Session, records: list[dict]) -> None:
         from tqdm import tqdm
 
         total_batches = (
             len(records) + self._INSERT_BATCH_SIZE - 1
         ) // self._INSERT_BATCH_SIZE
-        with tqdm(total=total_batches, desc=desc, unit="batch", leave=False) as pbar:
+        with tqdm(
+            total=total_batches, desc="Saving M1 to DB", unit="batch", leave=False
+        ) as pbar:
             for i in range(0, len(records), self._INSERT_BATCH_SIZE):
                 batch = records[i : i + self._INSERT_BATCH_SIZE]
-                stmt = pg_insert(model).values(batch)
+                stmt = pg_insert(OhlcvM1).values(batch)
                 upsert_stmt = stmt.on_conflict_do_update(
-                    index_elements=index_elements,
+                    index_elements=[OhlcvM1.timestamp, OhlcvM1.asset_id],
                     set_={
                         "open": stmt.excluded.open,
                         "high": stmt.excluded.high,
@@ -111,28 +128,6 @@ class StorageManager:
                 )
                 db.execute(upsert_stmt)
                 pbar.update(1)
-
-    def _upsert_m1_records(self, db: Session, records: list[dict]) -> None:
-        self._upsert_ohlcv_records(
-            db,
-            OhlcvM1,
-            [OhlcvM1.timestamp, OhlcvM1.asset_id],
-            records,
-            "Saving M1 to DB",
-        )
-
-    def _upsert_resampled_records(self, db: Session, records: list[dict]) -> None:
-        self._upsert_ohlcv_records(
-            db,
-            OhlcvResampled,
-            [
-                OhlcvResampled.timestamp,
-                OhlcvResampled.asset_id,
-                OhlcvResampled.timeframe,
-            ],
-            records,
-            "Saving resampled data to DB",
-        )
 
     # ------------------------------------------------------------------
     # Catalog operations (SQLAlchemy)
@@ -171,92 +166,91 @@ class StorageManager:
             asset.row_count = stats.count if stats else 0
             db.flush()
 
-    def list_databases(self) -> list[dict]:
-        """Return all catalog entries (Source/Asset/Timeframe combinations)."""
-        with self._get_db() as db:
-            m1_query = (
-                select(
-                    Source.name.label("source"),
-                    Asset.ticker.label("asset"),
-                    Asset.min_date,
-                    Asset.max_date,
-                    Asset.row_count.label("rows"),
-                )
-                .join(Asset, Asset.source_id == Source.id)
-                .where(Asset.row_count > 0)
+    # ------------------------------------------------------------------
+    # Continuous aggregate management
+    # ------------------------------------------------------------------
+
+    def aggregate_exists(self, timeframe: str) -> bool:
+        """Returns True if a continuous aggregate view exists for the given timeframe."""
+        view_name = f"ohlcv_{timeframe.lower()}"
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    "SELECT 1 FROM timescaledb_information.continuous_aggregates "
+                    "WHERE view_name = :vn"
+                ),
+                {"vn": view_name},
+            ).scalar()
+        return result is not None
+
+    def create_continuous_aggregate(self, timeframe: str) -> None:
+        """Creates a TimescaleDB continuous aggregate for the given timeframe.
+
+        Idempotent: no-op if the aggregate already exists.
+        Sets up an auto-refresh policy and backfills all existing M1 data.
+        """
+        tf = timeframe.upper()
+        if tf not in self.TF_TO_BUCKET:
+            raise ValueError(
+                f"Timeframe {timeframe} not supported for continuous aggregates. "
+                f"Use: {sorted(self.TF_TO_BUCKET)}"
             )
 
-            derived_query = (
-                select(
-                    Source.name.label("source"),
-                    Asset.ticker.label("asset"),
-                    OhlcvResampled.timeframe.label("timeframe"),
-                    func.min(OhlcvResampled.timestamp).label("min_date"),
-                    func.max(OhlcvResampled.timestamp).label("max_date"),
-                    func.count(OhlcvResampled.timestamp).label("rows"),
-                )
-                .join(Asset, Asset.id == OhlcvResampled.asset_id)
-                .join(Source, Source.id == Asset.source_id)
-                .group_by(Source.name, Asset.ticker, OhlcvResampled.timeframe)
+        if self.aggregate_exists(tf):
+            logger.info(
+                f"Continuous aggregate ohlcv_{tf.lower()} already exists — skipping."
+            )
+            return
+
+        interval = self.TF_TO_BUCKET[tf]
+        view_name = f"ohlcv_{tf.lower()}"
+
+        # DDL and CALL must run outside an explicit transaction (AUTOCOMMIT).
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(
+                text(f"""
+                CREATE MATERIALIZED VIEW {view_name}
+                WITH (timescaledb.continuous) AS
+                SELECT
+                    time_bucket('{interval}', timestamp) AS timestamp,
+                    asset_id,
+                    first(open, timestamp)  AS open,
+                    max(high)               AS high,
+                    min(low)                AS low,
+                    last(close, timestamp)  AS close,
+                    sum(volume)             AS volume
+                FROM ohlcv_m1
+                GROUP BY time_bucket('{interval}', timestamp), asset_id
+                WITH NO DATA
+            """)
+            )  # noqa: S608
+
+            conn.execute(
+                text(f"""
+                SELECT add_continuous_aggregate_policy('{view_name}',
+                    start_offset      => INTERVAL '3 {interval}',
+                    end_offset        => INTERVAL '1 {interval}',
+                    schedule_interval => INTERVAL '{interval}')
+            """)
             )
 
-            m1_results = db.execute(m1_query).all()
-            derived_results = db.execute(derived_query).all()
-
-            dbs = [
-                {
-                    "source": r.source,
-                    "asset": r.asset,
-                    "timeframe": "M1",
-                    "rows": int(r.rows),
-                    "start_date": str(r.min_date) if r.min_date else None,
-                    "end_date": str(r.max_date) if r.max_date else None,
-                }
-                for r in m1_results
-            ]
-            dbs.extend(
-                {
-                    "source": r.source,
-                    "asset": r.asset,
-                    "timeframe": r.timeframe,
-                    "rows": int(r.rows),
-                    "start_date": str(r.min_date) if r.min_date else None,
-                    "end_date": str(r.max_date) if r.max_date else None,
-                }
-                for r in derived_results
-            )
-            return sorted(
-                dbs, key=lambda item: (item["source"], item["asset"], item["timeframe"])
+            conn.execute(
+                text(f"CALL refresh_continuous_aggregate('{view_name}', NULL, NULL)")
             )
 
-    def get_stats(self) -> dict:
-        """Return aggregate statistics across all stored databases."""
-        with self._get_db() as db:
-            sources_count = db.execute(select(func.count(Source.id))).scalar()
-            assets_count = db.execute(select(func.count(Asset.id))).scalar()
-            total_rows = db.execute(select(func.sum(Asset.row_count))).scalar() or 0
+        logger.info(f"Continuous aggregate {view_name} created and backfilled.")
 
-            sources_stats = db.execute(
-                select(Source.name, func.count(Asset.id))
-                .join(Asset)
-                .group_by(Source.name)
-            ).all()
-
-            return {
-                "sources_count": sources_count,
-                "assets_count": assets_count,
-                "sources": {name: count for name, count in sources_stats},
-                "total_rows": total_rows,
-            }
+    def refresh_continuous_aggregate(self, timeframe: str) -> None:
+        """Manually refresh a continuous aggregate to pick up recent M1 insertions."""
+        view_name = f"ohlcv_{timeframe.lower()}"
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(
+                text(f"CALL refresh_continuous_aggregate('{view_name}', NULL, NULL)")
+            )
 
     # ------------------------------------------------------------------
     # Core I/O (TimescaleDB)
     # ------------------------------------------------------------------
-
-    # Maximum number of rows per INSERT statement to stay below
-    # PostgreSQL's per-statement parameter limit (~32 767).
-    # 5 000 rows × 7 columns = 35 000 params — well within bounds.
-    _INSERT_BATCH_SIZE = 5_000
 
     def save_data(
         self,
@@ -266,59 +260,32 @@ class StorageManager:
         timeframe: str,
         update_stats: bool = True,
     ) -> None:
-        """Save data to TimescaleDB.
+        """Save M1 data to the ohlcv_m1 hypertable.
 
-        M1 writes target the hypertable. Derived timeframes target the
-        persisted resampled table.
+        Derived timeframes are populated automatically by TimescaleDB continuous
+        aggregates — they cannot be written directly.
         """
         normalized_timeframe = self._normalize_timeframe(timeframe)
+        if normalized_timeframe != "M1":
+            raise ValueError(
+                "save_data only supports M1. Derived timeframes are managed "
+                "by continuous aggregates — use the resample command."
+            )
 
         if df.empty:
             return
 
         with self._get_db() as db:
-            if normalized_timeframe == "M1":
-                src = self.get_or_create_source(db, source)
-                ast = self.get_or_create_asset(db, asset, src.id)
-            else:
-                src = self._get_source(db, source)
-                if not src:
-                    raise FileNotFoundError(
-                        f"Cannot save {normalized_timeframe}: source not found: {source}"
-                    )
-                ast = self._get_asset(db, asset, src.id)
-                if not ast:
-                    raise FileNotFoundError(
-                        f"Cannot save {normalized_timeframe}: asset not found: {source} -> {asset}"
-                    )
-
+            src = self.get_or_create_source(db, source)
+            ast = self.get_or_create_asset(db, asset, src.id)
             df_records = self._prepare_ohlcv_records(df, ast.id)
-
-            if normalized_timeframe == "M1":
-                records = df_records[
-                    ["timestamp", "asset_id", "open", "high", "low", "close", "volume"]
-                ].to_dict(orient="records")
-                self._upsert_m1_records(db, records)
-            else:
-                df_records["timeframe"] = normalized_timeframe
-                records = df_records[
-                    [
-                        "timestamp",
-                        "asset_id",
-                        "timeframe",
-                        "open",
-                        "high",
-                        "low",
-                        "close",
-                        "volume",
-                    ]
-                ].to_dict(orient="records")
-                self._upsert_resampled_records(db, records)
-
+            records = df_records[
+                ["timestamp", "asset_id", "open", "high", "low", "close", "volume"]
+            ].to_dict(orient="records")
+            self._upsert_m1_records(db, records)
             db.commit()
 
-            if update_stats and normalized_timeframe == "M1":
-                # Update asset metadata
+            if update_stats:
                 self._update_asset_stats(db, ast.id)
                 db.commit()
 
@@ -330,51 +297,8 @@ class StorageManager:
         timeframe: str,
         update_stats: bool = True,
     ) -> None:
-        """Append data (same as save_data due to ON CONFLICT logic)."""
+        """Append M1 data (same as save_data due to ON CONFLICT logic)."""
         return self.save_data(df, source, asset, timeframe, update_stats=update_stats)
-
-    def replace_data(
-        self, df: pd.DataFrame, source: str, asset: str, timeframe: str
-    ) -> None:
-        """Replace all persisted rows for a derived timeframe."""
-        normalized_timeframe = self._normalize_timeframe(timeframe)
-        if normalized_timeframe == "M1":
-            raise ValueError("replace_data only supports derived timeframes.")
-
-        with self._get_db() as db:
-            src = self._get_source(db, source)
-            if not src:
-                raise FileNotFoundError(f"Source not found: {source}")
-
-            ast = self._get_asset(db, asset, src.id)
-            if not ast:
-                raise FileNotFoundError(f"Asset not found: {source} -> {asset}")
-
-            db.execute(
-                delete(OhlcvResampled).where(
-                    OhlcvResampled.asset_id == ast.id,
-                    OhlcvResampled.timeframe == normalized_timeframe,
-                )
-            )
-
-            if not df.empty:
-                df_records = self._prepare_ohlcv_records(df, ast.id)
-                df_records["timeframe"] = normalized_timeframe
-                records = df_records[
-                    [
-                        "timestamp",
-                        "asset_id",
-                        "timeframe",
-                        "open",
-                        "high",
-                        "low",
-                        "close",
-                        "volume",
-                    ]
-                ].to_dict(orient="records")
-                self._upsert_resampled_records(db, records)
-
-            db.commit()
 
     def update_stats(self, source: str, asset: str) -> None:
         """Manually trigger asset statistics recalculation. Useful after bulk uploads."""
@@ -385,7 +309,11 @@ class StorageManager:
             db.commit()
 
     def load_data(self, source: str, asset: str, timeframe: str) -> pd.DataFrame:
-        """Load data from TimescaleDB."""
+        """Load OHLCV data from TimescaleDB.
+
+        M1 reads from the hypertable. Derived timeframes read from their
+        continuous aggregate view (must have been created via the resample command).
+        """
         normalized_timeframe = self._normalize_timeframe(timeframe)
 
         with self._get_db() as db:
@@ -404,15 +332,21 @@ class StorageManager:
                     WHERE asset_id = :aid
                     ORDER BY timestamp ASC
                 """
-                params = {"aid": ast.id}
+                params: dict = {"aid": ast.id}
             else:
-                query = """
+                if not self.aggregate_exists(normalized_timeframe):
+                    raise FileNotFoundError(
+                        f"Timeframe {normalized_timeframe} not available. "
+                        f"Run 'resample {asset} {normalized_timeframe}' first to create it."
+                    )
+                view_name = f"ohlcv_{normalized_timeframe.lower()}"
+                query = f"""
                     SELECT timestamp, open, high, low, close, volume
-                    FROM ohlcv_resampled
-                    WHERE asset_id = :aid AND timeframe = :timeframe
+                    FROM {view_name}
+                    WHERE asset_id = :aid
                     ORDER BY timestamp ASC
-                """
-                params = {"aid": ast.id, "timeframe": normalized_timeframe}
+                """  # noqa: S608
+                params = {"aid": ast.id}
 
             df = pd.read_sql(
                 text(query),
@@ -424,68 +358,99 @@ class StorageManager:
 
             if df.empty:
                 raise FileNotFoundError(
-                    f"Timeframe not found: {source} -> {asset} ({normalized_timeframe})"
+                    f"No data found: {source} -> {asset} ({normalized_timeframe})"
                 )
 
-            # Capitalize columns to maintain compatibility with DataManager expectations
             df.columns = ["Open", "High", "Low", "Close", "Volume"]
             return df
 
-    def delete_database(
-        self, source: str, asset: str, timeframe: str | None = None
-    ) -> bool:
-        """Delete data for an asset.
+    # ------------------------------------------------------------------
+    # Catalog queries
+    # ------------------------------------------------------------------
 
-        Deleting timeframe=None removes the entire asset metadata and all OHLCV data.
-        """
+    def list_databases(self) -> list[dict]:
+        """Return all catalog entries: M1 hypertable + active continuous aggregates."""
         with self._get_db() as db:
-            src = self._get_source(db, source)
-            if not src:
-                return False
-
-            ast = self._get_asset(db, asset, src.id)
-            if not ast:
-                return False
-
-            normalized_timeframe = (
-                self._normalize_timeframe(timeframe) if timeframe else None
-            )
-
-            if not normalized_timeframe:
-                db.execute(
-                    delete(OhlcvResampled).where(OhlcvResampled.asset_id == ast.id)
+            m1_results = db.execute(
+                select(
+                    Source.name.label("source"),
+                    Asset.ticker.label("asset"),
+                    Asset.min_date,
+                    Asset.max_date,
+                    Asset.row_count.label("rows"),
                 )
-                db.execute(delete(OhlcvM1).where(OhlcvM1.asset_id == ast.id))
-                db.delete(ast)
-                db.commit()
-                return True
+                .join(Asset, Asset.source_id == Source.id)
+                .where(Asset.row_count > 0)
+            ).all()
 
-            if normalized_timeframe == "M1":
-                result = db.execute(delete(OhlcvM1).where(OhlcvM1.asset_id == ast.id))
-                self._update_asset_stats(db, ast.id)
-                db.commit()
-                return result.rowcount > 0
+            dbs: list[dict] = [
+                {
+                    "source": r.source,
+                    "asset": r.asset,
+                    "timeframe": "M1",
+                    "rows": int(r.rows),
+                    "start_date": str(r.min_date) if r.min_date else None,
+                    "end_date": str(r.max_date) if r.max_date else None,
+                }
+                for r in m1_results
+            ]
 
-            result = db.execute(
-                delete(OhlcvResampled).where(
-                    OhlcvResampled.asset_id == ast.id,
-                    OhlcvResampled.timeframe == normalized_timeframe,
+            # Enumerate existing continuous aggregate views created by us.
+            agg_views = db.execute(
+                text(
+                    "SELECT view_name FROM timescaledb_information.continuous_aggregates "
+                    "WHERE view_name LIKE 'ohlcv_%'"
                 )
-            )
-            db.commit()
-            return result.rowcount > 0
+            ).fetchall()
 
-    def delete_all(self) -> bool:
-        """Delete all sources, assets and data."""
+            for (view_name,) in agg_views:
+                tf = view_name[len("ohlcv_") :].upper()
+                per_asset = db.execute(
+                    text(f"""
+                        SELECT s.name, a.ticker,
+                               COUNT(*)         AS rows,
+                               MIN(v.timestamp) AS min_date,
+                               MAX(v.timestamp) AS max_date
+                        FROM {view_name} v
+                        JOIN assets  a ON a.id = v.asset_id
+                        JOIN sources s ON s.id = a.source_id
+                        GROUP BY s.name, a.ticker
+                    """)  # noqa: S608
+                ).fetchall()
+
+                dbs.extend(
+                    {
+                        "source": r[0],
+                        "asset": r[1],
+                        "timeframe": tf,
+                        "rows": int(r[2]),
+                        "start_date": str(r[3]) if r[3] else None,
+                        "end_date": str(r[4]) if r[4] else None,
+                    }
+                    for r in per_asset
+                )
+
+        return sorted(
+            dbs, key=lambda item: (item["source"], item["asset"], item["timeframe"])
+        )
+
+    def get_stats(self) -> dict:
+        """Return aggregate statistics across all stored databases."""
         with self._get_db() as db:
-            db.execute(delete(EconomicObservation))
-            db.execute(delete(EconomicSeries))
-            db.execute(delete(OhlcvResampled))
-            db.execute(delete(OhlcvM1))
-            db.execute(delete(Asset))
-            db.execute(delete(Source))
-            db.commit()
-            return True
+            sources_count = db.execute(select(func.count(Source.id))).scalar()
+            assets_count = db.execute(select(func.count(Asset.id))).scalar()
+            total_rows = db.execute(select(func.sum(Asset.row_count))).scalar() or 0
+            sources_stats = db.execute(
+                select(Source.name, func.count(Asset.id))
+                .join(Asset)
+                .group_by(Source.name)
+            ).all()
+            return {
+                "sources_count": sources_count,
+                "assets_count": assets_count,
+                "sources": {name: count for name, count in sources_stats},
+                "total_rows": total_rows,
+            }
 
     def get_database_info(self, source: str, asset: str, timeframe: str) -> dict:
         """Return metadata for a specific database."""
@@ -503,7 +468,6 @@ class StorageManager:
             if normalized_timeframe == "M1":
                 if not ast.row_count or not ast.min_date or not ast.max_date:
                     return {"status": "Not Found"}
-
                 return {
                     "source": source.lower(),
                     "asset": asset.upper(),
@@ -513,25 +477,92 @@ class StorageManager:
                     "end_date": str(ast.max_date),
                 }
 
-            stats = db.execute(
-                select(
-                    func.count(OhlcvResampled.timestamp).label("rows"),
-                    func.min(OhlcvResampled.timestamp).label("min_date"),
-                    func.max(OhlcvResampled.timestamp).label("max_date"),
-                ).where(
-                    OhlcvResampled.asset_id == ast.id,
-                    OhlcvResampled.timeframe == normalized_timeframe,
-                )
+            if not self.aggregate_exists(normalized_timeframe):
+                return {"status": "Not Found"}
+
+            view_name = f"ohlcv_{normalized_timeframe.lower()}"
+            row = db.execute(
+                text(f"""
+                    SELECT COUNT(*)        AS rows,
+                           MIN(timestamp) AS min_date,
+                           MAX(timestamp) AS max_date
+                    FROM {view_name}
+                    WHERE asset_id = :aid
+                """),  # noqa: S608
+                {"aid": ast.id},
             ).one()
 
-            if not stats.rows or not stats.min_date or not stats.max_date:
+            if not row.rows or not row.min_date or not row.max_date:
                 return {"status": "Not Found"}
 
             return {
                 "source": source.lower(),
                 "asset": asset.upper(),
                 "timeframe": normalized_timeframe,
-                "rows": int(stats.rows),
-                "start_date": str(stats.min_date),
-                "end_date": str(stats.max_date),
+                "rows": int(row.rows),
+                "start_date": str(row.min_date),
+                "end_date": str(row.max_date),
             }
+
+    def delete_database(
+        self, source: str, asset: str, timeframe: str | None = None
+    ) -> bool:
+        """Delete data for an asset.
+
+        - timeframe=None: deletes M1 data and the asset record. Continuous aggregate
+          views are shared across all assets and are left intact.
+        - timeframe="M1": deletes only the M1 rows for this asset.
+        - timeframe=<derived>: drops the entire continuous aggregate view for that
+          timeframe — this affects ALL assets, not just the requested one.
+        """
+        with self._get_db() as db:
+            src = self._get_source(db, source)
+            if not src:
+                return False
+
+            ast = self._get_asset(db, asset, src.id)
+            if not ast:
+                return False
+
+            normalized_timeframe = (
+                self._normalize_timeframe(timeframe) if timeframe else None
+            )
+
+            if not normalized_timeframe:
+                db.execute(delete(OhlcvM1).where(OhlcvM1.asset_id == ast.id))
+                db.delete(ast)
+                db.commit()
+                return True
+
+            if normalized_timeframe == "M1":
+                result = db.execute(delete(OhlcvM1).where(OhlcvM1.asset_id == ast.id))
+                self._update_asset_stats(db, ast.id)
+                db.commit()
+                return result.rowcount > 0
+
+            # Derived timeframe: drop the shared continuous aggregate view.
+            if not self.aggregate_exists(normalized_timeframe):
+                return False
+
+            view_name = f"ohlcv_{normalized_timeframe.lower()}"
+            with engine.connect().execution_options(
+                isolation_level="AUTOCOMMIT"
+            ) as conn:
+                conn.execute(
+                    text(f"DROP MATERIALIZED VIEW IF EXISTS {view_name} CASCADE")
+                )
+            logger.warning(
+                f"Dropped continuous aggregate {view_name} — this affects all assets."
+            )
+            return True
+
+    def delete_all(self) -> bool:
+        """Delete all sources, assets and data."""
+        with self._get_db() as db:
+            db.execute(delete(EconomicObservation))
+            db.execute(delete(EconomicSeries))
+            db.execute(delete(OhlcvM1))
+            db.execute(delete(Asset))
+            db.execute(delete(Source))
+            db.commit()
+            return True
