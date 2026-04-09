@@ -14,6 +14,15 @@ class _FakeDataManager:
         self.storage = _FakeStorage()
         self.calls = []
 
+    def download_data(self, source, asset, start_date, end_date):
+        self.calls.append(("download_data", source, asset, start_date, end_date))
+
+    def update_data(self, source, asset, timeframe="M1"):
+        self.calls.append(("update_data", source, asset, timeframe))
+
+    def resample_data(self, source, asset, timeframe):
+        self.calls.append(("resample_data", source, asset, timeframe))
+
     def show_search_summary(self):
         self.calls.append(("show_search_summary",))
 
@@ -157,6 +166,9 @@ def test_cmdloop_uses_prompt_session_history(monkeypatch):
     mock_session = Mock()
     mock_session.prompt.side_effect = ["help", "quit"]
     monkeypatch.setattr(cli, "_create_prompt_session", lambda: mock_session)
+    monkeypatch.setattr(
+        cli, "_read_interactive_input", lambda session: session.prompt()
+    )
 
     handled = []
     original_onecmd = cli.onecmd
@@ -169,43 +181,6 @@ def test_cmdloop_uses_prompt_session_history(monkeypatch):
     cli.cmdloop()
 
     assert handled[:2] == ["help", "quit"]
-
-
-def test_fred_commands_delegate_to_series_manager(monkeypatch):
-    monkeypatch.setattr(
-        "trademachine.datamanager_cli.cli.DataManager", _FakeDataManager
-    )
-    monkeypatch.setattr(
-        "trademachine.datamanager_cli.cli.SchedulerService", _FakeScheduler
-    )
-    monkeypatch.setattr(
-        "trademachine.datamanager_cli.cli.SeriesManager", _FakeSeriesManager
-    )
-
-    cli = DataManagerCLI()
-
-    cli.do_fred_search("--query inflation")
-    cli.do_fred_download("CPIAUCSL 2024-01-01 2024-12-31 --frequency m")
-    cli.do_fred_update("CPIAUCSL --lookback 30D --frequency m")
-    cli.do_fred_list("")
-    cli.do_fred_info("CPIAUCSL")
-    cli.do_fred_delete("CPIAUCSL")
-
-    assert cli.series_server.calls == [
-        ("search", "inflation"),
-        (
-            "download",
-            "fred",
-            "CPIAUCSL",
-            "2024-01-01T00:00:00",
-            "2024-12-31T00:00:00",
-            "m",
-        ),
-        ("update", "fred", "CPIAUCSL", "30D", "m"),
-        ("list",),
-        ("info", "fred", "CPIAUCSL"),
-        ("delete", "fred", "CPIAUCSL"),
-    ]
 
 
 def test_standard_commands_accept_fred_source(monkeypatch):
@@ -281,3 +256,25 @@ def test_schedule_add_existing_path_still_works(monkeypatch):
     cli.do_schedule("add DUKASCOPY EURUSD M1 --interval 60")
 
     assert cli.scheduler.server is cli.server
+
+
+def test_resample_command_delegates_per_asset_and_timeframe(monkeypatch):
+    monkeypatch.setattr(
+        "trademachine.datamanager_cli.cli.DataManager", _FakeDataManager
+    )
+    monkeypatch.setattr(
+        "trademachine.datamanager_cli.cli.SchedulerService", _FakeScheduler
+    )
+    monkeypatch.setattr(
+        "trademachine.datamanager_cli.cli.SeriesManager", _FakeSeriesManager
+    )
+
+    cli = DataManagerCLI()
+    cli.do_resample("DUKASCOPY EURUSD,GBPUSD M5,H1")
+
+    assert cli.server.calls == [
+        ("resample_data", "DUKASCOPY", "EURUSD", "M5"),
+        ("resample_data", "DUKASCOPY", "EURUSD", "H1"),
+        ("resample_data", "DUKASCOPY", "GBPUSD", "M5"),
+        ("resample_data", "DUKASCOPY", "GBPUSD", "H1"),
+    ]

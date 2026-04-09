@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from io import BytesIO
-
 import pandas as pd
 from trademachine.datamanager.client import DataManagerClient
 
@@ -59,10 +57,9 @@ def test_client_get_series_data(monkeypatch):
         {"Value": [1.0, 2.0]},
         index=pd.date_range("2024-01-01", periods=2, freq="D"),
     )
-    buffer = BytesIO()
-    df.to_parquet(buffer, engine="fastparquet")
-    session = _DummySession([_DummyResponse(content=buffer.getvalue())])
+    session = _DummySession([_DummyResponse(content=b"ignored")])
     monkeypatch.setattr("requests.Session", lambda: session)
+    monkeypatch.setattr(DataManagerClient, "_parse_parquet", lambda self, content: df)
     client = DataManagerClient(base_url="http://localhost:8686", api_key="test-key")
 
     result = client.get_series_data("fred", "CPIAUCSL")

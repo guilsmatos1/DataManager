@@ -140,6 +140,24 @@ class TestDataManagerService:
 
         manager.storage.append_data.assert_not_called()
 
+    def test_update_data_resamples_requested_timeframe_even_if_m1_is_current(
+        self, manager, mock_fetcher
+    ):
+        """A derived timeframe request should rebuild from M1 after the update step."""
+        manager._fetchers["MOCK"] = mock_fetcher
+        manager.resample_data = MagicMock()
+        manager.storage.get_database_info.return_value = {
+            "status": "exists",
+            "end_date": (datetime.now() + timedelta(days=1)).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ),
+        }
+
+        manager.update_data("mock", "BTCUSD", "H1")
+
+        mock_fetcher.fetch_data.assert_not_called()
+        manager.resample_data.assert_called_once_with("mock", "BTCUSD", "H1")
+
     # ── update_all_databases ─────────────────────────────────────────────────
 
     def test_update_all_databases_empty(self, manager, mock_fetcher):
@@ -162,6 +180,43 @@ class TestDataManagerService:
 
         # Should only call update_data for M1
         assert manager.storage.list_databases.call_count >= 1
+
+    # ── resample_data ───────────────────────────────────────────────────────
+
+    def test_resample_data_rebuilds_from_m1(self, manager):
+        """resample_data should derive the target timeframe from M1 and replace it."""
+        m1_df = pd.DataFrame(
+            {
+                "Open": [100.0, 101.0, 102.0, 103.0, 104.0],
+                "High": [101.0, 102.0, 103.0, 104.0, 105.0],
+                "Low": [99.0, 100.0, 101.0, 102.0, 103.0],
+                "Close": [101.0, 102.0, 103.0, 104.0, 105.0],
+                "Volume": [10.0, 10.0, 10.0, 10.0, 10.0],
+            },
+            index=pd.date_range("2024-01-01 12:00:00", periods=5, freq="min"),
+        )
+        manager.storage.load_data.return_value = m1_df
+
+        manager.resample_data("mock", "BTCUSD", "M5")
+
+        manager.storage.load_data.assert_called_once_with("mock", "BTCUSD", "M1")
+        manager.storage.replace_data.assert_called_once()
+        args = manager.storage.replace_data.call_args.args
+        assert args[1:] == ("mock", "BTCUSD", "M5")
+        assert len(args[0]) == 1
+        assert args[0]["Volume"].iloc[0] == 50.0
+
+    def test_resample_data_rejects_m1(self, manager):
+        """resample_data should reject M1 as a target timeframe."""
+        with pytest.raises(ValueError, match="M1 is the source timeframe"):
+            manager.resample_data("mock", "BTCUSD", "M1")
+
+    def test_resample_data_requires_existing_m1(self, manager):
+        """resample_data should fail clearly when the M1 base is missing."""
+        manager.storage.load_data.side_effect = FileNotFoundError("missing")
+
+        with pytest.raises(FileNotFoundError, match="M1 base does not exist"):
+            manager.resample_data("mock", "BTCUSD", "H1")
 
     # ── search_assets ────────────────────────────────────────────────────────
 
@@ -203,11 +258,11 @@ class TestDataManagerService:
     # ── check_quality ────────────────────────────────────────────────────────
 
     def test_check_quality_file_not_found(self, manager):
-        """check_quality should handle FileNotFoundError gracefully."""
+        """check_quality should propagate FileNotFoundError so callers can handle it."""
         manager.storage.load_data.side_effect = FileNotFoundError("Not found")
 
-        # Should not raise
-        manager.check_quality("mock", "BTCUSD")
+        with pytest.raises(FileNotFoundError):
+            manager.check_quality("mock", "BTCUSD")
 
     def test_check_quality_runs_all_checks(self, manager):
         """check_quality should run all 7 quality checks on valid data."""
