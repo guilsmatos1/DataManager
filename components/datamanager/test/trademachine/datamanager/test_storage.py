@@ -4,7 +4,6 @@ from datetime import UTC
 
 import pandas as pd
 import pytest
-from sqlalchemy import create_engine, text
 from trademachine.datamanager.db.storage import StorageManager
 
 
@@ -130,21 +129,29 @@ class TestCatalog:
     def test_list_databases_after_save(
         self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
     ):
-        """list_databases should return entries for all TFs (since they are views)."""
+        """list_databases should return explicitly persisted timeframes."""
         storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
+        h1_df = ohlcv_df.resample("1h").agg(
+            {
+                "Open": "first",
+                "High": "max",
+                "Low": "min",
+                "Close": "last",
+                "Volume": "sum",
+            }
+        )
+        storage.save_data(h1_df, "binance", "BTCUSD", "H1")
 
         dbs = storage.list_databases()
         # Filter for the specific asset we just saved
         asset_dbs = [d for d in dbs if d["asset"] == "BTCUSD"]
 
-        # We now only return explicitly saved M1 entries to avoid cluttering the list
-        assert len(asset_dbs) == 1
-        assert asset_dbs[0]["timeframe"] == "M1"
-
-        # Verify one entry
+        assert len(asset_dbs) == 2
         m1_entry = next(d for d in asset_dbs if d["timeframe"] == "M1")
+        h1_entry = next(d for d in asset_dbs if d["timeframe"] == "H1")
         assert m1_entry["asset"] == "BTCUSD"
         assert m1_entry["rows"] == 5
+        assert h1_entry["rows"] == 1
 
     def test_get_stats(
         self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
@@ -181,32 +188,135 @@ class TestCatalog:
 
 
 class TestContinuousAggregates:
-    """Tests for TimescaleDB Continuous Aggregates (M1 -> higher TFs)."""
+    """Tests for persisted derived timeframes."""
 
-    def test_continuous_aggregate_read(self, storage: StorageManager, db_session):
-        """Data inserted in M1 should be visible in M5 view (after refresh)."""
-        # Create 10 minutes of data (2 bars of M5)
+    def test_save_and_load_resampled_timeframe(
+        self, storage: StorageManager, db_session
+    ):
+        """Persisted higher timeframes should round-trip through ohlcv_resampled."""
         dates = pd.date_range("2024-01-01 00:00:00", periods=10, freq="min", tz=UTC)
-        df = pd.DataFrame(
+        m1_df = pd.DataFrame(
             {"Open": 100.0, "High": 110.0, "Low": 90.0, "Close": 105.0, "Volume": 10.0},
             index=dates,
         )
-        storage.save_data(df, "binance", "BTCUSD", "M1")
+        m5_df = pd.DataFrame(
+            [
+                {
+                    "Open": 100.0,
+                    "High": 110.0,
+                    "Low": 90.0,
+                    "Close": 105.0,
+                    "Volume": 50.0,
+                },
+                {
+                    "Open": 100.0,
+                    "High": 110.0,
+                    "Low": 90.0,
+                    "Close": 105.0,
+                    "Volume": 50.0,
+                },
+            ],
+            index=pd.date_range("2024-01-01 00:00:00", periods=2, freq="5min", tz=UTC),
+        )
 
-        # TimescaleDB continuous aggregates are refreshed in the background or manually.
-        # refresh_continuous_aggregate() cannot run inside a transaction block.
-        # We use a separate engine with autocommit.
-        from trademachine.datamanager.db.database import DATABASE_URL
+        storage.save_data(m1_df, "binance", "BTCUSD", "M1")
+        storage.save_data(m5_df, "binance", "BTCUSD", "M5")
 
-        autocommit_engine = create_engine(DATABASE_URL, isolation_level="AUTOCOMMIT")
-        with autocommit_engine.connect() as conn:
-            conn.execute(
-                text("CALL refresh_continuous_aggregate('ohlcv_m5', NULL, NULL);")
-            )
+        loaded = storage.load_data("binance", "BTCUSD", "M5")
+        info = storage.get_database_info("binance", "BTCUSD", "M5")
 
-        # Load from M5
-        df_m5 = storage.load_data("binance", "BTCUSD", "M5")
+        assert len(loaded) == 2
+        assert loaded["Volume"].tolist() == [50.0, 50.0]
+        assert info["rows"] == 2
 
-        assert len(df_m5) == 2
-        # Use close to ensure indexing worked
-        assert df_m5["Volume"].iloc[0] == 50.0  # 5 minutes * 10.0 volume
+    def test_replace_data_overwrites_existing_resampled_timeframe(
+        self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
+    ):
+        """Replacing a derived timeframe should atomically rebuild its contents."""
+        storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
+
+        original = pd.DataFrame(
+            [
+                {
+                    "Open": 100.0,
+                    "High": 105.0,
+                    "Low": 99.0,
+                    "Close": 104.0,
+                    "Volume": 6000.0,
+                }
+            ],
+            index=pd.DatetimeIndex([pd.Timestamp("2024-01-01 12:00:00", tz=UTC)]),
+        )
+        rebuilt = pd.DataFrame(
+            [
+                {
+                    "Open": 200.0,
+                    "High": 205.0,
+                    "Low": 199.0,
+                    "Close": 204.0,
+                    "Volume": 7000.0,
+                }
+            ],
+            index=pd.DatetimeIndex([pd.Timestamp("2024-01-01 12:00:00", tz=UTC)]),
+        )
+
+        storage.replace_data(original, "binance", "BTCUSD", "H1")
+        storage.replace_data(rebuilt, "binance", "BTCUSD", "H1")
+
+        loaded = storage.load_data("binance", "BTCUSD", "H1")
+        assert len(loaded) == 1
+        assert loaded["Open"].iloc[0] == 200.0
+        assert loaded["Volume"].iloc[0] == 7000.0
+
+    def test_delete_specific_resampled_timeframe_keeps_m1(
+        self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
+    ):
+        """Deleting a derived timeframe should not remove its M1 source."""
+        storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
+        h1_df = pd.DataFrame(
+            [
+                {
+                    "Open": 100.0,
+                    "High": 105.0,
+                    "Low": 99.0,
+                    "Close": 104.0,
+                    "Volume": 6000.0,
+                }
+            ],
+            index=pd.DatetimeIndex([pd.Timestamp("2024-01-01 12:00:00", tz=UTC)]),
+        )
+        storage.save_data(h1_df, "binance", "BTCUSD", "H1")
+
+        assert storage.delete_database("binance", "BTCUSD", "H1") is True
+        with pytest.raises(FileNotFoundError):
+            storage.load_data("binance", "BTCUSD", "H1")
+
+        m1_loaded = storage.load_data("binance", "BTCUSD", "M1")
+        assert len(m1_loaded) == len(ohlcv_df)
+
+    def test_m1_delete_keeps_persisted_resampled_timeframe(
+        self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
+    ):
+        """Deleting M1 alone should keep derived data and hide the M1 catalog entry."""
+        storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
+        h1_df = pd.DataFrame(
+            [
+                {
+                    "Open": 100.0,
+                    "High": 105.0,
+                    "Low": 99.0,
+                    "Close": 104.0,
+                    "Volume": 6000.0,
+                }
+            ],
+            index=pd.DatetimeIndex([pd.Timestamp("2024-01-01 12:00:00", tz=UTC)]),
+        )
+        storage.save_data(h1_df, "binance", "BTCUSD", "H1")
+
+        assert storage.delete_database("binance", "BTCUSD", "M1") is True
+        assert storage.get_database_info("binance", "BTCUSD", "M1") == {
+            "status": "Not Found"
+        }
+
+        h1_info = storage.get_database_info("binance", "BTCUSD", "H1")
+        assert h1_info["rows"] == 1

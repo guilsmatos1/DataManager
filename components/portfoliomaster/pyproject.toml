@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trademachine-portfoliomaster"
+version = "0.1.0"
+description = "trademachine-portfoliomaster brick"
+dependencies = ["trademachine-core", "trademachine-metrics"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["trademachine*"]

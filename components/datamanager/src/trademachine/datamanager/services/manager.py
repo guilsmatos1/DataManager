@@ -6,6 +6,7 @@ import pandas as pd
 from colorama import init
 from tqdm import tqdm
 from trademachine.core.logger import LOGGER_NAME
+from trademachine.datamanager.db.processor import DataProcessor
 from trademachine.datamanager.db.storage import StorageManager
 from trademachine.datamanager.fetchers import get_all_fetchers
 from trademachine.datamanager.fetchers.base import BaseFetcher
@@ -29,6 +30,8 @@ class DataManager:
     """
     Central controller of the application.
     """
+
+    BASE_TIMEFRAME = "M1"
 
     def __init__(self):
         self.storage = StorageManager()
@@ -56,10 +59,10 @@ class DataManager:
         self, source: str, asset: str, start_date: datetime, end_date: datetime
     ) -> None:
         """Downloads and saves data in M1 using yearly chunks to save memory."""
-        info = self.storage.get_database_info(source, asset, "M1")
+        info = self.storage.get_database_info(source, asset, self.BASE_TIMEFRAME)
         if info.get("status") != "Not Found":
             logger.info(
-                f"Database {asset} (M1) already exists in {source}. Proceeding with idempotent download (upsert)."
+                f"Database {asset} ({self.BASE_TIMEFRAME}) already exists in {source}. Proceeding with idempotent download (upsert)."
             )
 
         logger.info(f"Starting chunked download of {asset} via {source.upper()}...")
@@ -87,7 +90,11 @@ class DataManager:
 
                     if df_chunk is not None and not df_chunk.empty:
                         self.storage.append_data(
-                            df_chunk, source, asset, timeframe="M1", update_stats=False
+                            df_chunk,
+                            source,
+                            asset,
+                            timeframe=self.BASE_TIMEFRAME,
+                            update_stats=False,
                         )
                         total_rows += len(df_chunk)
                     else:
@@ -124,14 +131,49 @@ class DataManager:
                 f"{asset} via {source.upper()}. Check logs for details."
             )
 
+    def resample_data(self, source: str, asset: str, timeframe: str) -> None:
+        """Rebuilds and persists a derived timeframe from M1."""
+        target_timeframe = timeframe.upper()
+        if target_timeframe == self.BASE_TIMEFRAME:
+            raise ValueError(
+                "M1 is the source timeframe and cannot be rebuilt via resample."
+            )
+        if target_timeframe not in DataProcessor.TF_MAPPING:
+            raise ValueError(
+                f"Target timeframe not supported: {timeframe}. Use {list(DataProcessor.TF_MAPPING.keys())}"
+            )
+
+        try:
+            m1_df = self.storage.load_data(source, asset, self.BASE_TIMEFRAME)
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(
+                f"Cannot resample {asset} ({target_timeframe}) because the M1 base does not exist."
+            ) from exc
+
+        if m1_df.empty:
+            raise ValueError(
+                f"Cannot resample {asset} ({target_timeframe}) because the M1 base is empty."
+            )
+
+        resampled_df = DataProcessor.resample_ohlc(m1_df, target_timeframe)
+        self.storage.replace_data(resampled_df, source, asset, target_timeframe)
+        logger.info(
+            f"Database {asset} ({target_timeframe}) rebuilt successfully with {len(resampled_df):,} rows."
+        )
+
+    def resample_database(self, source: str, asset: str, timeframe: str) -> None:
+        """Backward-compatible alias for the explicit resample operation."""
+        self.resample_data(source, asset, timeframe)
+
     def update_data(self, source: str, asset: str, timeframe: str = "M1") -> None:
         """Updates the M1 database with new data.
 
-        Note: In TimescaleDB mode, only M1 is updated. Higher timeframes are
-        automatically updated via Continuous Aggregates.
+        If a derived timeframe is requested, it is rebuilt from the refreshed
+        M1 base after the update step completes.
         """
+        target_timeframe = timeframe.upper()
         # Always operate on M1 as the base — check its existence and freshness
-        m1_info = self.storage.get_database_info(source, asset, "M1")
+        m1_info = self.storage.get_database_info(source, asset, self.BASE_TIMEFRAME)
         if m1_info.get("status") == "Not Found":
             logger.error(f"Database {asset} (M1) does not exist. Use 'download' first.")
             return
@@ -144,17 +186,21 @@ class DataManager:
 
         if last_date.date() >= now.date() and (now - last_date).total_seconds() < 3600:
             logger.info(f"{asset} M1 is already up to date.")
-            return
-
-        logger.info(f"Updating {asset} M1 from {last_date}...")
-        fetcher = self._get_fetcher(source)
-        new_df = fetcher.fetch_data(asset, last_date, now)
-
-        if new_df is not None and not new_df.empty:
-            self.storage.append_data(new_df, source, asset, "M1")
-            logger.info(f"Database {asset} (M1) updated successfully!")
         else:
-            logger.warning(f"No new data returned for {asset} M1. Nothing appended.")
+            logger.info(f"Updating {asset} M1 from {last_date}...")
+            fetcher = self._get_fetcher(source)
+            new_df = fetcher.fetch_data(asset, last_date, now)
+
+            if new_df is not None and not new_df.empty:
+                self.storage.append_data(new_df, source, asset, self.BASE_TIMEFRAME)
+                logger.info(f"Database {asset} (M1) updated successfully!")
+            else:
+                logger.warning(
+                    f"No new data returned for {asset} M1. Nothing appended."
+                )
+
+        if target_timeframe != self.BASE_TIMEFRAME:
+            self.resample_data(source, asset, target_timeframe)
 
     def update_all_databases(self) -> None:
         """Updates all M1 databases in TimescaleDB."""
@@ -267,24 +313,23 @@ class DataManager:
             logger.error(f"Error searching assets in {source_key}: {e}")
             return pd.DataFrame()
 
-    def check_quality(self, source: str, asset: str, timeframe: str = "M1"):
+    def check_quality(self, source: str, asset: str, timeframe: str = "M1") -> dict:
         """Performs advanced integrity and quality validations on the specified database."""
-        try:
-            df = self.storage.load_data(source, asset, timeframe)
-        except FileNotFoundError:
-            logger.error(
-                f"Database {asset} ({timeframe}) in source {source} not found."
-            )
-            return
+        df = self.storage.load_data(source, asset, timeframe)
 
         logger.info(
             f"=== QUALITY REPORT: {asset.upper()} ({timeframe}) - {source.upper()} ==="
         )
         logger.info(f"Total Registers Analyzed: {len(df):,}")
 
+        failures_ohlc = 0
+        failures_positive = 0
+        failures_spikes = 0
+        failures_frozen = 0
+        first_failure_timestamps: list[str] = []
+
         # 1. OHLC Relations Test
         try:
-            # Check basic mathematical logic: High >= Low, High >= Open/Close, Low <= Open/Close
             relations_mask = (
                 (df["High"] >= df["Low"])
                 & (df["High"] >= df["Open"])
@@ -292,28 +337,22 @@ class DataManager:
                 & (df["Low"] <= df["Open"])
                 & (df["Low"] <= df["Close"])
             )
-            failures_ohlc = (~relations_mask).sum()
+            failures_ohlc = int((~relations_mask).sum())
             logger.info(f"1. OHLC Mathematical Relations : {failures_ohlc} error(s)")
 
-            # Check for non-positive prices (Open, High, Low, Close <= 0)
             positive_mask = (
                 (df["Open"] > 0)
                 & (df["High"] > 0)
                 & (df["Low"] > 0)
                 & (df["Close"] > 0)
             )
-            failures_positive = (~positive_mask).sum()
+            failures_positive = int((~positive_mask).sum())
             logger.info(f"2. Positive Prices Check      : {failures_positive} error(s)")
 
-            # Check for spikes/outliers (e.g., price move > 50% in one bar)
-            # This is a heuristic, in high volatility it might happen but it is good to flag.
             price_change = df["Close"].pct_change().abs()
-            failures_spikes = (price_change > SPIKE_THRESHOLD).sum()
+            failures_spikes = int((price_change > SPIKE_THRESHOLD).sum())
             logger.info(f"3. Abnormal Price Spikes (>50%): {failures_spikes} error(s)")
 
-            # Check for frozen prices (OHLC are identical for many bars in a row)
-            # This might happen in illiquid markets but is a common data source error.
-            # We check if OHLC are identical and don't change for FROZEN_BARS_WINDOW consecutive bars.
             is_static = (
                 (df["Open"] == df["High"])
                 & (df["High"] == df["Low"])
@@ -322,7 +361,7 @@ class DataManager:
             frozen_mask = is_static
             for i in range(1, FROZEN_BARS_WINDOW):
                 frozen_mask = frozen_mask & is_static.shift(i)
-            failures_frozen = frozen_mask.sum()
+            failures_frozen = int(frozen_mask.sum())
             logger.info(f"4. Frozen Prices (Static OHLC) : {failures_frozen} error(s)")
 
             if failures_ohlc > 0 or failures_positive > 0:
@@ -330,26 +369,28 @@ class DataManager:
                 logger.warning("   ↳ First failure timestamps:")
                 for ts in bad_data.index:
                     logger.warning(f"     - {ts}")
+                    first_failure_timestamps.append(str(ts))
 
         except KeyError:
             logger.warning("Price Logic Tests : Ignored (Price columns missing)")
 
         # 5. Time Index Duplicates Test
-        failures_dup = df.index.duplicated().sum()
+        failures_dup = int(df.index.duplicated().sum())
         logger.info(f"5. Duplicated Registers      : {failures_dup} error(s)")
 
         # 6. Time Ordering Test (Monotonicity)
         time_diffs = df.index.to_series().diff()
-        failures_ord = (time_diffs < pd.Timedelta(seconds=0)).sum()
+        failures_ord = int((time_diffs < pd.Timedelta(seconds=0)).sum())
         logger.info(f"6. Time Ordering             : {failures_ord} error(s)")
 
         # 7. Gaps Analysis
+        failures_gaps = 0
+        first_gap_timestamps: list[str] = []
         if len(df) > 1:
             time_diffs = df.index.to_series().diff().dropna()
             expected_freq = time_diffs.median()
-
             gaps_mask = time_diffs > (expected_freq * 5)
-            failures_gaps = gaps_mask.sum()
+            failures_gaps = int(gaps_mask.sum())
             logger.info(f"7. Absence of Data (Gaps)    : {failures_gaps} gap(s)")
 
             if failures_gaps > 0:
@@ -357,9 +398,24 @@ class DataManager:
                 logger.warning("   ↳ First gap start timestamps:")
                 for ts in gap_starts:
                     logger.warning(f"     - {ts}")
+                    first_gap_timestamps.append(str(ts))
         else:
             logger.info(
                 "7. Absence of Data (Gaps)    : Ignored (Few data for analysis)"
             )
 
-        return
+        return {
+            "source": source,
+            "asset": asset,
+            "timeframe": timeframe,
+            "total_rows": len(df),
+            "ohlc_relation_errors": failures_ohlc,
+            "non_positive_price_errors": failures_positive,
+            "spike_errors": failures_spikes,
+            "frozen_bar_errors": failures_frozen,
+            "duplicate_index_errors": failures_dup,
+            "ordering_errors": failures_ord,
+            "gap_count": failures_gaps,
+            "first_failure_timestamps": first_failure_timestamps,
+            "first_gap_timestamps": first_gap_timestamps,
+        }

@@ -1,0 +1,29 @@
+[project]
+name = "portfoliomaster-project"
+version = "0.1.0"
+description = "PortfolioMaster build project"
+dependencies = [
+    "polars>=1.39.3",
+    "pyarrow>=23.0.1",
+    "pandas>=2.2.3,<3.0.0",
+    "numpy>=2.4.3",
+    "plotly>=6.6.0",
+    "tqdm>=4.67.3",
+    "beautifulsoup4>=4.14.3",
+    "lxml>=6.0.2",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "typer[all]>=0.12.5",
+    "deap>=1.4.1"
+]
+
+[tool.polylith.projects]
+"trademachine/portfoliomaster" = "components"
+"trademachine/core" = "components"
+"trademachine/metrics" = "components"
+"trademachine/mt5" = "components"
+"trademachine/portfolio_master_cli" = "bases"
+
+[tool.uv.sources]
+trademachine = { path = "../../components/trademachine" }
+trademachine_bases = { path = "../../bases/trademachine" }

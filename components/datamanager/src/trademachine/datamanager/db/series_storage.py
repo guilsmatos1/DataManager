@@ -7,12 +7,12 @@ import pandas as pd
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
-from trademachine.datamanager.db.database import SessionLocal, engine
 from trademachine.datamanager.db.models import (
     EconomicObservation,
     EconomicSeries,
     Source,
 )
+from trademachine.datamanager.infrastructure.database import SessionLocal, engine
 
 
 class SeriesStorageManager:

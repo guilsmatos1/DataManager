@@ -7,7 +7,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from trademachine.core.logger import LOGGER_NAME
-from trademachine.datamanager.db.database import engine
+from trademachine.datamanager.infrastructure.database import engine
 from trademachine.datamanager.services.manager import DataManager
 from trademachine.datamanager.services.series_manager import SeriesManager
 

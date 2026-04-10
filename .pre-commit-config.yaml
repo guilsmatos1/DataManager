@@ -32,7 +32,7 @@ repos:
 
       - id: import-linter
         name: Import Linter
-        entry: bash -c "export PYTHONPATH=$PYTHONPATH:components/datamanager/src:components/tradingmonitor/src:components/portifoliomaster/src:components/backtestengine/src:bases/datamanager_api/src:bases/datamanager_cli/src:bases/trading_monitor_ingestion/src:bases/portifolio_master_cli/src && uv run lint-imports"
+        entry: bash -c "export PYTHONPATH=$PYTHONPATH:components/datamanager/src:components/tradingmonitor_storage/src:components/tradingmonitor_ingestion/src:components/tradingmonitor_analytics/src:components/portfoliomaster/src:components/backtestengine/src:components/core/src:components/mt5/src:components/metalabelingmaster/src:bases/datamanager_api/src:bases/datamanager_cli/src:bases/trading_monitor_dashboard/src:bases/trading_monitor_cli/src:bases/portfolio_master_cli/src:bases/metalabeling_master_cli/src && uv run lint-imports"
         language: system
         pass_filenames: false
         always_run: true

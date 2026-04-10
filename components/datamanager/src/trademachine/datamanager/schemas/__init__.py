@@ -2,6 +2,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+IDENTIFIER_PATTERN = r"^[a-zA-Z0-9_]+$"
+SERIES_ID_PATTERN = r"^[a-zA-Z0-9_.\-]+$"
 SAFE_PATTERN = r"^[a-zA-Z0-9_,\s\-]+$"
 
 # ---------------------------------------------------------------------------
@@ -10,42 +12,48 @@ SAFE_PATTERN = r"^[a-zA-Z0-9_,\s\-]+$"
 
 
 class DownloadRequest(BaseModel):
-    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
+    source: str = Field(..., pattern=IDENTIFIER_PATTERN)
     asset: str = Field(..., pattern=SAFE_PATTERN)
     start_date: str | None = None
     end_date: str | None = None
 
 
 class UpdateRequest(BaseModel):
-    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
+    source: str = Field(..., pattern=IDENTIFIER_PATTERN)
     asset: str = Field(..., pattern=SAFE_PATTERN)
-    timeframe: str = Field("M1", pattern=r"^[a-zA-Z0-9_]+$")
+    timeframe: str = Field("M1", pattern=IDENTIFIER_PATTERN)
 
 
 class DeleteRequest(BaseModel):
-    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
+    source: str = Field(..., pattern=IDENTIFIER_PATTERN)
     asset: str = Field(..., pattern=SAFE_PATTERN)
-    timeframe: str | None = Field(None, pattern=r"^[a-zA-Z0-9_]+$")
+    timeframe: str | None = Field(None, pattern=IDENTIFIER_PATTERN)
+
+
+class ResampleRequest(BaseModel):
+    source: str = Field(..., pattern=IDENTIFIER_PATTERN)
+    asset: str = Field(..., pattern=SAFE_PATTERN)
+    timeframes: str = Field(..., pattern=r"^[a-zA-Z0-9_,\s]+$")
 
 
 class SeriesDownloadRequest(BaseModel):
-    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
-    series_id: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$")
+    source: str = Field(..., pattern=IDENTIFIER_PATTERN)
+    series_id: str = Field(..., pattern=SERIES_ID_PATTERN)
     start_date: str | None = None
     end_date: str | None = None
-    frequency: str | None = Field(None, pattern=r"^[a-zA-Z0-9_]+$")
+    frequency: str | None = Field(None, pattern=IDENTIFIER_PATTERN)
 
 
 class SeriesUpdateRequest(BaseModel):
-    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
-    series_id: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$")
-    lookback_period: str | None = Field(None, pattern=r"^[a-zA-Z0-9_]+$")
-    frequency: str | None = Field(None, pattern=r"^[a-zA-Z0-9_]+$")
+    source: str = Field(..., pattern=IDENTIFIER_PATTERN)
+    series_id: str = Field(..., pattern=SERIES_ID_PATTERN)
+    lookback_period: str | None = Field(None, pattern=IDENTIFIER_PATTERN)
+    frequency: str | None = Field(None, pattern=IDENTIFIER_PATTERN)
 
 
 class SeriesDeleteRequest(BaseModel):
-    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
-    series_id: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$")
+    source: str = Field(..., pattern=IDENTIFIER_PATTERN)
+    series_id: str = Field(..., pattern=SERIES_ID_PATTERN)
 
 
 # ---------------------------------------------------------------------------
@@ -84,9 +92,9 @@ class SearchResponse(BaseModel):
 
 
 class ScheduleRequest(BaseModel):
-    source: str = Field(..., pattern=r"^[a-zA-Z0-9_]+$")
-    asset: str = Field(..., pattern=r"^[a-zA-Z0-9_.\-]+$")
-    timeframe: str = Field("M1", pattern=r"^[a-zA-Z0-9_]+$")
+    source: str = Field(..., pattern=IDENTIFIER_PATTERN)
+    asset: str = Field(..., pattern=SERIES_ID_PATTERN)
+    timeframe: str = Field("M1", pattern=IDENTIFIER_PATTERN)
     cron: str | None = None
     interval_minutes: int | None = None
 
@@ -134,3 +142,19 @@ class SeriesListResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class QualityReport(BaseModel):
+    source: str
+    asset: str
+    timeframe: str
+    total_rows: int
+    ohlc_relation_errors: int
+    non_positive_price_errors: int
+    spike_errors: int
+    frozen_bar_errors: int
+    duplicate_index_errors: int
+    ordering_errors: int
+    gap_count: int
+    first_failure_timestamps: list[str]
+    first_gap_timestamps: list[str]
