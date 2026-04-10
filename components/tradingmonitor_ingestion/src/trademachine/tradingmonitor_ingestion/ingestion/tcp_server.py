@@ -323,11 +323,16 @@ def ensure_strategy_exists(
     account_id: str | None = None,
 ) -> None:
     """Ensure a strategy exists in the database, creating it if necessary."""
+    symbol_id = _get_symbol_id(db, symbol)
     if strategy_id in EXISTING_STRATEGIES:
         if account_id:
             db.query(Strategy).filter(
                 Strategy.id == strategy_id, Strategy.account_id.is_(None)
             ).update({"account_id": account_id})
+        if symbol:
+            db.query(Strategy).filter(Strategy.id == strategy_id).update(
+                {"symbol": symbol, "symbol_id": symbol_id}
+            )
         return
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
@@ -338,6 +343,7 @@ def ensure_strategy_exists(
                         id=strategy_id,
                         name=f"MT5 Strategy {strategy_id}",
                         symbol=symbol,
+                        symbol_id=symbol_id,
                         account_id=account_id,
                         live=False,
                         real_account=False,
@@ -353,6 +359,9 @@ def ensure_strategy_exists(
             )
     elif account_id and strategy.account_id is None:
         strategy.account_id = account_id
+    if symbol and strategy:
+        strategy.symbol = symbol
+        strategy.symbol_id = symbol_id
     EXISTING_STRATEGIES.add(strategy_id)
 
 
@@ -366,6 +375,13 @@ def ensure_symbol_exists(db: Session, symbol: str | None) -> None:
     except Exception as e:
         logger.debug("Symbol ensure error for %s: %s", symbol, e)
     EXISTING_SYMBOLS.add(symbol)
+
+
+def _get_symbol_id(db: Session, symbol: str | None) -> int | None:
+    if not symbol:
+        return None
+    row = db.query(Symbol.id).filter(Symbol.name == symbol).first()
+    return int(row[0]) if row is not None else None
 
 
 def ensure_account_exists(
@@ -661,6 +677,7 @@ def process_backtest_start(db: Session, data: BacktestStartSchema) -> None:
         client_run_id=data.run_id,
         name=data.name,
         symbol=data.symbol,
+        symbol_id=_get_symbol_id(db, data.symbol),
         timeframe=data.timeframe,
         start_date=datetime.fromtimestamp(data.start_date, tz=UTC),
         end_date=datetime.fromtimestamp(data.end_date, tz=UTC),

@@ -88,6 +88,19 @@ def insert_deal_if_new(db: Session, deal_data: dict[str, Any]) -> bool:
     return True
 
 
+def _lookup_symbol_id(db: Session, symbol_name: str | None) -> int | None:
+    if symbol_name is None:
+        return None
+    row = db.query(Symbol.id).filter(Symbol.name == symbol_name).first()
+    if row is not None:
+        return int(row[0])
+
+    symbol = Symbol(name=symbol_name)
+    db.add(symbol)
+    db.flush()
+    return int(symbol.id)
+
+
 class AccountRepository:
     """Repository for Account operations."""
 
@@ -254,6 +267,7 @@ class StrategyRepository:
                 strategy.account_id = account_id
             if symbol is not None:
                 strategy.symbol = symbol
+                strategy.symbol_id = _lookup_symbol_id(db, symbol)
             if timeframe is not None:
                 strategy.timeframe = timeframe
             if operational_style is not None:
@@ -861,7 +875,10 @@ class BacktestRepository:
         """Create or update a backtest. Returns backtest ID."""
         db = SessionLocal()
         try:
-            bt = Backtest(**backtest_data)
+            payload = dict(backtest_data)
+            if "symbol" in payload and "symbol_id" not in payload:
+                payload["symbol_id"] = _lookup_symbol_id(db, payload.get("symbol"))
+            bt = Backtest(**payload)
             db.merge(bt)
             db.commit()
 
@@ -1191,6 +1208,14 @@ class SymbolRepository:
                 return None
             if name is not None:
                 sym.name = name
+                db.query(Strategy).filter(Strategy.symbol_id == symbol_id).update(
+                    {"symbol": name},
+                    synchronize_session=False,
+                )
+                db.query(Backtest).filter(Backtest.symbol_id == symbol_id).update(
+                    {"symbol": name},
+                    synchronize_session=False,
+                )
             if market is not None:
                 sym.market = market
             if lot is not None:
@@ -1207,6 +1232,17 @@ class SymbolRepository:
         try:
             sym = db.query(Symbol).filter(Symbol.id == symbol_id).first()
             if not sym:
+                return False
+            in_use = (
+                db.query(Strategy.id).filter(Strategy.symbol_id == symbol_id).first()
+            )
+            if in_use is None:
+                in_use = (
+                    db.query(Backtest.id)
+                    .filter(Backtest.symbol_id == symbol_id)
+                    .first()
+                )
+            if in_use is not None:
                 return False
             db.delete(sym)
             db.commit()

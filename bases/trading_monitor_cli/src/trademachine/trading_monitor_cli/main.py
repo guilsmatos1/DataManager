@@ -3,15 +3,16 @@ from datetime import UTC, datetime
 
 import typer
 from trademachine.core.logger import setup_logger
-from trademachine.tradingmonitor.config import settings
-from trademachine.tradingmonitor.db.database import init_db
-from trademachine.tradingmonitor.db.repository import (
+from trademachine.tradingmonitor_ingestion.public import HEARTBEAT_FILE
+from trademachine.tradingmonitor_storage.public import (
     AccountRepository,
+    DatabaseUnavailableError,
     PortfolioRepository,
     StrategyRepository,
+    init_db,
+    notifier,
+    settings,
 )
-from trademachine.tradingmonitor.ingestion.tcp_server import HEARTBEAT_FILE
-from trademachine.tradingmonitor.utils.notifications import notifier
 
 app = typer.Typer(help="MT5 Trading Monitor CLI")
 
@@ -19,7 +20,7 @@ app = typer.Typer(help="MT5 Trading Monitor CLI")
 @app.callback()
 def callback():
     """MT5 Trading Monitor CLI."""
-    setup_logger()
+    setup_logger(log_path="projects/tradingmonitor/log.log")
 
 
 @app.command()
@@ -49,17 +50,25 @@ def status():
 def setup_db():
     """Initializes the database schema and TimescaleDB hypertables."""
     typer.echo("Initializing database...")
-    init_db()
+    try:
+        init_db()
+    except DatabaseUnavailableError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     typer.echo("Database initialized successfully.")
 
 
 @app.command()
 def start_ingestion(host: str = settings.server_host, port: int = settings.server_port):
     """Start the TCP ingestion server to receive MT5 data."""
-    typer.echo(f"Starting TCP ingestion server on {host}:{port}...")
-    from trademachine.tradingmonitor.ingestion.tcp_server import start_server
+    from trademachine.tradingmonitor_ingestion.public import start_server
 
-    start_server(host, port)
+    typer.echo(f"Starting TCP ingestion server on {host}:{port}...")
+    try:
+        start_server(host, port)
+    except DatabaseUnavailableError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
 
 @app.command()
@@ -212,7 +221,9 @@ def report(strategy_id: str):
         return
 
     typer.echo(f"Generating report for {strategy.get('name')} ({strategy_id})...")
-    from trademachine.tradingmonitor.metrics.calculator import calculate_metrics
+    from trademachine.tradingmonitor_analytics.metrics.calculator import (
+        calculate_metrics,
+    )
 
     metrics = calculate_metrics(strategy_id)
 
@@ -258,7 +269,7 @@ def portfolio_report(portfolio_id: int):
         typer.echo("No strategies in this portfolio.")
         return
 
-    from trademachine.tradingmonitor.metrics.calculator import (
+    from trademachine.tradingmonitor_analytics.metrics.calculator import (
         calculate_portfolio_metrics,
     )
 
@@ -290,7 +301,9 @@ def send_report(
         )
         raise typer.Exit(1)
 
-    from trademachine.tradingmonitor.metrics.calculator import generate_qs_report
+    from trademachine.tradingmonitor_analytics.metrics.calculator import (
+        generate_qs_report,
+    )
 
     typer.echo("Generating report...")
     report_path = generate_qs_report(
@@ -329,7 +342,6 @@ def start_dashboard(
 ):
     """Start the real-time web dashboard (includes MT5 TCP ingestion by default)."""
     import uvicorn
-    from trademachine.trading_monitor_dashboard.app import create_app
 
     with_ingestion = not no_ingestion
     typer.echo(f"Starting dashboard on http://{host}:{port}")
@@ -338,12 +350,23 @@ def start_dashboard(
     else:
         typer.echo("MT5 ingestion disabled (--no-ingestion)")
 
-    app_instance = create_app(
-        with_ingestion=with_ingestion,
-        server_host=ingestion_host,
-        server_port=ingestion_port,
+    os.environ["_TM_WITH_INGESTION"] = "1" if with_ingestion else "0"
+    os.environ["_TM_INGESTION_HOST"] = ingestion_host
+    os.environ["_TM_INGESTION_PORT"] = str(ingestion_port)
+    app_target = ".".join(
+        ["trademachine", "trading_monitor_dashboard", "app:create_configured_app"]
     )
-    uvicorn.run(app_instance, host=host, port=port)
+
+    try:
+        uvicorn.run(
+            app_target,
+            factory=True,
+            host=host,
+            port=port,
+        )
+    except DatabaseUnavailableError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
 
 @app.command()

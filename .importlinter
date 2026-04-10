@@ -113,9 +113,6 @@ name = trading_monitor_cli must not import trading_monitor_dashboard
 type = forbidden
 source_modules = trademachine.trading_monitor_cli
 forbidden_modules = trademachine.trading_monitor_dashboard
-# TODO: remove once trading_monitor_cli/main.py lazy-import is cleaned up
-ignore_imports =
-    trademachine.trading_monitor_cli.main -> trademachine.trading_monitor_dashboard.app
 
 [importlinter:contract:dashboard-no-import-cli]
 name = trading_monitor_dashboard must not import trading_monitor_cli
@@ -128,9 +125,6 @@ name = trading_monitor_dashboard must not import datamanager client directly
 type = forbidden
 source_modules = trademachine.trading_monitor_dashboard
 forbidden_modules = trademachine.datamanager.client
-# TODO: remove once routes.py test endpoint uses tradingmonitor_ingestion
-ignore_imports =
-    trademachine.trading_monitor_dashboard.routes -> trademachine.datamanager.client
 
 [importlinter:contract:storage-config-protected]
 name = TradingMonitor Storage config is protected behind public API

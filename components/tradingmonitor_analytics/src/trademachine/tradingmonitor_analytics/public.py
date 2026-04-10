@@ -1,0 +1,107 @@
+"""Public API for the tradingmonitor_analytics component."""
+
+from trademachine.tradingmonitor_analytics.analysis.benchmarks import (
+    BenchmarkConflictError,
+    BenchmarkNotFoundError,
+    benchmark_to_dict,
+    create_benchmark_record,
+    delete_benchmark_record,
+    list_benchmark_payloads,
+    list_remote_databases,
+    load_benchmark_curve,
+    set_default_benchmark_record,
+    sync_benchmark_record,
+    update_benchmark_record,
+)
+from trademachine.tradingmonitor_analytics.analysis.drift import (
+    DriftReport,
+    check_performance_drift,
+)
+from trademachine.tradingmonitor_analytics.metrics.calculator import generate_qs_report
+from trademachine.tradingmonitor_analytics.services.dashboard_analysis import (
+    DashboardAnalysisNotFoundError,
+    DashboardAnalysisValidationError,
+    get_advanced_analysis_payload,
+    get_backtest_payload,
+    list_portfolios_payload,
+    list_strategy_backtests_payload,
+)
+from trademachine.tradingmonitor_analytics.services.dashboard_history import (
+    DashboardHistoryNotFoundError,
+    get_backtest_daily_payload,
+    get_backtest_deals_payload,
+    get_backtest_trade_stats_payload,
+    get_strategy_daily_payload,
+    get_strategy_deals_payload,
+    get_strategy_trade_stats_payload,
+)
+from trademachine.tradingmonitor_analytics.services.dashboard_metrics import (
+    DashboardMetricsNotFoundError,
+    get_backtest_equity_payload,
+    get_backtest_metrics_payload,
+    get_portfolio_equity_breakdown_payload,
+    get_portfolio_equity_payload,
+    get_portfolio_metrics_payload,
+    get_strategy_equity_payload,
+    get_strategy_metrics_payload,
+)
+from trademachine.tradingmonitor_analytics.services.dashboard_overview import (
+    get_real_daily_payload,
+    get_real_overview_payload,
+    get_real_recent_deals_payload,
+    get_summary_payload,
+)
+from trademachine.tradingmonitor_analytics.services.dashboard_shared import (
+    compute_max_drawdown,
+)
+from trademachine.tradingmonitor_analytics.services.dashboard_strategies import (
+    DashboardStrategiesNotFoundError,
+    get_portfolio_strategies_payload,
+    list_strategies_payload,
+)
+
+__all__ = [
+    "BenchmarkConflictError",
+    "BenchmarkNotFoundError",
+    "DashboardAnalysisNotFoundError",
+    "DashboardAnalysisValidationError",
+    "DashboardHistoryNotFoundError",
+    "DashboardMetricsNotFoundError",
+    "DashboardStrategiesNotFoundError",
+    "DriftReport",
+    "benchmark_to_dict",
+    "check_performance_drift",
+    "compute_max_drawdown",
+    "create_benchmark_record",
+    "delete_benchmark_record",
+    "generate_qs_report",
+    "get_advanced_analysis_payload",
+    "get_backtest_daily_payload",
+    "get_backtest_deals_payload",
+    "get_backtest_equity_payload",
+    "get_backtest_metrics_payload",
+    "get_backtest_payload",
+    "get_backtest_trade_stats_payload",
+    "get_portfolio_equity_breakdown_payload",
+    "get_portfolio_equity_payload",
+    "get_portfolio_metrics_payload",
+    "get_portfolio_strategies_payload",
+    "get_real_daily_payload",
+    "get_real_overview_payload",
+    "get_real_recent_deals_payload",
+    "get_strategy_daily_payload",
+    "get_strategy_deals_payload",
+    "get_strategy_equity_payload",
+    "get_strategy_metrics_payload",
+    "get_strategy_trade_stats_payload",
+    "get_summary_payload",
+    "list_benchmark_payloads",
+    "list_portfolios_payload",
+    "list_remote_databases",
+    "list_strategies_payload",
+    "list_strategy_backtests_payload",
+    "load_benchmark_curve",
+    "set_default_benchmark_record",
+    "sync_benchmark_record",
+    "update_benchmark_record",
+]

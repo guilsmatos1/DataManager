@@ -63,6 +63,9 @@ class Strategy(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)  # MT5 Magic Number
     name: Mapped[str | None] = mapped_column(String)
     symbol: Mapped[str | None] = mapped_column(String)
+    symbol_id: Mapped[int | None] = mapped_column(
+        ForeignKey("symbols.id", ondelete="RESTRICT")
+    )
     timeframe: Mapped[str | None] = mapped_column(String)
     operational_style: Mapped[str | None] = mapped_column(String)
     trade_duration: Mapped[str | None] = mapped_column(String)
@@ -80,6 +83,9 @@ class Strategy(Base):
     account_id: Mapped[str | None] = mapped_column(ForeignKey("accounts.id"))
 
     account: Mapped["Account"] = relationship(back_populates="strategies")
+    symbol_record: Mapped["Symbol | None"] = relationship(
+        foreign_keys=[symbol_id], back_populates="strategies"
+    )
     deals: Mapped[list["Deal"]] = relationship(
         back_populates="strategy", cascade="all, delete-orphan"
     )
@@ -231,6 +237,15 @@ class Symbol(Base):
     )  # Forex, Crypto, Futures, Indices, Stocks, Commodities
     lot: Mapped[float | None] = mapped_column(Numeric(18, 8))
 
+    strategies: Mapped[list["Strategy"]] = relationship(
+        foreign_keys=[Strategy.symbol_id],
+        back_populates="symbol_record",
+    )
+    backtests: Mapped[list["Backtest"]] = relationship(
+        foreign_keys="Backtest.symbol_id",
+        back_populates="symbol_record",
+    )
+
 
 class IngestionError(Base):
     __tablename__ = "ingestion_errors"
@@ -259,6 +274,9 @@ class Backtest(Base):
     client_run_id: Mapped[int] = mapped_column(BigInteger)  # EA-generated run ID
     name: Mapped[str | None] = mapped_column(String)
     symbol: Mapped[str | None] = mapped_column(String)
+    symbol_id: Mapped[int | None] = mapped_column(
+        ForeignKey("symbols.id", ondelete="RESTRICT")
+    )
     timeframe: Mapped[str | None] = mapped_column(String)
     start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -272,6 +290,9 @@ class Backtest(Base):
     )
 
     strategy: Mapped["Strategy"] = relationship(back_populates="backtests")
+    symbol_record: Mapped["Symbol | None"] = relationship(
+        foreign_keys=[symbol_id], back_populates="backtests"
+    )
     deals: Mapped[list["BacktestDeal"]] = relationship(
         back_populates="backtest", cascade="all, delete-orphan"
     )
