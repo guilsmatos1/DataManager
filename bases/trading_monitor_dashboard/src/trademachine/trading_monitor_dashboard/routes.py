@@ -112,6 +112,7 @@ from trademachine.tradingmonitor_storage.public import (
     SymbolUpdate,
     TelegramSettings,
     get_db,
+    notifier,
     settings,
     to_iso,
 )
@@ -1133,8 +1134,14 @@ def get_telegram_settings(db: Session = Depends(get_db)):
     if real_page_mode not in {"real", "demo"}:
         real_page_mode = "real"
     return TelegramSettings(
-        bot_token=bot_token.value if bot_token else None,
-        chat_id=chat_id.value if chat_id else None,
+        bot_token=None,
+        chat_id=None,
+        bot_token_configured=bool(
+            settings.telegram_token or (bot_token and bot_token.value)
+        ),
+        chat_id_configured=bool(
+            settings.telegram_chat_id or (chat_id and chat_id.value)
+        ),
         notify_closed_trades=notify_closed_trades,
         notify_system_errors=notify_system_errors,
         var_95_threshold=float(var_95_threshold.value) if var_95_threshold else None,
@@ -1155,8 +1162,10 @@ def update_telegram_settings(payload: TelegramSettings, db: Session = Depends(ge
         else:
             s.value = str(val) if val is not None else ""
 
-    _set("telegram_bot_token", payload.bot_token)
-    _set("telegram_chat_id", payload.chat_id)
+    if payload.bot_token and payload.bot_token.strip():
+        _set("telegram_bot_token", payload.bot_token)
+    if payload.chat_id and payload.chat_id.strip():
+        _set("telegram_chat_id", payload.chat_id)
     _set("telegram_notify_closed_trades", payload.notify_closed_trades)
     _set("telegram_notify_system_errors", payload.notify_system_errors)
     _set("var_95_limit", payload.var_95_threshold)
@@ -1167,21 +1176,22 @@ def update_telegram_settings(payload: TelegramSettings, db: Session = Depends(ge
 
 @router.post("/settings/telegram/test")
 def test_telegram_settings(db: Session = Depends(get_db)):
-    bot_token = db.query(Setting).filter(Setting.key == "telegram_bot_token").first()
-    chat_id = db.query(Setting).filter(Setting.key == "telegram_chat_id").first()
+    runtime_config = notifier._get_runtime_config()
+    bot_token = str(runtime_config.get("token") or "").strip()
+    chat_id = str(runtime_config.get("chat_id") or "").strip()
 
-    if not bot_token or not bot_token.value:
+    if not bot_token:
         raise HTTPException(status_code=400, detail="Bot Token não configurado")
-    if not chat_id or not chat_id.value:
+    if not chat_id:
         raise HTTPException(status_code=400, detail="Chat ID não configurado")
 
     import httpx
 
     try:
         resp = httpx.post(
-            f"https://api.telegram.org/bot{bot_token.value}/sendMessage",
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
             json={
-                "chat_id": chat_id.value,
+                "chat_id": chat_id,
                 "text": "✅ Teste do TradingMonitor\n\nSe você está lendo esta mensagem, a integração com o Telegram está funcionando!",
             },
             timeout=10,
@@ -1202,7 +1212,13 @@ def test_telegram_settings(db: Session = Depends(get_db)):
 
 @router.get("/settings/datamanager", response_model=DataManagerSettings)
 def get_datamanager_settings(db: Session = Depends(get_db)):
-    return load_datamanager_settings(db)
+    resolved = load_datamanager_settings(db)
+    return DataManagerSettings(
+        url=resolved.url,
+        api_key="",
+        api_key_configured=resolved.api_key_configured,
+        timeout=resolved.timeout,
+    )
 
 
 @router.post("/settings/datamanager", status_code=204)
