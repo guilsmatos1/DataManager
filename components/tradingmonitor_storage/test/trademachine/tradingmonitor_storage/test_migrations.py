@@ -109,6 +109,22 @@ def test_migrations_run_successfully():
                 "Column 'strategies.max_allowed_drawdown' should exist after migrations"
             )
 
+            result = conn.execute(
+                __import__("sqlalchemy").text(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints
+                        WHERE table_name = 'backtests'
+                          AND constraint_name = 'ck_backtests_status_allowed'
+                    )
+                    """
+                )
+            )
+            assert result.scalar() is True, (
+                "Constraint 'ck_backtests_status_allowed' should exist after migrations"
+            )
+
     finally:
         # 6. Cleanup: Drop the test database
         with admin_engine.connect() as conn:

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -49,10 +50,18 @@ class Account(Base):
     account_type: Mapped[str | None] = mapped_column(String)  # Real, Demo, etc.
     currency: Mapped[str | None] = mapped_column(String)
     description: Mapped[str | None] = mapped_column(String)
-    balance: Mapped[float] = mapped_column(Numeric(18, 8), default=0.0)
-    free_margin: Mapped[float] = mapped_column(Numeric(18, 8), default=0.0)
-    total_deposits: Mapped[float] = mapped_column(Numeric(18, 8), default=0.0)
-    total_withdrawals: Mapped[float] = mapped_column(Numeric(18, 8), default=0.0)
+    balance: Mapped[float] = mapped_column(
+        Numeric(18, 8), default=0.0, server_default=text("0")
+    )
+    free_margin: Mapped[float] = mapped_column(
+        Numeric(18, 8), default=0.0, server_default=text("0")
+    )
+    total_deposits: Mapped[float] = mapped_column(
+        Numeric(18, 8), default=0.0, server_default=text("0")
+    )
+    total_withdrawals: Mapped[float] = mapped_column(
+        Numeric(18, 8), default=0.0, server_default=text("0")
+    )
 
     strategies: Mapped[list["Strategy"]] = relationship(back_populates="account")
 
@@ -74,8 +83,12 @@ class Strategy(Base):
     )
     base_currency: Mapped[str | None] = mapped_column(String)
     description: Mapped[str | None] = mapped_column(String)
-    live: Mapped[bool] = mapped_column(default=False)  # False = Incubação
-    real_account: Mapped[bool] = mapped_column(default=False)  # False = Demo
+    live: Mapped[bool] = mapped_column(
+        default=False, nullable=False, server_default=text("false")
+    )  # False = Incubação
+    real_account: Mapped[bool] = mapped_column(
+        default=False, nullable=False, server_default=text("false")
+    )  # False = Demo
     max_allowed_drawdown: Mapped[float | None] = mapped_column(
         Numeric(6, 2), nullable=True
     )  # % limit, e.g. 20.0 = 20%
@@ -218,11 +231,18 @@ class StrategyRuntimeSnapshot(Base):
         ForeignKey("strategies.id"), primary_key=True
     )
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=func.now(), nullable=False
+        DateTime(timezone=True),
+        default=func.now(),
+        server_default=func.now(),
+        nullable=False,
     )
-    open_profit: Mapped[float] = mapped_column(Numeric(18, 8), default=0.0)
-    open_trades_count: Mapped[int] = mapped_column(default=0)
-    pending_orders_count: Mapped[int] = mapped_column(default=0)
+    open_profit: Mapped[float] = mapped_column(
+        Numeric(18, 8), default=0.0, server_default=text("0")
+    )
+    open_trades_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    pending_orders_count: Mapped[int] = mapped_column(
+        default=0, server_default=text("0")
+    )
 
     strategy: Mapped["Strategy"] = relationship()
 
@@ -263,7 +283,9 @@ class Setting(Base):
     __tablename__ = "settings"
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
-    value: Mapped[str] = mapped_column(String(256), default="")
+    value: Mapped[str] = mapped_column(
+        String(256), default="", server_default=text("''")
+    )
 
 
 class Backtest(Base):
@@ -283,7 +305,7 @@ class Backtest(Base):
     initial_balance: Mapped[float | None] = mapped_column(Numeric(18, 8))
     parameters: Mapped[dict | None] = mapped_column(JSONB)  # EA input parameters
     status: Mapped[str | None] = mapped_column(
-        String, default="pending"
+        String, default="pending", server_default=text("'pending'")
     )  # pending|running|complete|failed
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
