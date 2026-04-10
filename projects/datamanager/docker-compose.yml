@@ -39,13 +39,14 @@ services:
     build:
       context: ../..
       dockerfile: projects/datamanager/Dockerfile
-    image: ghcr.io/guilsmatos1/datamanager:latest
+    image: guilsmatos1/datamanager:latest
     container_name: datamanager-server
     restart: always
     ports:
       - "8686:8686"
     environment:
       - DATAMANAGER_API_KEY=${DATAMANAGER_API_KEY}
+      - FRED_API_KEY=${FRED_API_KEY}
       - DATAMANAGER_HOST=0.0.0.0
       - DATAMANAGER_PORT=8686
       - DATABASE_URL=postgresql://${POSTGRES_USER:-datamanager}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-datamanager}
