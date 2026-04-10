@@ -1,190 +1,79 @@
-# CLAUDE.md
+# DataManager — Reference Guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Overview
+Centralized financial data management system that fetches, stores, and manages OHLCV candlestick data and FRED economic series. Exposes a CLI and a REST API (port 8686).
+
+**Stack:** Python ≥3.12 · FastAPI/Uvicorn · TimescaleDB (PostgreSQL) · Pandas · Ruff · Pytest · uv
+
+## Architecture (Polylith)
+- **bases/datamanager_cli** — Interactive shell (cmd.Cmd); all user-facing CLI commands
+- **bases/datamanager_api** — FastAPI REST API (port 8686)
+- **components/datamanager** — All business logic: fetchers, db, services, schemas
+
+### Core Principle — M1-First
+All data is fetched and stored at **M1 (1-minute)** resolution. Higher timeframes are derived — never fetched directly:
+- **TimescaleDB continuous aggregates:** M2, M5, M10, M15, M30, H1, H2, H3, H4, H6, D1, W1
+
+### Module Map
+```
+components/datamanager/src/trademachine/datamanager/
+  client.py           → HTTP client for the API
+  db/database.py      → SQLAlchemy async engine + session
+  db/models.py        → ORM models (OHLCV, assets, sources, FRED)
+  db/processor.py     → DataProcessor: resampling + gap filling (TF_MAPPING)
+  db/storage.py       → StorageManager: TimescaleDB OHLCV I/O
+  db/series_storage.py→ SeriesStorageManager: FRED persistence
+  fetchers/base.py    → BaseFetcher ABC
+  fetchers/ccxt.py    → Crypto (exchange:SYMBOL)
+  fetchers/dukascopy.py → Forex/commodities
+  fetchers/openbb.py  → Equities/ETFs (yfinance)
+  fetchers/fred.py    → FRED economic series
+  services/manager.py → DataManager: OHLCV orchestrator
+  services/series_manager.py → FRED orchestrator
+  services/scheduler.py → Background scheduler (APScheduler)
+  schemas/            → Pydantic request/response models
+```
 
 ## Commands
-
 ```bash
-# Install dependencies (including dev tools)
-uv sync --dev
-
-# Run the interactive CLI
-uv run datamanager -i
-
-# Run a single CLI command directly
+uv sync --dev                                                 # install deps
+uv run pytest components/datamanager/test/                   # run tests
+uv run datamanager -i                                        # interactive CLI
 uv run datamanager download dukascopy EURUSD 2024-01-01 2024-12-31
-uv run datamanager fred_search --query inflation
-
-# Start the REST API server (port 8686)
 uv run uvicorn trademachine.datamanager_api.router:app --host 0.0.0.0 --port 8686
-
-# Run all tests
-uv run pytest components/datamanager/test/
-
-# Run a single test file
-uv run pytest components/datamanager/test/trademachine/datamanager/test_processor.py -v
-
-# Lint (with auto-fix) and format
-uv run ruff check --fix . && uv run ruff format .
-
-# Docker (REST API mode)
-docker-compose up -d
+docker compose up -d                                         # API via Docker
 ```
 
-## Architecture
+## Environment Variables
+| Variable              | Description                                      |
+|-----------------------|--------------------------------------------------|
+| `DATABASE_URL`        | PostgreSQL/TimescaleDB connection string         |
+| `DATAMANAGER_API_KEY` | Secret key — required for all authenticated APIs |
+| `DATAMANAGER_HOST`    | API host (default `0.0.0.0`)                     |
+| `DATAMANAGER_PORT`    | API port (default `8686`)                        |
+| `FRED_API_KEY`        | FRED API key (required for economic series)      |
 
-**DataManager** is a financial data management system that fetches, stores, and manages OHLCV (Open/High/Low/Close/Volume) candlestick data plus FRED economic series. The system exposes two independent interfaces (CLI and REST API) that share the same OHLCV orchestrator, while FRED uses a dedicated `SeriesManager`.
+## REST API — Key Endpoints (all require `X-API-Key` header)
+- `POST /download` · `POST /update` · `POST /delete` · `GET /list`
+- `GET /info/{source}/{asset}/{timeframe}` · `GET /data/{source}/{asset}/{timeframe}`
+- `GET /data/.../stream` (CSV) · `GET /search`
+- `POST /series/download` · `POST /series/update` · `GET /series/list`
+- `GET /series/data/{source}/{series_id}` · `POST /series/delete`
+- `GET|POST /schedule` · `DELETE /schedule/{job_id}`
 
-### Core Principle
+## Adding a New Fetcher
+1. Create class in `fetchers/` extending `BaseFetcher`.
+2. Implement `source_name` property and `fetch_data(asset, start, end) → pd.DataFrame`.
+3. DataFrame must have: capitalized `Open/High/Low/Close/Volume` columns + timezone-naive
+   `datetime` index at M1 resolution.
+4. Auto-discovered via `pkgutil`/`importlib` — no registration needed.
 
-OHLCV data is always fetched and stored at **M1 (1-minute) resolution first**. Higher timeframes (M5, M15, H1, D1, etc.) are derived via resampling — they are never fetched directly from sources. FRED series are stored separately at their native frequency and updated with overlap to absorb historical revisions.
-
-### Module Responsibilities
-
-```
-bases/datamanager_cli/src/trademachine/datamanager_cli/cli.py
-                                      → Interactive shell (cmd.Cmd); all user-facing CLI commands
-
-bases/datamanager_api/src/trademachine/datamanager_api/router.py
-                                      → FastAPI REST API (port 8686)
-
-components/datamanager/src/trademachine/datamanager/
-  ├── client.py                       → Python HTTP client for the API
-  ├── core/config.py                  → Pydantic settings (DATABASE_URL, DATAMANAGER_API_KEY)
-  ├── db/
-  │   ├── database.py                 → SQLAlchemy async engine + session
-  │   ├── models.py                  → ORM models (OHLCV, assets, sources, FRED series)
-  │   ├── processor.py                → DataProcessor: OHLCV resampling + gap filling
-  │   ├── storage.py                  → StorageManager: OHLCV TimescaleDB I/O
-  │   └── series_storage.py           → SeriesStorageManager: FRED persistence
-  ├── fetchers/
-  │   ├── base.py                    → BaseFetcher ABC
-  │   ├── ccxt.py                    → CCXT integration (crypto; exchange:SYMBOL)
-  │   ├── dukascopy.py               → Dukascopy integration (forex, commodities)
-  │   ├── openbb.py                 → OpenBB/YFinance integration (equities, ETFs)
-  │   └── fred.py                   → OpenBB/FRED integration (economic series)
-  ├── schemas/                        → Pydantic request/response models
-  └── services/
-      ├── manager.py                  → DataManager: OHLCV orchestrator
-      ├── scheduler.py                → Background job scheduler (APScheduler)
-      └── series_manager.py           → FRED/economic-series orchestrator
-```
-
-### Data Flow
-
-```
-User (CLI or API)
-  → DataManager (trademachine.datamanager.services.manager)
-    → Fetcher.fetch_data() → M1 DataFrame
-    → StorageManager.save_data() → TimescaleDB hypertable (ohlcv_m1)
-    → TimescaleDB continuous aggregates → M5, M15, H1, H4, D1 (automatic refresh)
-```
-
-### Storage Layout (TimescaleDB)
-
-```
-TimescaleDB (PostgreSQL):
-  ├── ohlcv_m1        — Hypertable: raw 1-minute OHLCV data (primary write target)
-  ├── ohlcv_m5        — Continuous aggregate: 5-minute OHLCV
-  ├── ohlcv_m15       — Continuous aggregate: 15-minute OHLCV
-  ├── ohlcv_h1        — Continuous aggregate: 1-hour OHLCV
-  ├── ohlcv_h4        — Continuous aggregate: 4-hour OHLCV
-  ├── ohlcv_d1        — Continuous aggregate: 1-day OHLCV
-  ├── sources         — Catalog: data source names
-  ├── assets         — Catalog: tickers per source with min/max/row_count
-  ├── economic_series — Catalog: FRED series metadata and provider payload
-  └── economic_observations — Hypertable: timestamped FRED observations
-
-metadata/
-metadata/dukas_assets.csv      # ~3,000 valid Dukascopy asset symbols
-```
-
-Use `update all` CLI command to recalculate asset statistics after bulk loads.
-
-Use `fred_update` or `schedule add-series` for FRED series refreshes; those use an overlap window so historic revisions are not missed.
-
-### Adding a New Fetcher
-
-Create a class in `components/datamanager/src/trademachine/datamanager/fetchers/` that extends `BaseFetcher` and implements:
-- `source_name` property (string identifier)
-- `fetch_data(asset, start_date, end_date) -> pd.DataFrame` (must return M1 OHLCV data)
-- `search(query) -> pd.DataFrame` (optional; raises `NotImplementedError` by default)
-
-The DataFrame returned by `fetch_data` must have:
-- Index: `datetime` timezone-naive
-- Columns: `Open`, `High`, `Low`, `Close`, `Volume` (capitalized)
-
-The fetcher is auto-discovered via `pkgutil`/`importlib` in `trademachine.datamanager.fetchers` — no registration required. Modules that fail to import (e.g. missing optional dependencies) are skipped with a warning.
-
-FRED does not reuse the OHLCV fetcher contract. It has its own `FredFetcher` and `SeriesManager` because the data shape is a single economic value series, not OHLCV candles.
-
-**Important**: `download_data` raises an exception if an M1 database for that asset/source already exists. Use the `update` command to append newer data to an existing database.
-
-### Supported Timeframes
-
-`M1, M2, M5, M10, M15, M30, H1, H2, H3, H4, H6, D1, W1`
-
-- **TimescaleDB native (continuous aggregates):** M1 (hypertable), M5, M15, H1, H4, D1
-- **Derived via resampling:** M2, M10, M30, H2, H3, H6, W1 (via `DataProcessor` from M1 data)
-
-Mapping to pandas resample strings is defined in `DataProcessor.TF_MAPPING`.
-
-## REST API Endpoints
-
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `/` | GET | No | Dashboard and instance statistics |
-| `/health` | GET | No | Health check |
-| `/download` | POST | Yes | Download asset data (background) |
-| `/update` | POST | Yes | Update existing database (background) |
-| `/delete` | POST | Yes | Delete database(s) |
-| `/list` | GET | Yes | List all databases (paginated) |
-| `/info/{source}/{asset}/{timeframe}` | GET | Yes | Database metadata |
-| `/search` | GET | Yes | Search assets by source/query |
-| `/data/{source}/{asset}/{timeframe}` | GET | Yes | Download data as Parquet |
-| `/data/{source}/{asset}/{timeframe}/stream` | GET | Yes | Stream data as CSV |
-| `/series/search` | GET | Yes | Search FRED economic series |
-| `/series/download` | POST | Yes | Download and save a FRED series |
-| `/series/update` | POST | Yes | Update an existing FRED series |
-| `/series/list` | GET | Yes | List stored FRED series |
-| `/series/info/{source}/{series_id}` | GET | Yes | Metadata for a stored FRED series |
-| `/series/data/{source}/{series_id}` | GET | Yes | Download FRED data as Parquet |
-| `/series/delete` | POST | Yes | Delete a stored FRED series |
-| `/schedule` | GET | Yes | List scheduled jobs |
-| `/schedule` | POST | Yes | Create scheduled job |
-| `/schedule/{job_id}` | DELETE | Yes | Remove scheduled job |
-
-## Ruff Workflow
-
-Always run Ruff after implementing or editing Python files.
-
-```bash
-# Lint and auto-fix
-uv run ruff check --fix .
-
-# Format
-uv run ruff format .
-
-# Full run (recommended)
-uv run ruff check --fix . && uv run ruff format .
-```
-
-### Workflow Rules
-1. Implement the requested functionality.
-2. Run `uv run ruff check --fix . && uv run ruff format .`
-3. Check if any warnings remain.
-
-### REST API Auth
-
-Set `DATAMANAGER_API_KEY` in `.env` (see `.env.example`). All API requests require the header `X-API-Key: <value>`.
-Set `FRED_API_KEY` in `.env` as well. The OpenBB FRED provider requires it to search and download economic series.
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | — | PostgreSQL connection string with TimescaleDB |
-| `DATAMANAGER_API_KEY` | — | Secret key for API authentication |
-| `DATAMANAGER_HOST` | `0.0.0.0` | API server host |
-| `DATAMANAGER_PORT` | `8686` | API server port |
-| `FRED_API_KEY` | — | FRED API key used by OpenBB for economic series |
+## Key Rules
+- `download_data` raises if M1 data for that asset/source already exists → use `update`.
+- Run `update all` CLI command after bulk loads to recalculate asset statistics.
+- FRED uses overlap window on updates to absorb historical revisions.
+- Never commit `.env`, API keys, logs, or generated DB contents.
+- New timeframe → add to `DataProcessor.TF_MAPPING` in `db/processor.py`.
+- API changes → update schemas in `schemas/` and routes in `datamanager_api/router.py`.
+- Tests: `test_<feature>.py` in `components/datamanager/test/`; use `tmp_path` fixtures.
+- Conventional Commits: `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`.
