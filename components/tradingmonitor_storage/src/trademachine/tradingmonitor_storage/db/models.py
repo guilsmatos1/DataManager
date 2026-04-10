@@ -36,6 +36,7 @@ portfolio_strategy = Table(
     Base.metadata,
     Column("portfolio_id", ForeignKey("portfolios.id"), primary_key=True),
     Column("strategy_id", ForeignKey("strategies.id"), primary_key=True),
+    Index("ix_portfolio_strategy_strategy_id", "strategy_id"),
 )
 
 
@@ -68,6 +69,10 @@ class Account(Base):
 
 class Strategy(Base):
     __tablename__ = "strategies"
+    __table_args__ = (
+        Index("ix_strategies_account_id", "account_id"),
+        Index("ix_strategies_symbol_id", "symbol_id"),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)  # MT5 Magic Number
     name: Mapped[str | None] = mapped_column(String)
@@ -165,10 +170,6 @@ class BenchmarkPrice(Base):
     close: Mapped[float] = mapped_column(Numeric(18, 8), nullable=False)
 
     benchmark: Mapped["Benchmark"] = relationship(back_populates="prices")
-
-    __table_args__ = (
-        Index("ix_benchmark_prices_benchmark_timestamp", "benchmark_id", "timestamp"),
-    )
 
 
 class Deal(Base):
@@ -326,6 +327,8 @@ class Backtest(Base):
         UniqueConstraint(
             "strategy_id", "client_run_id", name="_backtest_strategy_run_uc"
         ),
+        Index("ix_backtests_strategy_created_at", "strategy_id", "created_at"),
+        Index("ix_backtests_symbol_id", "symbol_id"),
     )
 
 
@@ -349,8 +352,6 @@ class BacktestDeal(Base):
 
     backtest: Mapped["Backtest"] = relationship(back_populates="deals")
 
-    __table_args__ = (Index("ix_backtest_deals_id_ts", "backtest_id", "timestamp"),)
-
 
 class BacktestEquity(Base):
     __tablename__ = "backtest_equity"
@@ -365,5 +366,3 @@ class BacktestEquity(Base):
     equity: Mapped[float] = mapped_column(Numeric(18, 8))
 
     backtest: Mapped["Backtest"] = relationship(back_populates="equity")
-
-    __table_args__ = (Index("ix_backtest_equity_id_ts", "backtest_id", "timestamp"),)

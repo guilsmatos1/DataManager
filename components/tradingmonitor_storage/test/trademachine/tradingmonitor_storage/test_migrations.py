@@ -125,6 +125,54 @@ def test_migrations_run_successfully():
                 "Constraint 'ck_backtests_status_allowed' should exist after migrations"
             )
 
+            result = conn.execute(
+                __import__("sqlalchemy").text(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pg_indexes
+                        WHERE tablename = 'strategies'
+                          AND indexname = 'ix_strategies_account_id'
+                    )
+                    """
+                )
+            )
+            assert result.scalar() is True, (
+                "Index 'ix_strategies_account_id' should exist after migrations"
+            )
+
+            result = conn.execute(
+                __import__("sqlalchemy").text(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pg_indexes
+                        WHERE tablename = 'portfolio_strategy'
+                          AND indexname = 'ix_portfolio_strategy_strategy_id'
+                    )
+                    """
+                )
+            )
+            assert result.scalar() is True, (
+                "Index 'ix_portfolio_strategy_strategy_id' should exist after migrations"
+            )
+
+            result = conn.execute(
+                __import__("sqlalchemy").text(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pg_indexes
+                        WHERE tablename = 'backtests'
+                          AND indexname = 'ix_backtests_strategy_created_at'
+                    )
+                    """
+                )
+            )
+            assert result.scalar() is True, (
+                "Index 'ix_backtests_strategy_created_at' should exist after migrations"
+            )
+
     finally:
         # 6. Cleanup: Drop the test database
         with admin_engine.connect() as conn:
