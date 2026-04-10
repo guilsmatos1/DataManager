@@ -27,6 +27,12 @@ from trademachine.tradingmonitor_storage.api_schemas import (
     TelegramSettings,
 )
 from trademachine.tradingmonitor_storage.config import Settings, get_settings, settings
+from trademachine.tradingmonitor_storage.db.aggregates import (
+    get_strategy_daily_profit_rows,
+    get_strategy_intraday_profit_map,
+    get_strategy_net_profit_map,
+    get_strategy_trade_count_map,
+)
 from trademachine.tradingmonitor_storage.db.database import (
     DatabaseUnavailableError,
     SessionLocal,
@@ -117,6 +123,10 @@ __all__ = [
     "ensure_database_connection",
     "get_datamanager_settings",
     "get_db",
+    "get_strategy_daily_profit_rows",
+    "get_strategy_intraday_profit_map",
+    "get_strategy_net_profit_map",
+    "get_strategy_trade_count_map",
     "get_settings",
     "init_db",
     "notifier",

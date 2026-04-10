@@ -10,6 +10,11 @@ from typing import Any
 
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session, joinedload
+from trademachine.tradingmonitor_storage.db.aggregates import (
+    get_strategy_daily_profit_rows,
+    get_strategy_net_profit_map,
+    get_strategy_trade_count_map,
+)
 from trademachine.tradingmonitor_storage.db.database import SessionLocal
 from trademachine.tradingmonitor_storage.db.models import (
     Account,
@@ -584,19 +589,7 @@ class DealRepository:
         """Get net profit sum for multiple strategies."""
         db = SessionLocal()
         try:
-            rows = (
-                db.query(
-                    Deal.strategy_id,
-                    func.sum(Deal.profit + Deal.commission + Deal.swap),
-                )
-                .filter(
-                    Deal.strategy_id.in_(strategy_ids),
-                    Deal.type.in_([DealType.BUY, DealType.SELL]),
-                )
-                .group_by(Deal.strategy_id)
-                .all()
-            )
-            return {str(r[0]): float(r[1] or 0.0) for r in rows}
+            return get_strategy_net_profit_map(db, strategy_ids)
         finally:
             db.close()
 
@@ -604,16 +597,7 @@ class DealRepository:
         """Get trades count for multiple strategies."""
         db = SessionLocal()
         try:
-            rows = (
-                db.query(Deal.strategy_id, func.count(Deal.ticket))
-                .filter(
-                    Deal.strategy_id.in_(strategy_ids),
-                    Deal.type.in_([DealType.BUY, DealType.SELL]),
-                )
-                .group_by(Deal.strategy_id)
-                .all()
-            )
-            return {str(r[0]): int(r[1]) for r in rows}
+            return get_strategy_trade_count_map(db, strategy_ids)
         finally:
             db.close()
 
@@ -623,27 +607,11 @@ class DealRepository:
         """Get daily profit for a strategy or list of strategies."""
         db = SessionLocal()
         try:
-            from sqlalchemy import cast
-            from sqlalchemy.types import Date
-
-            query = db.query(
-                cast(Deal.timestamp, Date).label("date"),
-                func.sum(Deal.profit + Deal.commission + Deal.swap).label("net_profit"),
-            )
-
             if strategy_id:
-                query = query.filter(Deal.strategy_id == strategy_id)
-            elif strategy_ids:
-                query = query.filter(Deal.strategy_id.in_(strategy_ids))
-
-            rows = (
-                query.group_by(cast(Deal.timestamp, Date))
-                .order_by(cast(Deal.timestamp, Date))
-                .all()
-            )
-            return [
-                {"date": str(r.date), "net_profit": float(r.net_profit)} for r in rows
-            ]
+                return get_strategy_daily_profit_rows(db, [strategy_id])
+            if strategy_ids:
+                return get_strategy_daily_profit_rows(db, strategy_ids)
+            return get_strategy_daily_profit_rows(db, None)
         finally:
             db.close()
 
