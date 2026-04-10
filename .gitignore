@@ -21,6 +21,7 @@ Thumbs.db
 .env
 .env.local
 htmlcov/
+.coverage
 *.log
 
 # Editor / IDE
