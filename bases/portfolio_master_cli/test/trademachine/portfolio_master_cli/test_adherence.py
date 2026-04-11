@@ -159,6 +159,7 @@ def test_parse_sqx_directory_not_found():
 # --- Adherence Service Tests ---
 
 
+@pytest.mark.integration
 def test_run_adherence_check_real_data():
     """Test run_adherence_check using real data from tests/reports and tests/reports-sqx."""
     # Ensure directories exist

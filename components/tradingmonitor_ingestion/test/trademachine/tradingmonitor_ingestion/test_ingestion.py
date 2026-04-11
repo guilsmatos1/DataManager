@@ -19,8 +19,9 @@ def test_process_deal_logic():
     # Mock database session
     db = MagicMock()
 
-    # Mock query for ensure_strategy_exists
-    db.query.return_value.filter.return_value.first.return_value = Strategy(id="123")
+    # Mock query: return MagicMock so both subscript access (row[0] in _get_symbol_id)
+    # and attribute access (strategy.id in ensure_strategy_exists) work transparently.
+    db.query.return_value.filter.return_value.first.return_value = MagicMock()
 
     # Valid data according to DealSchema
     deal_data = DealSchema(
