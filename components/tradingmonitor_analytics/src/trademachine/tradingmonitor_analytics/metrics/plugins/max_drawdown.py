@@ -5,10 +5,10 @@ import pandas as pd
 from trademachine.tradingmonitor_analytics.metrics.plugins.base import BaseMetric
 
 
-class MaxDrawdown(BaseMetric):
+class DrawdownMetric(BaseMetric):
     @property
     def name(self) -> str:
-        return "Max Drawdown (%)"
+        return "Drawdown"
 
     def calculate(
         self, _deals_df: pd.DataFrame, daily_returns: pd.Series | None = None, **_kwargs
@@ -21,5 +21,5 @@ class MaxDrawdown(BaseMetric):
         prices = np.concatenate([[1.0], np.cumprod(1 + r)])
         peaks = np.maximum.accumulate(prices)
         safe_peaks = np.where(peaks > 0, peaks, 1.0)
-        max_dd = float(np.max((peaks - prices) / safe_peaks))
-        return -max_dd * 100  # negative percentage — matches legacy convention
+        drawdown = float(np.max((peaks - prices) / safe_peaks))
+        return -drawdown * 100  # negative percentage — matches legacy convention

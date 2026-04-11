@@ -2,9 +2,25 @@
 {% block title %}TradingMonitor — Symbol {{ symbol_name }}{% endblock %}
 
 {% block content %}
+<style>
+    #symbol-summary {
+        margin-top: 1rem;
+    }
+    #symbol-summary .summary-num {
+        font-size: 1.75rem;
+    }
+    #symbol-strategies-card,
+    #symbol-empty {
+        margin-top: 1rem;
+    }
+    @media (max-width: 640px) {
+        #symbol-summary .summary-num {
+            font-size: 1.45rem;
+        }
+    }
+</style>
 <div class="page-header">
-    <a href="/" class="back-link">← Overview</a>
-    <h1 id="symbol-title">Symbol {{ symbol_name }}</h1>
+    <h1 id="symbol-title"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="9" x2="9" y1="4" y2="20"/><line x1="15" x2="15" y1="4" y2="20"/></svg> Symbol {{ symbol_name }}</h1>
 </div>
 
 <div class="summary-cards" id="symbol-summary" style="display:none">

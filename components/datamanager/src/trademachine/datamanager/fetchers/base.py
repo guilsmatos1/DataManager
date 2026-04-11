@@ -2,6 +2,21 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 
 import pandas as pd
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
+
+# Shared retry policy for all network fetchers.
+# Retries up to 3 times on transient network errors with exponential backoff.
+FETCH_RETRY = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1.0, max=10.0),
+    retry=retry_if_exception_type((OSError, ConnectionError, TimeoutError)),
+    reraise=True,
+)
 
 
 class BaseFetcher(ABC):

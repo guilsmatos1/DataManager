@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Any, cast
 
 import pandas as pd
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential_jitter,
-)
+
+from .base import FETCH_RETRY
+
+
+def _configure_obb_fred() -> None:
+    """Inject FRED API key into OpenBB credentials from environment."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    api_key = os.environ.get("FRED_API_KEY", "")
+    if not api_key:
+        return
+    from openbb import obb
+
+    obb.user.credentials.fred_api_key = api_key  # type: ignore[union-attr]
 
 
 class FredFetcher:
@@ -78,6 +88,7 @@ class FredFetcher:
         return result[["Value"]]
 
     def search(self, query: str | None = None, **kwargs) -> pd.DataFrame:
+        _configure_obb_fred()
         from openbb import obb
 
         search_args: dict[str, Any] = {"provider": "fred"}
@@ -128,6 +139,7 @@ class FredFetcher:
     def fetch_data(
         self, asset: str, start_date: datetime, end_date: datetime, **kwargs
     ) -> pd.DataFrame:
+        _configure_obb_fred()
         from openbb import obb
 
         fred_kwargs: dict[str, Any] = {
@@ -142,12 +154,7 @@ class FredFetcher:
         if "frequency" in kwargs and kwargs["frequency"]:
             fred_kwargs["frequency"] = kwargs["frequency"]
 
-        @retry(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential_jitter(initial=1.0, max=10.0),
-            retry=retry_if_exception_type((OSError, ConnectionError, TimeoutError)),
-            reraise=True,
-        )
+        @FETCH_RETRY
         def _fetch() -> Any:
             return cast(Any, obb.economy.fred_series(**fred_kwargs))  # type: ignore[union-attr]
 

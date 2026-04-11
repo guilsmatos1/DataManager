@@ -6,10 +6,10 @@ from trademachine.tradingmonitor_analytics.metrics.plugins.base import BaseMetri
 from trademachine.tradingmonitor_analytics.metrics.utils import net_pnl
 
 
-class RecoveryFactor(BaseMetric):
+class RetDDMetric(BaseMetric):
     @property
     def name(self) -> str:
-        return "Recovery Factor"
+        return "Ret/DD"
 
     def calculate(
         self, deals_df: pd.DataFrame, daily_returns: pd.Series | None = None, **_kwargs
@@ -22,18 +22,18 @@ class RecoveryFactor(BaseMetric):
         if len(r) < 2:
             return None
         try:
-            net_profit = net_pnl(deals_df).sum()
+            profit = net_pnl(deals_df).sum()
             prices = np.concatenate([[1.0], np.cumprod(1 + r)])
             peaks = np.maximum.accumulate(prices)
             safe_peaks = np.where(peaks > 0, peaks, 1.0)
-            max_dd = float(np.max((peaks - prices) / safe_peaks))
-            if max_dd == 0:
+            drawdown = float(np.max((peaks - prices) / safe_peaks))
+            if drawdown == 0:
                 return 0.0
             # Total compound return over the period
             total_ret = float(prices[-1]) - 1.0
-            rf = total_ret / max_dd
-            if net_profit < 0:
-                return -abs(rf)
-            return abs(rf)
+            ret_dd = total_ret / drawdown
+            if profit < 0:
+                return -abs(ret_dd)
+            return abs(ret_dd)
         except (ValueError, ZeroDivisionError):
             return None

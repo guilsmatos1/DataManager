@@ -25,6 +25,9 @@ async function loadPortfolioStrategies() {
 }
 
 (async () => {
+    document.querySelectorAll(".period-tab[data-es]").forEach((button) =>
+        button.classList.toggle("active", button.dataset.es === _equityScale)
+    );
     await loadPortfolio();
     loadMetrics();
     loadEquity();

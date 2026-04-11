@@ -1,26 +1,79 @@
-# Repository Guidelines
+# DataManager — Reference Guide
 
-## Project Structure & Module Organization
-Code lives under `components/datamanager/src/trademachine/datamanager/` using **Polylith architecture**. Entry points are in `bases/`: `datamanager_cli` (interactive shell) and `datamanager_api` (FastAPI REST API, port 8686). Core business logic (fetchers, storage, processing, scheduling) lives in the `datamanager` component. Tests are in `tests/unit/`. Persistent data is stored in TimescaleDB (`ohlcv_m1` hypertable + continuous aggregates for M5/M15/H1/H4/D1), with asset metadata in `sources`/`assets` tables.
+## Overview
+Centralized financial data management system that fetches, stores, and manages OHLCV candlestick data and FRED economic series. Exposes a CLI and a REST API (port 8686).
 
-## Build, Test, and Development Commands
-Use `uv` for local development.
+**Stack:** Python ≥3.12 · FastAPI/Uvicorn · TimescaleDB (PostgreSQL) · Pandas · Ruff · Pytest · uv
 
-- `uv sync --dev`: install runtime and development dependencies into the project environment.
-- `uv run pytest components/datamanager/test/`: run the test suite.
-- `uv run ruff check .`: run linting and import-order checks.
-- `uv run datamanager -i`: start the interactive CLI.
-- `uv run uvicorn trademachine.datamanager_api.router:app --host 0.0.0.0 --port 8686 --reload`: run the REST API locally.
-- `docker compose run --rm datamanager`: run the app in the project container with local volumes mounted.
+## Architecture (Polylith)
+- **bases/datamanager_cli** — Interactive shell (cmd.Cmd); all user-facing CLI commands
+- **bases/datamanager_api** — FastAPI REST API (port 8686)
+- **components/datamanager** — All business logic: fetchers, db, services, schemas
 
-## Coding Style & Naming Conventions
-Target Python 3.12 and follow Ruff defaults configured in `pyproject.toml`: 4-space indentation and a 120-character line limit. Keep modules and functions in `snake_case`, classes in `PascalCase`, and constants in `UPPER_SNAKE_CASE`. Preserve the existing package split by responsibility (`fetchers`, `db`, `services`, `api`) instead of adding cross-cutting utility files.
+### Core Principle — M1-First
+All data is fetched and stored at **M1 (1-minute)** resolution. Higher timeframes are derived — never fetched directly:
+- **TimescaleDB continuous aggregates:** M2, M5, M10, M15, M30, H1, H2, H3, H4, H6, D1, W1
 
-## Testing Guidelines
-Pytest is the test runner. Place new tests in `tests/unit/` as `test_<feature>.py`, and name test functions `test_<behavior>()`. Prefer isolated fixtures with `tmp_path` and small in-memory pandas frames, following patterns in `components/datamanager/test/`. No formal coverage gate is configured; add tests for any change that affects resampling, persistence, CLI parsing, or API behavior.
+### Module Map
+```
+components/datamanager/src/trademachine/datamanager/
+  client.py           → HTTP client for the API
+  db/database.py      → SQLAlchemy async engine + session
+  db/models.py        → ORM models (OHLCV, assets, sources, FRED)
+  db/processor.py     → DataProcessor: resampling + gap filling (TF_MAPPING)
+  db/storage.py       → StorageManager: TimescaleDB OHLCV I/O
+  db/series_storage.py→ SeriesStorageManager: FRED persistence
+  fetchers/base.py    → BaseFetcher ABC
+  fetchers/ccxt.py    → Crypto (exchange:SYMBOL)
+  fetchers/dukascopy.py → Forex/commodities
+  fetchers/openbb.py  → Equities/ETFs (yfinance)
+  fetchers/fred.py    → FRED economic series
+  services/manager.py → DataManager: OHLCV orchestrator
+  services/series_manager.py → FRED orchestrator
+  services/scheduler.py → Background scheduler (APScheduler)
+  schemas/            → Pydantic request/response models
+```
 
-## Commit & Pull Request Guidelines
-Recent history uses Conventional Commit prefixes such as `feat:`, `fix:`, `docs:`, `chore:`, and `security:`. Keep messages imperative and scoped to one change. Pull requests should include a short summary, the commands used for validation, and sample CLI/API output when behavior changes. Link related issues when applicable.
+## Commands
+```bash
+uv sync --dev                                                 # install deps
+uv run pytest components/datamanager/test/                   # run tests
+uv run datamanager -i                                        # interactive CLI
+uv run datamanager download dukascopy EURUSD 2024-01-01 2024-12-31
+uv run uvicorn trademachine.datamanager_api.router:app --host 0.0.0.0 --port 8686
+docker compose up -d                                         # API via Docker
+```
 
-## Security & Configuration Tips
-Do not commit `.env` files, API keys, logs, or generated database contents. Start from `.env.example` for local API configuration, and verify that `DATAMANAGER_API_KEY` is set before exposing the FastAPI service outside localhost.
+## Environment Variables
+| Variable              | Description                                      |
+|-----------------------|--------------------------------------------------|
+| `DATABASE_URL`        | PostgreSQL/TimescaleDB connection string         |
+| `DATAMANAGER_API_KEY` | Secret key — required for all authenticated APIs |
+| `DATAMANAGER_HOST`    | API host (default `0.0.0.0`)                     |
+| `DATAMANAGER_PORT`    | API port (default `8686`)                        |
+| `FRED_API_KEY`        | FRED API key (required for economic series)      |
+
+## REST API — Key Endpoints (all require `X-API-Key` header)
+- `POST /download` · `POST /update` · `POST /delete` · `GET /list`
+- `GET /info/{source}/{asset}/{timeframe}` · `GET /data/{source}/{asset}/{timeframe}`
+- `GET /data/.../stream` (CSV) · `GET /search`
+- `POST /series/download` · `POST /series/update` · `GET /series/list`
+- `GET /series/data/{source}/{series_id}` · `POST /series/delete`
+- `GET|POST /schedule` · `DELETE /schedule/{job_id}`
+
+## Adding a New Fetcher
+1. Create class in `fetchers/` extending `BaseFetcher`.
+2. Implement `source_name` property and `fetch_data(asset, start, end) → pd.DataFrame`.
+3. DataFrame must have: capitalized `Open/High/Low/Close/Volume` columns + timezone-naive
+   `datetime` index at M1 resolution.
+4. Auto-discovered via `pkgutil`/`importlib` — no registration needed.
+
+## Key Rules
+- `download_data` raises if M1 data for that asset/source already exists → use `update`.
+- Run `update all` CLI command after bulk loads to recalculate asset statistics.
+- FRED uses overlap window on updates to absorb historical revisions.
+- Never commit `.env`, API keys, logs, or generated DB contents.
+- New timeframe → add to `DataProcessor.TF_MAPPING` in `db/processor.py`.
+- API changes → update schemas in `schemas/` and routes in `datamanager_api/router.py`.
+- Tests: `test_<feature>.py` in `components/datamanager/test/`; use `tmp_path` fixtures.
+- Conventional Commits: `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`.

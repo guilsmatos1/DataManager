@@ -20,13 +20,23 @@
 </head>
 <body>
     <nav class="navbar">
-        <a class="nav-brand" href="/">TradingMonitor</a>
+        <a class="nav-brand" href="/">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            TradingMonitor
+        </a>
         {% set path = request.url.path %}
         <div class="nav-links">
-            <a href="/" class="{{ 'active' if path == '/' else '' }}">Overview</a>
-            <a href="/real" class="{{ 'active' if path == '/real' else '' }}">Real</a>
+            <a href="/" class="{{ 'active' if path == '/' else '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+                Overview
+            </a>
+            <a href="/real" class="{{ 'active' if path == '/real' else '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+                Real
+            </a>
             <div class="nav-dropdown" id="strategies-nav">
                 <button type="button" class="nav-dropdown-toggle {{ 'active' if path.startswith('/strategy') else '' }}" id="strategies-toggle" aria-expanded="false">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
                     <span>Strategies</span>
                 </button>
                 <div class="nav-dropdown-menu" id="strategies-menu">
@@ -36,6 +46,7 @@
             </div>
             <div class="nav-dropdown" id="portfolios-nav">
                 <button type="button" class="nav-dropdown-toggle {{ 'active' if path.startswith('/portfolio') else '' }}" id="portfolios-toggle" aria-expanded="false">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/></svg>
                     <span>Portfolios</span>
                 </button>
                 <div class="nav-dropdown-menu" id="portfolios-menu">
@@ -45,6 +56,7 @@
             </div>
             <div class="nav-dropdown" id="accounts-nav">
                 <button type="button" class="nav-dropdown-toggle {{ 'active' if path.startswith('/account') else '' }}" id="accounts-toggle" aria-expanded="false">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
                     <span>Accounts</span>
                 </button>
                 <div class="nav-dropdown-menu" id="accounts-menu">
@@ -54,6 +66,7 @@
             </div>
             <div class="nav-dropdown" id="symbols-nav">
                 <button type="button" class="nav-dropdown-toggle {{ 'active' if path.startswith('/symbol') else '' }}" id="symbols-toggle" aria-expanded="false">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="9" x2="9" y1="4" y2="20"/><line x1="15" x2="15" y1="4" y2="20"/></svg>
                     <span>Symbols</span>
                 </button>
                 <div class="nav-dropdown-menu" id="symbols-menu">
@@ -61,11 +74,17 @@
                     <div id="symbols-menu-items"></div>
                 </div>
             </div>
-            <a href="/benchmarks" class="{{ 'active' if path.startswith('/benchmark') else '' }}">Benchmarks</a>
+            <a href="/benchmarks" class="{{ 'active' if path.startswith('/benchmark') else '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+                Benchmarks
+            </a>
         </div>
         <div class="nav-status">
             <div class="nav-links">
-                <a href="/settings" class="{{ 'active' if path == '/settings' else '' }}">Settings</a>
+                <a href="/settings" class="{{ 'active' if path == '/settings' else '' }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                    Settings
+                </a>
             </div>
             <button id="theme-toggle" class="btn-theme" onclick="toggleTheme()" title="Toggle theme">🌙</button>
             <span id="ws-status" class="badge badge-inactive">Offline</span>
@@ -80,7 +99,10 @@
         {% block content %}{% endblock %}
     </main>
 
-    <script src="/static/dashboard.js"></script>
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/static/dashboard.js?v={{ js_v }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

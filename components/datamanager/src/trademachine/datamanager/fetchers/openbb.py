@@ -2,14 +2,8 @@ from datetime import datetime
 from typing import Any, cast
 
 import pandas as pd
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential_jitter,
-)
 
-from .base import BaseFetcher
+from .base import FETCH_RETRY, BaseFetcher
 
 
 class OpenBBFetcher(BaseFetcher):
@@ -41,12 +35,7 @@ class OpenBBFetcher(BaseFetcher):
 
             equity_api = obb.equity  # type: ignore[union-attr]
 
-            @retry(
-                stop=stop_after_attempt(3),
-                wait=wait_exponential_jitter(initial=1.0, max=10.0),
-                retry=retry_if_exception_type((OSError, ConnectionError, TimeoutError)),
-                reraise=True,
-            )
+            @FETCH_RETRY
             def _fetch_historical() -> Any:
                 return cast(Any, equity_api.price.historical(**obb_kwargs))
 

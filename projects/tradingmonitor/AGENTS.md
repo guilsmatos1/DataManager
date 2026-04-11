@@ -50,7 +50,7 @@ uv run trading-monitor portfolio-report <portfolio_id>
 uv run trading-monitor send-report --strategy-id <strategy_id>
 
 # Tests
-uv run pytest components/tradingmonitor/test
+uv run pytest components/tradingmonitor_storage/test components/tradingmonitor_ingestion/test components/tradingmonitor_analytics/test bases/trading_monitor_cli/test bases/trading_monitor_dashboard/test
 
 # Lint and format after Python changes
 uv run ruff check --fix . && uv run ruff format .
@@ -60,7 +60,12 @@ uv run ruff check --fix . && uv run ruff format .
 
 TradingMonitor follows the Polylith layout used across the monorepo.
 
-- `components/tradingmonitor` contains reusable business logic and persistence.
+- `components/tradingmonitor_storage` contains configuration, persistence, ORM
+  models, repository logic, and API-facing schemas.
+- `components/tradingmonitor_ingestion` contains the TCP ingestion runtime,
+  payload validation, heartbeat, and dead-letter flow.
+- `components/tradingmonitor_analytics` contains metrics, QuantStats reports,
+  benchmark sync, and drift analysis.
 - `bases/trading_monitor_cli` contains the CLI command wiring.
 - `bases/trading_monitor_dashboard` contains the FastAPI dashboard, HTML pages,
   API routes, and websocket bridge.
@@ -78,27 +83,25 @@ TradingMonitor follows the Polylith layout used across the monorepo.
 - `bases/trading_monitor_dashboard/src/trademachine/trading_monitor_dashboard/routes.py`
   contains dashboard and API routes for accounts, strategies, portfolios,
   backtests, settings, ingestion, and benchmarks.
-- `components/tradingmonitor/src/trademachine/tradingmonitor/ingestion/tcp_server.py`
+- `components/tradingmonitor_ingestion/src/trademachine/tradingmonitor_ingestion/ingestion/tcp_server.py`
   handles TCP ingestion, heartbeat, dead-letter flow, and event dispatch.
-- `components/tradingmonitor/src/trademachine/tradingmonitor/ingestion/schemas.py`
+- `components/tradingmonitor_ingestion/src/trademachine/tradingmonitor_ingestion/ingestion/schemas.py`
   validates incoming MT5 payloads.
-- `components/tradingmonitor/src/trademachine/tradingmonitor/db/models.py`
+- `components/tradingmonitor_storage/src/trademachine/tradingmonitor_storage/db/models.py`
   defines ORM models for accounts, strategies, deals, equity, portfolios,
   backtests, symbols, benchmarks, and related entities.
-- `components/tradingmonitor/src/trademachine/tradingmonitor/db/repository.py`
+- `components/tradingmonitor_storage/src/trademachine/tradingmonitor_storage/db/repository.py`
   contains the repository layer used by CLI and dashboard flows.
-- `components/tradingmonitor/src/trademachine/tradingmonitor/metrics/`
+- `components/tradingmonitor_analytics/src/trademachine/tradingmonitor_analytics/metrics/`
   contains metric calculation and QuantStats report generation logic.
-- `components/tradingmonitor/src/trademachine/tradingmonitor/analysis/`
+- `components/tradingmonitor_analytics/src/trademachine/tradingmonitor_analytics/analysis/`
   contains higher-level analysis such as benchmarks and drift detection.
-- `components/tradingmonitor/src/trademachine/tradingmonitor/facade.py`
-  is the preferred high-level entry point for base consumers.
 
 ## Core Workflows
 
 ### Loading and Cache
 
-TradingMonitor does not use a portfolio cache like PortifolioMaster. Its
+TradingMonitor does not use a portfolio cache like PortfolioMaster. Its
 operational equivalent is the ingestion runtime state plus durable persistence
 in TimescaleDB.
 
@@ -170,7 +173,7 @@ API endpoints instead of relying only on terminal output.
 ## Configuration
 
 Configuration is defined in
-`components/tradingmonitor/src/trademachine/tradingmonitor/config.py` through
+`components/tradingmonitor_storage/src/trademachine/tradingmonitor_storage/config.py` through
 `Settings`.
 
 Priority order:
@@ -200,18 +203,24 @@ Common fields:
 - Use the `trademachine` namespace for internal imports.
 - Treat MT5 magic number as the strategy identifier and MT5 login as the
   account identifier.
-- Prefer `TradingMonitorFacade` or repository abstractions instead of coupling
-  bases directly to lower-level implementation details.
+- Prefer the split component APIs that already exist today
+  (`tradingmonitor_storage`, `tradingmonitor_ingestion`,
+  `tradingmonitor_analytics`) instead of reintroducing a synthetic monolithic
+  `tradingmonitor` package path in new code or docs.
 - Be careful with ingestion, persistence, and route logic that directly affects
   operator workflows; this project is optimized for a single-user local setup.
 
 ## Testing Focus
 
 When changing TradingMonitor, add tests near the affected area under
-`components/tradingmonitor/test/`. Prioritize coverage for CLI validation,
-ingestion parsing, repository behavior, metrics and report calculations,
-dashboard routes, drift logic, benchmark syncing, and integrations with
-DataManager or Telegram.
+`components/tradingmonitor_storage/test/`,
+`components/tradingmonitor_ingestion/test/`,
+`components/tradingmonitor_analytics/test/`,
+`bases/trading_monitor_cli/test/`, or
+`bases/trading_monitor_dashboard/test/`. Prioritize coverage for CLI
+validation, ingestion parsing, repository behavior, metrics and report
+calculations, dashboard routes, drift logic, benchmark syncing, and
+integrations with DataManager or Telegram.
 
 ## Additional Operational Notes
 
@@ -287,7 +296,7 @@ TradingMonitor has no `optimize` command. The closest operational commands are:
 
 #### `benchmark`
 
-TradingMonitor has no throughput benchmark command in the PortifolioMaster
+TradingMonitor has no throughput benchmark command in the PortfolioMaster
 meaning. Instead, it has a benchmark domain for market-comparison assets that
 are created, listed, synced, and compared through dashboard/API flows backed by
 `analysis/benchmarks.py`.
@@ -366,7 +375,7 @@ The operational artifact layout is:
 
 ### Example Config
 
-The closest equivalent to a PortifolioMaster-style example config is the set of
+The closest equivalent to a PortfolioMaster-style example config is the set of
 environment variables consumed by `Settings`:
 
 ```bash
@@ -396,27 +405,32 @@ DRIFT_MIN_TRADES=20
 The current codebase structure implies this layout:
 
 ```text
-components/tradingmonitor/src/trademachine/tradingmonitor/
-  analysis/
-    benchmarks.py
-    drift.py
+components/tradingmonitor_storage/src/trademachine/tradingmonitor_storage/
   db/
     database.py
     models.py
     repository.py
-  ingestion/
-    cache.py
-    schemas.py
-    tcp_server.py
-  metrics/
-    calculator.py
-    repository.py
-    plugins/
   utils/
     notifications.py
   api_schemas.py
   config.py
+  constants.py
   facade.py
+
+components/tradingmonitor_ingestion/src/trademachine/tradingmonitor_ingestion/
+  ingestion/
+    cache.py
+    schemas.py
+    tcp_server.py
+
+components/tradingmonitor_analytics/src/trademachine/tradingmonitor_analytics/
+  analysis/
+    benchmarks.py
+    drift.py
+  metrics/
+    calculator.py
+    repository.py
+    plugins/
 
 bases/trading_monitor_cli/src/trademachine/trading_monitor_cli/
   main.py
@@ -436,12 +450,13 @@ Additional development commands that fit the current project setup:
 ```bash
 cd projects/tradingmonitor
 uv run alembic upgrade head
-uv run pytest components/tradingmonitor/test
+cd ../..
+uv run pytest components/tradingmonitor_storage/test components/tradingmonitor_ingestion/test components/tradingmonitor_analytics/test bases/trading_monitor_cli/test bases/trading_monitor_dashboard/test
 ```
 
 ## Additional Codebase Notes
 
-This section mirrors the PortifolioMaster structure and consolidates equivalent
+This section mirrors the PortfolioMaster structure and consolidates equivalent
 codebase-level notes from the repository itself.
 
 ### Main Technologies
@@ -462,21 +477,21 @@ CLI, a dashboard, and a TCP ingestion daemon around a single local database.
 
 The repository adds these module-level responsibilities:
 
-- `config.py`: centralized settings for DB, dashboard, ingestion, DataManager,
+- `tradingmonitor_storage/config.py`: centralized settings for DB, dashboard, ingestion, DataManager,
   Telegram, and drift checks;
-- `db/database.py`: engine, session factory, and schema initialization;
-- `db/models.py`: ORM definitions for live and backtest data;
-- `db/repository.py`: repository helpers for CRUD and query aggregation;
-- `metrics/calculator.py`: metric calculation plus QuantStats HTML export;
-- `metrics/repository.py`: DataFrame-oriented access to strategy and portfolio
+- `tradingmonitor_storage/db/database.py`: engine, session factory, and schema initialization;
+- `tradingmonitor_storage/db/models.py`: ORM definitions for live and backtest data;
+- `tradingmonitor_storage/db/repository.py`: repository helpers for CRUD and query aggregation;
+- `tradingmonitor_analytics/metrics/calculator.py`: metric calculation plus QuantStats HTML export;
+- `tradingmonitor_analytics/metrics/repository.py`: DataFrame-oriented access to strategy and portfolio
   history;
-- `analysis/benchmarks.py`: benchmark definition, DataManager sync, and local
+- `tradingmonitor_analytics/analysis/benchmarks.py`: benchmark definition, DataManager sync, and local
   benchmark statistics;
-- `analysis/drift.py`: live-vs-backtest drift detection and notification flow;
-- `utils/notifications.py`: Telegram delivery helpers;
-- `ingestion/tcp_server.py`: message routing, persistence, heartbeat, and
+- `tradingmonitor_analytics/analysis/drift.py`: live-vs-backtest drift detection and notification flow;
+- `tradingmonitor_storage/utils/notifications.py`: Telegram delivery helpers;
+- `tradingmonitor_ingestion/ingestion/tcp_server.py`: message routing, persistence, heartbeat, and
   connection management;
-- `facade.py`: high-level access point for base consumers and route handlers.
+- `tradingmonitor_ingestion/ingestion/schemas.py`: payload validation for TCP messages.
 
 CLI-specific notes:
 
@@ -534,9 +549,8 @@ Operational patterns consolidated from the current repository:
 - tests should be run from the repository root;
 - coverage exists for ingestion, metrics, drift, notifications, routes,
   benchmarks, migrations, and dashboard behavior;
-- `test_routes.py` and `test_routes_extended.py` protect route behavior;
-- `test_tcp_server_extended.py` and `test_ingestion.py` protect ingestion
-  behavior;
+- `test_live_backend.py` protects dashboard route and live backend behavior;
+- `test_ingestion.py` and `test_schemas.py` protect ingestion behavior;
 - `test_benchmarks.py` protects benchmark syncing and local benchmark curves;
 - `test_qs_report.py` protects QuantStats HTML generation;
 - `test_drift.py` protects drift-report structure and threshold behavior.

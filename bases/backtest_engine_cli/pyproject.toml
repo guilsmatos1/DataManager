@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "trademachine-backtest-engine-cli"
 version = "0.1.0"
 description = "trademachine-backtest-engine-cli brick"
-dependencies = []
+dependencies = ["trademachine-backtestengine", "trademachine-core"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

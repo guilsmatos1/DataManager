@@ -2,16 +2,10 @@ import logging
 from datetime import datetime, timedelta
 
 import pandas as pd
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential_jitter,
-)
 from tqdm import tqdm
 from trademachine.core.logger import LOGGER_NAME
 
-from .base import BaseFetcher
+from .base import FETCH_RETRY, BaseFetcher
 
 # Disable internal prints and info from dukascopy-python
 logging.getLogger("dukascopy_python").setLevel(logging.WARNING)
@@ -40,7 +34,7 @@ class DukascopyFetcher(BaseFetcher):
 
         # As the main script and workers run from the project root,
         # the metadata folder must be in the same directory where the command is run.
-        csv_path = Path("metadata") / "dukas_assets.csv"
+        csv_path = Path("projects/datamanager/metadata") / "dukas_assets.csv"
 
         if csv_path.exists():
             df_assets = pd.read_csv(csv_path).fillna("")
@@ -75,12 +69,7 @@ class DukascopyFetcher(BaseFetcher):
 
         from dukascopy_python import INTERVAL_MIN_1, OFFER_SIDE_BID, fetch
 
-        @retry(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential_jitter(initial=1.0, max=10.0),
-            retry=retry_if_exception_type((OSError, ConnectionError, TimeoutError)),
-            reraise=True,
-        )
+        @FETCH_RETRY
         def _fetch_chunk(cs: datetime, ce: datetime) -> pd.DataFrame:
             return fetch(
                 instrument=asset_clean,
@@ -160,7 +149,7 @@ class DukascopyFetcher(BaseFetcher):
         """Search Dukascopy offline database."""
         from pathlib import Path
 
-        csv_path = Path("metadata") / "dukas_assets.csv"
+        csv_path = Path("projects/datamanager/metadata") / "dukas_assets.csv"
 
         if not csv_path.exists():
             return pd.DataFrame()

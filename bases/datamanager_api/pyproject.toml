@@ -6,7 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "trademachine-datamanager-api"
 version = "0.1.0"
 description = "trademachine-datamanager-api brick"
-dependencies = []
+dependencies = [
+    "trademachine-core",
+    "trademachine-datamanager",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

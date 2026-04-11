@@ -87,6 +87,126 @@ function fmt(value, decimals = 2) {
     });
 }
 
+const DASHBOARD_ADVANCED_METRIC_KEYS = [
+    "risk-reward ratio",
+    "sharpe ratio",
+    "sortino ratio",
+    "calmar ratio",
+    "var 95% (daily)",
+    "cvar 95% (daily)",
+];
+
+function renderMetricsGrid(container, metrics, options = {}) {
+    const advancedKeys = new Set(
+        (options.advancedKeys || DASHBOARD_ADVANCED_METRIC_KEYS).map((key) =>
+            String(key).toLowerCase()
+        )
+    );
+    const hiddenKeys = new Set(
+        (options.hiddenKeys || []).map((key) => String(key).toLowerCase())
+    );
+    const integerKeys = new Set(
+        (options.integerKeys || []).map((key) => String(key).toLowerCase())
+    );
+    const negateKeys = new Set(
+        (options.negateKeys || []).map((key) => String(key).toLowerCase())
+    );
+    const thresholdPositiveKeys = {
+        "profit factor": 1,
+        ...(options.thresholdPositiveKeys || {}),
+    };
+
+    container.innerHTML = Object.entries(metrics)
+        .filter(([key]) => {
+            const keyLower = key.toLowerCase();
+            return !advancedKeys.has(keyLower) && !hiddenKeys.has(keyLower);
+        })
+        .map(([key, value]) => {
+            const keyLower = key.toLowerCase();
+            const shouldNegate = negateKeys.has(keyLower);
+            const displayValue =
+                shouldNegate && typeof value === "number" && value !== null
+                    ? -Math.abs(value)
+                    : value;
+
+            let formattedValue = "—";
+            if (displayValue !== null && displayValue !== undefined) {
+                if (typeof displayValue === "number") {
+                    if (integerKeys.has(keyLower)) {
+                        formattedValue = displayValue.toFixed(0);
+                    } else if (keyLower === "cumulative return (%)" || keyLower === "return (%)") {
+                        formattedValue = `${fmt(displayValue)}%`;
+                    } else {
+                        formattedValue = fmt(displayValue);
+                    }
+                } else {
+                    formattedValue = displayValue;
+                }
+            }
+
+            let valueClass = "metric-value";
+            if (!integerKeys.has(keyLower) && typeof value === "number" && value !== null) {
+                if (shouldNegate) {
+                    valueClass += " profit-negative";
+                } else if (Object.hasOwn(thresholdPositiveKeys, keyLower)) {
+                    valueClass += value >= thresholdPositiveKeys[keyLower]
+                        ? " profit-positive"
+                        : " profit-negative";
+                } else if (value > 0) {
+                    valueClass += " profit-positive";
+                } else if (value < 0) {
+                    valueClass += " profit-negative";
+                }
+            }
+
+            return `<div class="metric-item">
+                <span class="metric-label">${key}</span>
+                <span class="${valueClass}">${formattedValue}</span>
+            </div>`;
+        })
+        .join("");
+}
+
+function filterEquityPointsByPeriod(points, period) {
+    if (period === "all" || !points.length) return points;
+    const months = { "1M": 1, "3M": 3, "6M": 6, "1Y": 12 }[period] || 0;
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - months);
+    return points.filter((point) => new Date(point.timestamp) >= cutoff);
+}
+
+function buildEquityChartLabels(points) {
+    return points.map((point) => {
+        const date = new Date(point.timestamp);
+        return date.toLocaleDateString("en-GB", {
+            day: "2-digit",
+            month: "short",
+            year: "2-digit",
+        });
+    });
+}
+
+function buildRebasedEquitySeries(points, scale, valueGetter = (point) => point.equity) {
+    const baseline = Number(valueGetter(points[0])) || 1;
+    return points.map((point) => {
+        const value = Number(valueGetter(point)) || 0;
+        if (scale === "pct") {
+            const absBaseline = Math.abs(baseline) || 1;
+            return parseFloat((((value - baseline) / absBaseline) * 100).toFixed(4));
+        }
+        return parseFloat((value - baseline).toFixed(4));
+    });
+}
+
+function getEquityChartColors() {
+    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+    return {
+        tickColor: isDark ? "#64748b" : "#94a3b8",
+        gridColor: isDark ? "#334155" : "#e2e8f0",
+        legendColor: isDark ? "#94a3b8" : "#475569",
+    };
+}
+
 // ── API Key injection ─────────────────────────────────────────────────────────
 // Intercept all fetch() calls to /api/* and inject X-API-Key automatically.
 const _API_KEY = document.querySelector('meta[name="api-key"]')?.content || "";
@@ -324,6 +444,7 @@ async function loadSymbolsDropdown(items, state) {
         items.innerHTML = sorted.map((s) => `
             <a class="nav-dropdown-item" href="/symbol/${encodeURIComponent(s.name)}">
                 <span>${s.name}</span>
+                <span class="nav-dropdown-item-meta">${s.market || "Market unavailable"}</span>
             </a>
         `).join("");
         items.dataset.loaded = "true";
@@ -331,3 +452,74 @@ async function loadSymbolsDropdown(items, state) {
         state.textContent = `Failed to load symbols: ${e.message}`;
     }
 }
+
+// ── Toast Notifications ──────────────────────────────────────────────────────
+
+function showToast(title, message, type = "info", duration = 5000) {
+    const container = document.getElementById("toast-container");
+    if (!container) return;
+
+    const toast = document.createElement("div");
+    toast.className = `toast toast-${type}`;
+
+    toast.innerHTML = `
+        <div class="toast-header">
+            <span class="toast-title">${title}</span>
+            <button class="toast-close" aria-label="Close">✕</button>
+        </div>
+        <div class="toast-message">${message}</div>
+    `;
+
+    container.appendChild(toast);
+
+    const closeBtn = toast.querySelector(".toast-close");
+
+    const removeToast = () => {
+        toast.classList.add("toast-hiding");
+        toast.addEventListener("animationend", () => {
+            if (toast.parentElement) {
+                toast.parentElement.removeChild(toast);
+            }
+        });
+    };
+
+    closeBtn.addEventListener("click", removeToast);
+
+    if (duration > 0) {
+        setTimeout(removeToast, duration);
+    }
+}
+
+// Listen to WebSocket events globally to show toasts
+window.addEventListener("ws-event", function(e) {
+    const payload = e.detail;
+    if (!payload || !payload.topic) return;
+
+    const topic = payload.topic;
+    const data = payload.data || {};
+
+    if (topic === "DEAL") {
+        const stratId = data.magic || data.strategy_id || "Unknown";
+        const symbol = data.symbol || "";
+        const profit = data.profit || 0;
+        const net = profit + (data.commission || 0) + (data.swap || 0);
+        const type = net >= 0 ? "success" : "error";
+        const action = data.type ? data.type.toUpperCase() : "TRADE";
+
+        const title = `New ${action} Executed`;
+        const msg = `Strategy: <a href="/strategy/${stratId}" style="color:inherit;text-decoration:underline;">${stratId}</a><br>Symbol: ${symbol}<br>Net: <strong>${fmt(net)}</strong>`;
+
+        showToast(title, msg, type);
+    } else if (topic === "BACKTEST_END") {
+        const stratId = data.strategy_id || data.magic || "Unknown";
+        const btId = data.backtest_id || "Unknown";
+
+        showToast(
+            "Backtest Completed",
+            `Strategy: <a href="/strategy/${stratId}" style="color:inherit;text-decoration:underline;">${stratId}</a><br>Run ID: #${btId}`,
+            "info",
+            10000
+        );
+    }
+    // We intentionally ignore high-frequency events like EQUITY here to avoid spamming the user.
+});

@@ -183,28 +183,21 @@ class TestDataManagerService:
 
     # ── resample_data ───────────────────────────────────────────────────────
 
-    def test_resample_data_rebuilds_from_m1(self, manager):
-        """resample_data should derive the target timeframe from M1 and replace it."""
-        m1_df = pd.DataFrame(
-            {
-                "Open": [100.0, 101.0, 102.0, 103.0, 104.0],
-                "High": [101.0, 102.0, 103.0, 104.0, 105.0],
-                "Low": [99.0, 100.0, 101.0, 102.0, 103.0],
-                "Close": [101.0, 102.0, 103.0, 104.0, 105.0],
-                "Volume": [10.0, 10.0, 10.0, 10.0, 10.0],
-            },
-            index=pd.date_range("2024-01-01 12:00:00", periods=5, freq="min"),
-        )
-        manager.storage.load_data.return_value = m1_df
+    def test_resample_data_creates_continuous_aggregate(self, manager):
+        """resample_data should create a continuous aggregate for the target timeframe."""
+        manager.storage.get_database_info.return_value = {
+            "source": "mock",
+            "asset": "BTCUSD",
+            "timeframe": "M1",
+            "rows": 5,
+        }
 
         manager.resample_data("mock", "BTCUSD", "M5")
 
-        manager.storage.load_data.assert_called_once_with("mock", "BTCUSD", "M1")
-        manager.storage.replace_data.assert_called_once()
-        args = manager.storage.replace_data.call_args.args
-        assert args[1:] == ("mock", "BTCUSD", "M5")
-        assert len(args[0]) == 1
-        assert args[0]["Volume"].iloc[0] == 50.0
+        manager.storage.get_database_info.assert_called_once_with(
+            "mock", "BTCUSD", "M1"
+        )
+        manager.storage.create_continuous_aggregate.assert_called_once_with("M5")
 
     def test_resample_data_rejects_m1(self, manager):
         """resample_data should reject M1 as a target timeframe."""
@@ -213,7 +206,7 @@ class TestDataManagerService:
 
     def test_resample_data_requires_existing_m1(self, manager):
         """resample_data should fail clearly when the M1 base is missing."""
-        manager.storage.load_data.side_effect = FileNotFoundError("missing")
+        manager.storage.get_database_info.return_value = {"status": "Not Found"}
 
         with pytest.raises(FileNotFoundError, match="M1 base does not exist"):
             manager.resample_data("mock", "BTCUSD", "H1")

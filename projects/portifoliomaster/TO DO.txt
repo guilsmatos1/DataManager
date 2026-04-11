@@ -1,5 +1,0 @@
-* Dask para Computação Distribuída: Se o número de combinações passar de centenas de milhões, você pode trocar o multiprocessing pelo Dask. Isso permitiria rodar a otimização em um cluster de máquinas ou usar toda a memória RAM de forma mais eficiente.
-
-* Análise de Correlação por Ativo/Setor: Além da correlação entre estratégias, mostrar a correlação por símbolo. Ex: "Seu portfólio está 80% exposto ao índice NASDAQ".
-
-* Equity Curve com Drawdown Flutuante: Atualmente usamos o Net_Profit (fechado). No MT5, o risco real inclui o Floating Drawdown (enquanto a operação está aberta). Tentar extrair os dados de M1 (minuto) para reconstruir o drawdown real intra-trade.

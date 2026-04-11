@@ -3,233 +3,75 @@
 
 {% block content %}
 <style>
-    /* Premium Account Page Styles */
-    .premium-header {
-        position: relative;
-        background: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9));
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 16px;
-        padding: 2.5rem;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-        overflow: hidden;
-    }
-    .premium-header::before {
-        content: '';
-        position: absolute;
-        top: -50%; right: -20%;
-        width: 600px; height: 600px;
-        background: radial-gradient(circle, var(--accent-glow) 0%, transparent 60%);
-        opacity: 0.5;
-        z-index: 0;
-        pointer-events: none;
-    }
-    .premium-header-content {
-        position: relative;
-        z-index: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 1.5rem;
-    }
-    .header-top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-    .header-title-group {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-    }
-    .account-icon {
-        width: 48px; height: 48px;
-        background: linear-gradient(135deg, var(--accent), indigo);
-        border-radius: 12px;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 1.5rem; color: white;
-        box-shadow: 0 4px 15px var(--accent-glow);
-    }
-    .premium-title {
-        font-size: 2rem;
-        font-weight: 800;
-        letter-spacing: -0.03em;
-        background: linear-gradient(to right, #fff, #94a3b8);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.25rem;
-    }
-    .premium-subtitle {
-        color: var(--text-muted);
-        font-size: 0.9rem;
-        font-family: var(--mono);
-    }
-
-    .premium-metrics {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1.5rem;
+    #account-summary,
+    #account-details-card,
+    #account-strategies-card,
+    #account-empty {
         margin-top: 1rem;
-        padding-top: 1.5rem;
-        border-top: 1px solid rgba(255, 255, 255, 0.06);
     }
-    .p-metric {
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-        transition: transform 0.2s ease, opacity 0.2s ease;
+    #account-summary .summary-num {
+        font-size: 1.75rem;
     }
-    .p-metric:hover {
-        transform: translateY(-2px);
+    #account-meta.info-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-    .p-metric-label {
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: var(--text-dim);
-        font-weight: 600;
+    @media (max-width: 900px) {
+        #account-meta.info-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
     }
-    .p-metric-value {
-        font-size: 2.2rem;
-        font-weight: 700;
-        letter-spacing: -0.02em;
-        color: #fff;
-        line-height: 1;
-        font-variant-numeric: tabular-nums;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    @media (max-width: 640px) {
+        #account-summary .summary-num {
+            font-size: 1.45rem;
+        }
+        #account-meta.info-grid {
+            grid-template-columns: 1fr;
+        }
     }
-    .p-metric-sub {
-        font-size: 0.8rem;
-        color: var(--text-muted);
-    }
-
-    .glass-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1.5rem;
-        box-shadow: var(--shadow-sm);
-        transition: box-shadow 0.3s ease, border-color 0.3s ease;
-    }
-    .glass-card:hover {
-        box-shadow: 0 8px 30px rgba(0,0,0,0.15);
-        border-color: var(--border-light);
-    }
-
-    .meta-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-        gap: 1.25rem;
-    }
-    .meta-item {
-        display: flex;
-        flex-direction: column;
-        gap: 0.3rem;
-        padding: 1rem;
-        background: rgba(0,0,0,0.15);
-        border-radius: 8px;
-        border: 1px solid rgba(255,255,255,0.03);
-        transition: background 0.2s;
-    }
-    .meta-item:hover {
-        background: rgba(0,0,0,0.25);
-    }
-    .meta-label {
-        font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em;
-    }
-    .meta-value {
-        font-size: 1rem; color: var(--text); font-weight: 500;
-    }
-
-    .table-responsive {
-        overflow-x: auto;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        background: var(--bg-2);
-    }
-
-    .strategy-table th {
-        background: rgba(0,0,0,0.2);
-        backdrop-filter: blur(4px);
-    }
-    .strategy-table tr {
-        transition: all 0.2s ease;
-    }
-    .strategy-table tr:hover {
-        background: rgba(255,255,255,0.03);
-        transform: scale(1.002);
-    }
-
-    /* Animations */
-    @keyframes fadeUp {
-        from { opacity: 0; transform: translateY(15px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    .animate-fade-up {
-        animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    }
-    .delay-1 { animation-delay: 0.1s; }
-    .delay-2 { animation-delay: 0.2s; }
 </style>
-
-<div class="animate-fade-up" style="margin-bottom: 1rem;">
-    <a href="/" class="back-link" style="display: inline-flex; width: auto; border:none; padding-left: 0; background: transparent; font-size: 0.9rem; font-weight: 500;"><span style="margin-right: 5px; font-size: 1.1em;">←</span> Back to Dashboard</a>
+<div class="page-header">
+    <h1 id="account-title"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg> Account {{ account_id }}</h1>
 </div>
 
-<div class="premium-header animate-fade-up delay-1" id="account-summary" style="display:none;">
-    <div class="premium-header-content">
-        <div class="header-top">
-            <div class="header-title-group">
-                <div class="account-icon">🏦</div>
-                <div>
-                    <h1 class="premium-title" id="account-title">Loading...</h1>
-                    <div class="premium-subtitle" id="account-id-subtitle">Account ID: {{ account_id }}</div>
-                </div>
-            </div>
-            <div class="badge badge-active" style="padding: 0.4rem 1rem; font-size: 0.8rem; border-radius: 12px; font-weight: 600;">ACTIVE ACCOUNT</div>
-        </div>
-
-        <div class="premium-metrics">
-            <div class="p-metric">
-                <span class="p-metric-label">Total Balance</span>
-                <span class="p-metric-value" id="account-balance">—</span>
-            </div>
-            <div class="p-metric">
-                <span class="p-metric-label">Free Margin</span>
-                <span class="p-metric-value" id="account-margin" style="color: var(--green);">—</span>
-            </div>
-            <div class="p-metric">
-                <span class="p-metric-label">Active Strategies</span>
-                <span class="p-metric-value" id="account-strategy-count">—</span>
-            </div>
-        </div>
+<div class="summary-cards" id="account-summary" style="display:none">
+    <div class="summary-card">
+        <span class="summary-num" id="account-name">{{ account_id }}</span>
+        <span class="summary-label">Account</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="account-broker">—</span>
+        <span class="summary-label">Broker</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="account-balance">—</span>
+        <span class="summary-label">Balance</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="account-strategy-count">—</span>
+        <span class="summary-label">Strategies</span>
     </div>
 </div>
 
-<div class="dashboard-grid animate-fade-up delay-2" style="margin-bottom: 2rem;">
-    <div class="glass-card" id="account-meta-card" style="display:none; grid-column: 1 / -1;">
-        <div class="section-header">
-            <h2>Account Details</h2>
-        </div>
-        <div class="meta-grid" id="account-meta"></div>
-    </div>
-</div>
-
-<div class="glass-card animate-fade-up delay-2" id="account-strategies-card" style="display:none;">
+<div class="card" id="account-details-card" style="display:none">
     <div class="section-header">
-        <div class="account-icon" style="width: 28px; height: 28px; font-size: 1rem; border-radius: 6px; box-shadow: none;">📈</div>
-        <h2 style="margin: 0; font-size: 1.1rem; color: var(--text);">Assigned Strategies</h2>
-        <span id="account-strategies-badge" class="badge badge-neutral" style="margin-left: 0.5rem; font-size: 0.75rem; padding: 0.2rem 0.6rem;">0</span>
+        <h2>Account Details</h2>
     </div>
-    <div class="table-responsive">
-        <table class="data-table strategy-table" style="margin: 0;">
+    <div class="info-grid" id="account-meta"></div>
+</div>
+
+<div class="card" id="account-strategies-card" style="display:none">
+    <div class="section-header">
+        <h2>Strategies</h2>
+        <span id="account-strategies-badge" class="badge badge-neutral">0</span>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table">
             <thead>
                 <tr>
                     <th>ID</th>
                     <th>Name</th>
                     <th>Symbol</th>
-                    <th style="text-align: right;">Action</th>
+                    <th>Status</th>
                 </tr>
             </thead>
             <tbody id="account-strategies-body"></tbody>
@@ -237,11 +79,8 @@
     </div>
 </div>
 
-<div id="account-empty" class="glass-card animate-fade-up" style="display:none; text-align: center; padding: 4rem 2rem;">
-    <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.5;">🔍</div>
-    <h3 style="font-size: 1.5rem; margin-bottom: 0.5rem;">Account Not Found</h3>
-    <p class="empty-state" style="padding: 0;">We couldn't find the requested account. It may have been removed or the ID is incorrect.</p>
-    <a href="/" class="btn btn-primary" style="margin-top: 1.5rem; border-radius: 8px; padding: 0.6rem 1.2rem;">Return Home</a>
+<div id="account-empty" class="card" style="display:none">
+    <p class="empty-state">Account not found.</p>
 </div>
 {% endblock %}
 
@@ -255,21 +94,22 @@ let _accountSortAsc = true;
 function accountSortBy(col) {
     if (_accountSortCol === col) _accountSortAsc = !_accountSortAsc;
     else { _accountSortCol = col; _accountSortAsc = true; }
-    renderStrategyRows();
+    renderAccountStrategies();
 }
 
-function renderStrategyRows() {
-    const arrow = (col) => _accountSortCol === col ? (_accountSortAsc ? " <span style='font-size:0.8em;opacity:0.7'>↑</span>" : " <span style='font-size:0.8em;opacity:0.7'>↓</span>") : "";
+function renderAccountStrategies() {
+    const arrow = (col) => _accountSortCol === col ? (_accountSortAsc ? " ↑" : " ↓") : "";
     const thead = document.querySelector("#account-strategies-card thead");
     if (thead) thead.innerHTML = `
         <tr>
-            <th class="sortable" onclick="accountSortBy('id')" style="cursor:pointer; width: 10%;">ID${arrow("id")}</th>
-            <th class="sortable" onclick="accountSortBy('name')" style="cursor:pointer; width: 40%;">Name${arrow("name")}</th>
-            <th class="sortable" onclick="accountSortBy('symbol')" style="cursor:pointer; width: 30%;">Symbol${arrow("symbol")}</th>
-            <th style="text-align: right; width: 20%;">Action</th>
+            <th class="sortable" onclick="accountSortBy('id')">ID${arrow("id")}</th>
+            <th class="sortable" onclick="accountSortBy('name')">Name${arrow("name")}</th>
+            <th class="sortable" onclick="accountSortBy('symbol')">Symbol${arrow("symbol")}</th>
+            <th class="sortable" onclick="accountSortBy('live')">Status${arrow("live")}</th>
         </tr>`;
 
-    const strategies = [..._accountStrategies].sort((a, b) => {
+    const tbody = document.getElementById("account-strategies-body");
+    const list = [..._accountStrategies].sort((a, b) => {
         let va = a[_accountSortCol];
         let vb = b[_accountSortCol];
         if (va == null) va = _accountSortAsc ? "\uffff" : "";
@@ -281,26 +121,35 @@ function renderStrategyRows() {
             ? String(va).localeCompare(String(vb))
             : String(vb).localeCompare(String(va));
     });
-    const tbody = document.getElementById("account-strategies-body");
-    tbody.innerHTML = "";
-    if (strategies.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 2rem; color: var(--text-muted); font-style: italic;">No strategies assigned to this account.</td></tr>`;
-        return;
-    }
 
-    strategies.forEach((s, idx) => {
+    tbody.innerHTML = "";
+    list.forEach((strategy) => {
         const tr = document.createElement("tr");
-        tr.style.animation = `fadeUp 0.3s ease forwards ${idx * 0.05}s`;
-        tr.style.opacity = "0";
         tr.innerHTML = `
-            <td class="mono"><a href="/strategy/${s.id}" style="color:var(--accent); text-decoration: none; font-weight: 500;">#${s.id}</a></td>
-            <td style="font-weight: 500;">${s.name || "—"}</td>
-            <td><span class="badge badge-neutral">${s.symbol || "—"}</span></td>
-            <td style="text-align: right;">
-                <a href="/strategy/${s.id}" class="btn btn-ghost btn-sm" style="font-size: 0.7rem; border-radius: 6px;">View →</a>
-            </td>
+            <td><a href="/strategy/${strategy.id}" style="color:var(--accent)">${strategy.id}</a></td>
+            <td>${strategy.name || "—"}</td>
+            <td>${strategy.symbol || "—"}</td>
+            <td><span class="badge ${strategy.live ? "badge-live" : "badge-incubation"}">${strategy.live ? "Live" : "Incubation"}</span></td>
         `;
         tbody.appendChild(tr);
+    });
+}
+
+function buildMetaItem(label, value) {
+    return `
+        <div class="info-item">
+            <span class="info-label">${label}</span>
+            <span class="info-value">${value}</span>
+        </div>
+    `;
+}
+
+function formatMoney(value, currency = "") {
+    if (value == null) return "—";
+    const prefix = currency ? `${currency} ` : "$";
+    return prefix + Number(value).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
     });
 }
 
@@ -311,53 +160,45 @@ async function loadAccountPage() {
             fetchJson("/api/strategies"),
         ]);
 
-        const account = accounts.find((a) => String(a.id) === String(ACCOUNT_ID));
+        const account = accounts.find((item) => String(item.id) === String(ACCOUNT_ID));
         if (!account) {
             document.getElementById("account-empty").style.display = "block";
             return;
         }
 
-        const filteredStrategies = strategies.filter((s) => String(s.account_id || "") === String(ACCOUNT_ID));
+        const filteredStrategies = strategies.filter(
+            (item) => String(item.account_id || "") === String(ACCOUNT_ID)
+        );
         _accountStrategies = filteredStrategies;
 
         document.getElementById("account-title").textContent = account.name || `Account ${account.id}`;
-        document.getElementById("account-id-subtitle").textContent = `Account ID: ${account.id}`;
-
-        // Formatting numbers elegantly
-        const formatMoney = (val, cur = "") => {
-            if (val == null) return "—";
-            return (cur ? cur + " " : "$") + Number(val).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-        };
-        const currency = account.currency || "";
-
-        document.getElementById("account-balance").textContent = account.balance != null ? formatMoney(account.balance, currency) : "—";
-        document.getElementById("account-margin").textContent = account.free_margin != null ? formatMoney(account.free_margin, currency) : "—";
+        document.getElementById("account-name").textContent = account.name || account.id;
+        document.getElementById("account-broker").textContent = account.broker || "—";
+        document.getElementById("account-balance").textContent = formatMoney(
+            account.balance,
+            account.currency || ""
+        );
         document.getElementById("account-strategy-count").textContent = filteredStrategies.length;
+        document.getElementById("account-summary").style.display = "";
 
-        // Show sections
-        document.getElementById("account-summary").style.display = "flex";
+        document.getElementById("account-meta").innerHTML = [
+            buildMetaItem("Account ID", account.id || "—"),
+            buildMetaItem("Broker", account.broker || "—"),
+            buildMetaItem("Type", account.account_type || "—"),
+            buildMetaItem("Currency", account.currency || "—"),
+            buildMetaItem("Free Margin", formatMoney(account.free_margin, account.currency || "")),
+            buildMetaItem("Deposits", formatMoney(account.total_deposits, account.currency || "")),
+            buildMetaItem("Withdrawals", formatMoney(account.total_withdrawals, account.currency || "")),
+        ].join("");
+        document.getElementById("account-details-card").style.display = "";
 
-        const meta = document.getElementById("account-meta");
-        meta.innerHTML = `
-            <div class="meta-item"><span class="meta-label">Broker</span><span class="meta-value">${account.broker || "—"}</span></div>
-            <div class="meta-item"><span class="meta-label">Type</span><span class="meta-value">${account.account_type || "—"}</span></div>
-            <div class="meta-item"><span class="meta-label">Currency</span><span class="meta-value">${account.currency || "—"}</span></div>
-            <div class="meta-item"><span class="meta-label">Total Deposits</span><span class="meta-value" style="color: var(--green);">${account.total_deposits != null ? formatMoney(account.total_deposits, currency) : "—"}</span></div>
-            <div class="meta-item"><span class="meta-label">Total Withdrawals</span><span class="meta-value" style="color: var(--red);">${account.total_withdrawals != null ? formatMoney(account.total_withdrawals, currency) : "—"}</span></div>
-        `;
-        document.getElementById("account-meta-card").style.display = "block";
-
-        renderStrategyRows();
+        renderAccountStrategies();
         document.getElementById("account-strategies-badge").textContent = filteredStrategies.length;
-        document.getElementById("account-strategies-card").style.display = "block";
-    } catch (e) {
-        console.error("Error loading account page:", e);
-        const errDiv = document.getElementById("account-empty");
-        errDiv.style.display = "block";
-        errDiv.innerHTML = `<div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.5;">⚠️</div>
-                            <h3 style="font-size: 1.5rem; margin-bottom: 0.5rem;">System Error</h3>
-                            <p class="empty-state" style="padding: 0; color: var(--red);">Failed to load account data: ${e.message}</p>
-                            <button onclick="window.location.reload()" class="btn btn-primary" style="margin-top: 1.5rem; border-radius: 8px;">Try Again</button>`;
+        document.getElementById("account-strategies-card").style.display = "";
+    } catch (error) {
+        document.getElementById("account-empty").style.display = "block";
+        document.getElementById("account-empty").innerHTML =
+            `<p class="empty-state">Failed to load account: ${error.message}</p>`;
     }
 }
 

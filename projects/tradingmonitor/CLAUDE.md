@@ -40,7 +40,7 @@ alembic revision --autogenerate -m "description"
 alembic upgrade head
 
 # Tests
-uv run pytest components/tradingmonitor/test
+uv run pytest components/tradingmonitor_storage/test components/tradingmonitor_ingestion/test components/tradingmonitor_analytics/test bases/trading_monitor_cli/test bases/trading_monitor_dashboard/test
 ```
 
 ## Architecture (Polylith)
@@ -48,16 +48,18 @@ uv run pytest components/tradingmonitor/test
 ### Data Flow
 
 ```
-MT5 EA (MQL5) → TCP PUB (port 5555) → components/tradingmonitor (TCP Server) → TimescaleDB
+MT5 EA (MQL5) → components/tradingmonitor_ingestion (TCP server) → components/tradingmonitor_storage (TimescaleDB) → components/tradingmonitor_analytics (metrics, benchmarks, drift)
 ```
 
 ### Layer Responsibilities
 
-- **`components/tradingmonitor`** — Core logic component.
+- **`components/tradingmonitor_ingestion`** — TCP server, payload validation, heartbeat and dead-letter handling.
     - `ingestion/tcp_server.py` — TCP server, routes messages, auto-creates strategies/accounts.
     - `ingestion/schemas.py` — Pydantic models for TCP payloads.
+- **`components/tradingmonitor_storage`** — Config, SQLAlchemy models, sessions and repositories.
     - `db/models.py` — SQLAlchemy ORM: `Account`, `Strategy`, `Deal`, `EquityCurve`, `Portfolio`.
     - `db/database.py` — Engine/session factory + `init_db()` for hypertables.
+- **`components/tradingmonitor_analytics`** — Metrics, benchmarks, drift and reporting logic.
     - `metrics/calculator.py` — Pandas/quantstats analytics.
 - **`bases/trading_monitor_cli`** — Typer CLI wiring (`main.py`).
 - **`bases/trading_monitor_dashboard`** — FastAPI web dashboard (`app.py`, `routes.py`).

@@ -1,9 +1,0 @@
-- main [ref=e2]:
-  - generic [ref=e3]:
-    - heading "TradingMonitor" [level=1] [ref=e5]
-    - paragraph [ref=e6]: Enter the dashboard API key to start a session.
-    - generic [ref=e7]:
-      - generic [ref=e8]:
-        - generic [ref=e9]: API Key
-        - textbox [active] [ref=e10]
-      - button "Sign in" [ref=e11] [cursor=pointer]

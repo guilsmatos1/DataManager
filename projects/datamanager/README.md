@@ -13,7 +13,7 @@
 
 ## Key Features
 - **TimescaleDB Storage:** OHLCV data stored in a TimescaleDB hypertable (`ohlcv_m1`) with automatic time-based partitioning.
-- **Continuous Aggregates:** Higher timeframes (M5, M15, H1, H4, D1) materialized as TimescaleDB continuous aggregates — zero-runtime-cost derived timeframes.
+- **On-demand Continuous Aggregates:** Higher timeframes (M5, M15, H1, H4, D1) are created per user request via the `resample` command and materialized as TimescaleDB continuous aggregates.
 - **Idempotent Downloads:** Supports chunked, resumable downloads with automatic deduplication logic (no data duplication).
 - **Persistent Scheduler:** Cron and interval-based recurring updates are stored in SQLite, surviving service restarts.
 - **REST API & Client:** A high-performance FastAPI server (port 8686) with a Python client (`DataManagerClient`) for seamless integration.
@@ -29,9 +29,10 @@ The project follows the **Polylith Architecture**, organized into:
 ### Directory Structure
 ```
 components/datamanager/src/trademachine/datamanager/
-├── core/config.py       → Pydantic settings (env vars / .env loading)
+├── infrastructure/
+│   └── config.py       → Pydantic settings (env vars / .env loading)
 ├── db/
-│   ├── database.py     → SQLAlchemy async engine + session
+│   ├── database.py     → SQLAlchemy engine + session
 │   ├── models.py       → SQLAlchemy ORM models (Source, Asset, OhlcvM1, EconomicSeries, EconomicObservation)
 │   ├── series_storage.py → TimescaleDB I/O for FRED/economic series
 │   ├── processor.py    → OHLCV gap filling (data quality)
@@ -79,11 +80,11 @@ cp .env.example .env
 Key variables:
 - `DATABASE_URL`: PostgreSQL connection string with TimescaleDB (e.g., `postgresql://user:pass@localhost:5432/datamanager`).
 - `DATAMANAGER_API_KEY`: Secret key for API authentication.
-- `FRED_API_KEY`: FRED API key required by the OpenBB FRED provider.
+- `FRED_API_KEY`: Required for all FRED commands. Get a free key at https://fred.stlouisfed.org/docs/api/api_key.html.
 
 ### 3. Run Migrations
 ```bash
-uv run alembic upgrade head
+cd projects/datamanager && uv run alembic upgrade head
 ```
 
 ---
@@ -94,31 +95,89 @@ uv run alembic upgrade head
 ```bash
 uv run datamanager -i
 ```
-Inside the CLI:
+
+#### OHLCV Commands
 ```bash
-# Download data (auto-idempotent)
+# Download M1 data (base for all derived timeframes)
 download dukascopy EURUSD 2020-01-01 2025-01-01
 
-# Search for available assets
+# Create a higher timeframe from M1 data (continuous aggregate)
+resample dukascopy EURUSD H1
+
+# Update M1 + refresh all existing resampled timeframes
+update all
+
+# Update a specific asset
+update dukascopy EURUSD
+
+# List all databases (OHLCV + FRED in one view)
+list
+
+# Data quality report
+quality dukascopy EURUSD M1
+
+# Search available assets
+search --source dukascopy --query EUR
 search --source ccxt --query BTC/USDT
 
 # Schedule recurring updates
 schedule add dukascopy EURUSD M1 --interval 60
+schedule list
+schedule remove <job_id>
+```
 
-# FRED / economic series
-fred_search --query inflation
-fred_download CPIAUCSL 2024-01-01 2025-01-01 --frequency m
+#### Delete Behavior
+```bash
+# Remove an asset from ALL timeframes (M1 + all aggregates)
+delete dukascopy EURUSD
+
+# Wipe only the M1 rows (keeps the asset record)
+delete dukascopy EURUSD M1
+
+# Remove multiple assets at once
+delete dukascopy EURUSD,USDJPY
+```
+
+> **Note:** Derived timeframes (H1, M15, etc.) are continuous aggregate views shared across all assets and **cannot be deleted per asset**. To remove an asset from all timeframes, omit the timeframe argument.
+
+#### FRED / Economic Series Commands
+```bash
+# Search available series
+search --source fred --query inflation
+
+# Download a series
+fred_download CPIAUCSL 2020-01-01 2025-01-01 --frequency m
+
+# Update with overlap (captures historical revisions)
 fred_update CPIAUCSL --lookback 30D
+
+# Schedule recurring updates
 schedule add-series CPIAUCSL --interval 720
 
-# Data quality report
-quality dukascopy EURUSD M1
+# Delete a stored series
+delete fred CPIAUCSL
 ```
 
 ### Server Mode (REST API)
 ```bash
 uv run uvicorn trademachine.datamanager_api.router:app --host 0.0.0.0 --port 8686
 ```
+
+---
+
+## Resampling / Derived Timeframes
+
+M1 is the **single source of truth**. Higher timeframes are never fetched directly from data providers — they are materialized from M1 via TimescaleDB continuous aggregates.
+
+```
+download → stores M1
+resample → creates ohlcv_h1 view (all assets, one-time setup per timeframe)
+update   → refreshes M1 + refreshes all continuous aggregates with data
+```
+
+- Running `resample` on an already-existing aggregate performs a **refresh** (not a no-op).
+- Running `update all` **automatically refreshes** all resampled timeframes that have data.
+- Continuous aggregates are global (per timeframe, not per asset). Deleting one asset does not affect others.
 
 ---
 
@@ -130,7 +189,7 @@ from trademachine.datamanager.client import DataManagerClient
 
 client = DataManagerClient(base_url="http://localhost:8686", api_key="YOUR_KEY")
 
-# Fetch data as a Pandas DataFrame
+# Fetch OHLCV data as a Pandas DataFrame
 df = client.get_data(
     source="dukascopy",
     asset="EURUSD",
@@ -156,16 +215,40 @@ uv run pytest components/datamanager/test/
 
 # Lint and Format
 uv run ruff check --fix . && uv run ruff format .
-
-# Type Checking
-uv run mypy components/datamanager/src/
 ```
 
 ---
 
 ## Database Schema (TimescaleDB)
 - **Hypertable:** `ohlcv_m1` — partitioned by `timestamp`, stores raw 1-minute OHLCV data.
-- **Continuous Aggregates:** `ohlcv_m5`, `ohlcv_m15`, `ohlcv_h1`, `ohlcv_h4`, `ohlcv_d1` — automatically refreshed materialized views.
-- **Catalog Tables:** `sources` and `assets` — metadata for sources and ticker symbols.
+- **Continuous Aggregates:** created on demand via `resample` — e.g. `ohlcv_h1`, `ohlcv_m15`. Each view covers all assets for that timeframe.
+- **Catalog Tables:** `sources` and `assets` — metadata for sources and ticker symbols with min/max date and row count.
 - **FRED Tables:** `economic_series` and `economic_observations` — separate catalog and hypertable for macro series.
-- **Migrations:** Alembic migrations in `alembic/versions/` create the OHLCV schema, continuous aggregates, and FRED tables.
+- **Migrations:** Alembic migrations in `alembic/versions/` create the OHLCV schema and FRED tables.
+
+---
+
+## REST API Endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/` | GET | No | Dashboard and instance statistics |
+| `/health` | GET | No | Health check |
+| `/download` | POST | Yes | Download asset data (background) |
+| `/update` | POST | Yes | Update existing database (background) |
+| `/delete` | POST | Yes | Delete database(s) |
+| `/list` | GET | Yes | List all databases (paginated) |
+| `/info/{source}/{asset}/{timeframe}` | GET | Yes | Database metadata |
+| `/search` | GET | Yes | Search assets by source/query |
+| `/data/{source}/{asset}/{timeframe}` | GET | Yes | Download data as Parquet |
+| `/data/{source}/{asset}/{timeframe}/stream` | GET | Yes | Stream data as CSV |
+| `/series/search` | GET | Yes | Search FRED economic series |
+| `/series/download` | POST | Yes | Download and save a FRED series |
+| `/series/update` | POST | Yes | Update an existing FRED series |
+| `/series/list` | GET | Yes | List stored FRED series |
+| `/series/info/{source}/{series_id}` | GET | Yes | Metadata for a stored FRED series |
+| `/series/data/{source}/{series_id}` | GET | Yes | Download FRED data as Parquet |
+| `/series/delete` | POST | Yes | Delete a stored FRED series |
+| `/schedule` | GET | Yes | List scheduled jobs |
+| `/schedule` | POST | Yes | Create scheduled job |
+| `/schedule/{job_id}` | DELETE | Yes | Remove scheduled job |

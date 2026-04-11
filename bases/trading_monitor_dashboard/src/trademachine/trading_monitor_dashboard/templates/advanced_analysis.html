@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header">
     <a href="/" class="back-link">← Overview</a>
-    <h1>Advanced Analysis</h1>
+    <h1><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg> Advanced Analysis</h1>
 </div>
 
 <style>
@@ -16,9 +16,18 @@
     #advanced-analysis-params .field-group {
         min-width: 0;
     }
+    #advanced-analysis-params .field-group.advanced-side-field {
+        align-items: flex-start;
+    }
     #advanced-analysis-params #new-strategy-search {
         width: 100%;
         max-width: none;
+    }
+    #param-side-tabs,
+    #analysis-equity-scale-tabs {
+        margin-left: 0;
+        margin-right: auto;
+        width: max-content;
     }
     #analysis-metrics.metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .analysis-status { margin-left:0.75rem; font-size:0.85rem; color:var(--text-muted); }
@@ -73,12 +82,12 @@
                 <span class="field-label">Benchmark</span>
                 <select class="field-input" id="param-benchmark"></select>
             </div>
-            <div class="field-group">
+            <div class="field-group advanced-side-field">
                 <span class="field-label">Side</span>
                 <div class="period-tabs" id="param-side-tabs" style="margin-top:0.25rem">
                     <button class="period-tab active" data-side="both"  onclick="setAdvancedSide('both')">Both</button>
-                    <button class="period-tab"        data-side="long"  onclick="setAdvancedSide('long')">Long</button>
-                    <button class="period-tab"        data-side="short" onclick="setAdvancedSide('short')">Short</button>
+                    <button class="period-tab"        data-side="buy"   onclick="setAdvancedSide('buy')">Buy</button>
+                    <button class="period-tab"        data-side="sell"  onclick="setAdvancedSide('sell')">Sell</button>
                 </div>
             </div>
             <div class="field-group" style="grid-column:1 / -1">
@@ -102,6 +111,10 @@
             <h2>Equity Curve</h2>
             <span id="analysis-range" class="badge badge-neutral"></span>
             <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('equity-chart', 'advanced_equity.png')" title="Export image">⭳ Export</button>
+            <div class="period-tabs" id="analysis-equity-scale-tabs" style="margin-left:0.75rem">
+                <button class="period-tab" data-aes="monetary" onclick="setAnalysisEquityScale('monetary')">$</button>
+                <button class="period-tab" data-aes="pct" onclick="setAnalysisEquityScale('pct')">%</button>
+            </div>
         </div>
         <div class="chart-wrapper">
             <canvas id="equity-chart"></canvas>
@@ -143,11 +156,26 @@ let _advancedAllStrategies = [];
 let _analysisRequestToken = 0;
 let _strategyLoadToken = 0;
 let _advancedSide = "both";
+let _analysisEquityScale = localStorage.getItem("tm-advanced-equity-scale") || "monetary";
+let _analysisEquityPoints = [];
+let _analysisComparisonPoints = [];
+let _analysisBenchmark = null;
 
 function setAdvancedSide(side) {
     _advancedSide = side;
     document.querySelectorAll("#param-side-tabs .period-tab").forEach(b =>
         b.classList.toggle("active", b.dataset.side === side));
+}
+
+function setAnalysisEquityScale(scale) {
+    _analysisEquityScale = scale;
+    localStorage.setItem("tm-advanced-equity-scale", scale);
+    document.querySelectorAll("#analysis-equity-scale-tabs .period-tab").forEach((button) =>
+        button.classList.toggle("active", button.dataset.aes === scale)
+    );
+    if (_analysisEquityPoints.length || _analysisComparisonPoints.length) {
+        renderAnalysisChart(_analysisEquityPoints, _analysisComparisonPoints, _analysisBenchmark);
+    }
 }
 
 function setAnalysisStatus(message = "", tone = "") {
@@ -166,6 +194,19 @@ function showAnalysisError(message) {
 function clearAnalysisError() {
     document.getElementById("analysis-error").hidden = true;
     document.getElementById("analysis-error-message").textContent = "";
+}
+
+function selectAllAdvancedStrategies() {
+    document
+        .querySelectorAll("#new-strategy-list .modal-strat-checkbox")
+        .forEach((checkbox) => {
+            checkbox.checked = true;
+        });
+
+    const selectAll = document.getElementById("modal-strat-select-all");
+    if (selectAll) {
+        selectAll.checked = true;
+    }
 }
 
 function extractErrorMessage(error, fallback) {
@@ -190,6 +231,9 @@ function showStrategiesError(message) {
 
 function resetAnalysisOutput() {
     _allEquityPoints = [];
+    _analysisEquityPoints = [];
+    _analysisComparisonPoints = [];
+    _analysisBenchmark = null;
     if (equityChart) {
         equityChart.destroy();
         equityChart = null;
@@ -224,6 +268,18 @@ function setDefaultDateRange() {
 
     if (!dateFrom.value) {
         dateFrom.value = yearAgo.toISOString().slice(0, 10);
+    }
+}
+
+async function loadAdvancedDefaults() {
+    try {
+        const settings = await fetchJson("/api/settings/telegram");
+        const initialBalance = Number(settings?.default_initial_balance);
+        if (Number.isFinite(initialBalance) && !document.getElementById("param-initial-balance").value) {
+            document.getElementById("param-initial-balance").value = initialBalance;
+        }
+    } catch (error) {
+        console.error("Failed to load advanced-analysis defaults:", error);
     }
 }
 
@@ -473,6 +529,26 @@ function renderAnalysisMetrics(metrics) {
     section.style.display = "block";
 }
 
+function buildAnalysisSeries(points, getter) {
+    const baselinePoint = points.find((point) => {
+        const value = getter(point);
+        return value != null && Number.isFinite(Number(value));
+    });
+    if (!baselinePoint) return points.map(() => null);
+
+    const baseline = Number(getter(baselinePoint)) || 1;
+    return points.map((point) => {
+        const value = getter(point);
+        if (value == null || !Number.isFinite(Number(value))) return null;
+
+        const numericValue = Number(value);
+        if (_analysisEquityScale === "pct") {
+            return parseFloat((((numericValue / baseline) - 1) * 100).toFixed(4));
+        }
+        return parseFloat((numericValue - baseline).toFixed(4));
+    });
+}
+
 function renderAnalysisChart(equityPoints, comparisonPoints, benchmark) {
     const canvasWrap = document.getElementById("equity-chart").parentElement;
     const hasComparison = Array.isArray(comparisonPoints) && comparisonPoints.length > 0;
@@ -485,20 +561,16 @@ function renderAnalysisChart(equityPoints, comparisonPoints, benchmark) {
 
     canvasWrap.innerHTML = '<canvas id="equity-chart"></canvas>';
     const ctx = document.getElementById("equity-chart").getContext("2d");
-    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
-    const tickColor = isDark ? "#64748b" : "#94a3b8";
-    const gridColor = isDark ? "#334155" : "#e2e8f0";
+    const isPct = _analysisEquityScale === "pct";
+    const { tickColor, gridColor } = getEquityChartColors();
     const labelsSource = hasComparison ? comparisonPoints : equityPoints;
-    const labels = labelsSource.map((p) => {
-        const d = new Date(p.timestamp);
-        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
-    });
+    const labels = buildEquityChartLabels(labelsSource);
 
     const datasets = [{
         label: "Portfolio / Strategies",
-        data: (hasComparison ? comparisonPoints : equityPoints).map((p) =>
-            hasComparison ? p.portfolio : p.equity
-        ),
+        data: hasComparison
+            ? buildAnalysisSeries(comparisonPoints, (point) => point.portfolio)
+            : buildAnalysisSeries(equityPoints, (point) => point.equity),
         borderColor: "#10b981",
         backgroundColor: "rgba(16,185,129,0.06)",
         fill: true,
@@ -510,7 +582,7 @@ function renderAnalysisChart(equityPoints, comparisonPoints, benchmark) {
     if (benchmark && hasComparison && comparisonPoints.some((p) => p.benchmark != null)) {
         datasets.push({
             label: benchmark.name,
-            data: comparisonPoints.map((p) => p.benchmark),
+            data: buildAnalysisSeries(comparisonPoints, (point) => point.benchmark),
             borderColor: "#f59e0b",
             backgroundColor: "transparent",
             fill: false,
@@ -535,9 +607,8 @@ function renderAnalysisChart(equityPoints, comparisonPoints, benchmark) {
                     callbacks: {
                         label: (c) => {
                             if (c.parsed.y == null) return null;
-                            const isBenchmark = c.datasetIndex > 0;
-                            const prefix = isBenchmark ? ` ${c.dataset.label}: ` : " Portfolio: ";
-                            return `${prefix}${fmt(c.parsed.y)}`;
+                            const prefix = c.datasetIndex > 0 ? ` ${c.dataset.label}: ` : " Portfolio: ";
+                            return `${prefix}${isPct ? `${Number(c.parsed.y).toFixed(2)}%` : fmt(c.parsed.y)}`;
                         },
                     },
                 },
@@ -545,9 +616,17 @@ function renderAnalysisChart(equityPoints, comparisonPoints, benchmark) {
             scales: {
                 x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
                 y: {
-                    ticks: { color: tickColor, callback: (v) => fmt(v) },
+                    ticks: {
+                        color: tickColor,
+                        callback: (value) => isPct ? `${Number(value).toFixed(2)}%` : fmt(value),
+                    },
                     grid: { color: gridColor },
-                    title: { display: true, text: "Capital", color: tickColor, font: { size: 11 } },
+                    title: {
+                        display: true,
+                        text: isPct ? "Return" : "Capital Change",
+                        color: tickColor,
+                        font: { size: 11 },
+                    },
                 },
             },
         },
@@ -585,11 +664,14 @@ async function runAdvancedAnalysis() {
         const data = await fetchJson(`/api/advanced-analysis?${params.toString()}`);
         if (requestToken !== _analysisRequestToken) return;
 
-        _allEquityPoints = data.equity_curve || [];
+        _analysisEquityPoints = data.equity_curve || [];
+        _analysisComparisonPoints = data.comparison_curve || [];
+        _analysisBenchmark = data.benchmark || null;
+        _allEquityPoints = _analysisEquityPoints;
         renderAnalysisChart(
-            data.equity_curve || [],
-            data.comparison_curve || [],
-            data.benchmark || null
+            _analysisEquityPoints,
+            _analysisComparisonPoints,
+            _analysisBenchmark
         );
 
         renderAnalysisMetrics(data.metrics || {});
@@ -614,12 +696,75 @@ async function runAdvancedAnalysis() {
     }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function parseUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    return {
+        strategyIds: params.getAll("strategy_ids"),
+        historyType: params.get("history_type"),
+        dateFrom: params.get("date_from"),
+        dateTo: params.get("date_to"),
+        initialBalance: params.get("initial_balance"),
+        benchmarkId: params.get("benchmark_id"),
+        side: params.get("side"),
+    };
+}
+
+function applyUrlStrategies(strategyIds) {
+    if (!strategyIds.length) return false;
+    const checkboxes = document.querySelectorAll("#new-strategy-list .modal-strat-checkbox");
+    let anyChecked = false;
+    checkboxes.forEach((cb) => {
+        const checked = strategyIds.includes(cb.value);
+        cb.checked = checked;
+        if (checked) anyChecked = true;
+    });
+    const selectAll = document.getElementById("modal-strat-select-all");
+    if (selectAll) {
+        selectAll.checked = checkboxes.length > 0 && [...checkboxes].every((cb) => cb.checked);
+    }
+    return anyChecked;
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+    const urlParams = parseUrlParams();
+
     setDefaultDateRange();
-    document.getElementById("param-history-type").value = "demo";
-    loadStrategiesOptions();
-    loadBenchmarksOptions();
-    document.getElementById("param-history-type").addEventListener("change", loadStrategiesOptions);
+    document.getElementById("param-history-type").value = urlParams.historyType || "demo";
+    if (urlParams.dateFrom) document.getElementById("param-date-from").value = urlParams.dateFrom;
+    if (urlParams.dateTo) document.getElementById("param-date-to").value = urlParams.dateTo;
+    if (urlParams.initialBalance) document.getElementById("param-initial-balance").value = urlParams.initialBalance;
+    if (urlParams.side) setAdvancedSide(urlParams.side);
+    setAnalysisEquityScale(_analysisEquityScale);
+
+    await Promise.all([
+        loadAdvancedDefaults(),
+        loadStrategiesOptions(),
+        loadBenchmarksOptions(),
+    ]);
+
+    if (urlParams.benchmarkId) document.getElementById("param-benchmark").value = urlParams.benchmarkId;
+
+    let hasStrategies = false;
+    if (urlParams.strategyIds.length) {
+        hasStrategies = applyUrlStrategies(urlParams.strategyIds);
+    } else if (document.querySelector("#new-strategy-list .modal-strat-checkbox")) {
+        selectAllAdvancedStrategies();
+        hasStrategies = true;
+    }
+
+    if (hasStrategies) {
+        await runAdvancedAnalysis();
+    }
+
+    document.getElementById("param-history-type").addEventListener("change", async () => {
+        await loadStrategiesOptions();
+        if (document.querySelector("#new-strategy-list .modal-strat-checkbox")) {
+            selectAllAdvancedStrategies();
+            await runAdvancedAnalysis();
+        } else {
+            resetAnalysisOutput();
+        }
+    });
 });
 </script>
 {% endblock %}

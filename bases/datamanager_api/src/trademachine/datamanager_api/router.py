@@ -13,28 +13,30 @@ from slowapi.util import get_remote_address
 from trademachine.core.logger import LOGGER_NAME, setup_logger
 
 __version__ = "0.1.0"
-from trademachine.datamanager.core.config import settings
-from trademachine.datamanager.schemas import (
+from trademachine.datamanager.public import (
     DatabaseInfo,
+    DataManager,
     DeleteRequest,
     DownloadRequest,
     ListResponse,
+    QualityReport,
+    ResampleRequest,
     ScheduleJobInfo,
     ScheduleListResponse,
     ScheduleRequest,
+    SchedulerService,
     SearchResponse,
     SeriesDeleteRequest,
     SeriesDownloadRequest,
     SeriesInfo,
     SeriesListResponse,
+    SeriesManager,
     SeriesSearchResponse,
     SeriesUpdateRequest,
     TaskResponse,
     UpdateRequest,
+    settings,
 )
-from trademachine.datamanager.services.manager import DataManager
-from trademachine.datamanager.services.scheduler import SchedulerService
-from trademachine.datamanager.services.series_manager import SeriesManager
 
 manager = DataManager()
 series_manager = SeriesManager()
@@ -47,7 +49,7 @@ logger = logging.getLogger(LOGGER_NAME)
 limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 
-def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+def _rate_limit_exceeded_handler(_request: Request, exc: RateLimitExceeded):
     raise HTTPException(
         status_code=429,
         detail=f"Rate limit exceeded: {exc.detail}.",
@@ -56,7 +58,7 @@ def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    setup_logger()
+    setup_logger(log_path="projects/datamanager/log.log")
     if not settings.is_api_key_configured:
         logger.warning(
             "⚠  DATAMANAGER_API_KEY is not set — the API is running UNPROTECTED!"
@@ -250,7 +252,7 @@ def get_data_file(
 
     # Convert to Parquet in memory
     buf = io.BytesIO()
-    df.to_parquet(buf, engine="fastparquet")
+    df.to_parquet(buf, engine="pyarrow")
     buf.seek(0)
 
     return StreamingResponse(
@@ -398,7 +400,7 @@ def get_series_data_file(
         raise HTTPException(status_code=500, detail=str(e))
 
     buf = io.BytesIO()
-    df.to_parquet(buf, engine="fastparquet")
+    df.to_parquet(buf, engine="pyarrow")
     buf.seek(0)
 
     return StreamingResponse(
@@ -459,6 +461,45 @@ def delete_schedule(job_id: str, api_key: str = Depends(get_api_key)):
     if not removed:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
     return {"status": "success", "message": f"Job '{job_id}' removed"}
+
+
+@app.post("/resample", response_model=TaskResponse)
+def resample_data(
+    req: ResampleRequest,
+    background_tasks: BackgroundTasks,
+    api_key: str = Depends(get_api_key),
+):
+    """Rebuild one or more higher timeframes from the stored M1 base."""
+    try:
+        assets = [a.strip() for a in req.asset.split(",") if a.strip()]
+        timeframes = [tf.strip() for tf in req.timeframes.split(",") if tf.strip()]
+        for asset in assets:
+            for timeframe in timeframes:
+                background_tasks.add_task(
+                    manager.resample_data, req.source, asset, timeframe
+                )
+        return {
+            "status": "success",
+            "message": f"Resample of {req.asset} ({req.timeframes}) via {req.source} started in background",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/quality/{source}/{asset}/{timeframe}", response_model=QualityReport)
+def quality_check(
+    source: str, asset: str, timeframe: str, api_key: str = Depends(get_api_key)
+):
+    """Run data quality checks on a stored database and return a structured report."""
+    if not all(re.match(r"^[a-zA-Z0-9_.\-]+$", p) for p in [source, asset, timeframe]):
+        raise HTTPException(status_code=400, detail="Invalid path parameters")
+
+    try:
+        return manager.check_quality(source, asset, timeframe)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Database not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

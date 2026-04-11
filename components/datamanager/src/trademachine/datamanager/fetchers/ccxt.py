@@ -2,15 +2,9 @@ from datetime import UTC, datetime
 from typing import cast
 
 import pandas as pd
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential_jitter,
-)
 from tqdm import tqdm
 
-from .base import BaseFetcher
+from .base import FETCH_RETRY, BaseFetcher
 
 try:
     import ccxt  # noqa: F401
@@ -95,12 +89,7 @@ class CcxtFetcher(BaseFetcher):
                 unit=" candles",
             )
 
-        @retry(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential_jitter(initial=1.0, max=10.0),
-            retry=retry_if_exception_type((OSError, ConnectionError, TimeoutError)),
-            reraise=True,
-        )
+        @FETCH_RETRY
         def _fetch_batch() -> list:
             return cast(
                 list,

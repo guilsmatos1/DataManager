@@ -22,7 +22,9 @@ dependencies = [
 ]
 
 [tool.polylith.projects]
-"trademachine/tradingmonitor" = "components"
+"trademachine/tradingmonitor_storage" = "components"
+"trademachine/tradingmonitor_ingestion" = "components"
+"trademachine/tradingmonitor_analytics" = "components"
 "trademachine/core" = "components"
 "trademachine/mt5" = "components"
 "trademachine/trading_monitor_dashboard" = "bases"

@@ -73,7 +73,7 @@ function renderStrategiesTable() {
     let list = _allStrategies.filter(s =>
         !q || `${s.id} ${s.name || ""} ${s.symbol || ""}`.toLowerCase().includes(q));
 
-    document.getElementById("badge-strategies").textContent = list.length;
+    document.getElementById("badge-strategies").textContent = `${list.length} total`;
 
     const container = document.getElementById("table-all-strategies");
     if (!list.length) {
@@ -138,7 +138,7 @@ function renderStrategiesTable() {
             ${th("ID","id")}${th("Name","name")}${th("Symbol","symbol")}
             ${th("TF","timeframe")}${th("Style","operational_style")}${th("Duration","trade_duration")}
             ${th("Initial Balance","initial_balance")}
-            ${th("NP Backtest","backtest_net_profit")}${th("NP Demo","net_profit")}${th("NP Real","net_profit")}
+            ${th("BACKTEST","backtest_net_profit")}${th("DEMO","net_profit")}${th("REAL","net_profit")}
             <th>Status</th><th>Actions</th>
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -223,7 +223,7 @@ function renderAccountsTable() {
             ${tha("Type","account_type")}${tha("Currency","currency")}
             ${tha("Balance","balance")}${tha("Free Margin","free_margin")}
             ${tha("Deposits","total_deposits")}${tha("Withdrawals","total_withdrawals")}
-            ${tha("Net Profit","net_profit")}
+            ${tha("Profit","net_profit")}
         </tr></thead>
         <tbody>${rows}</tbody>
     </table>`;
@@ -313,7 +313,7 @@ function renderPortfoliosTable() {
         <thead><tr>
             ${thp("ID","id")}${thp("Name","name")}${thp("Description","description")}
             <th>Strategies</th>${thp("Initial Balance","initial_balance")}
-            ${thp("NP Backtest %","backtest_net_profit")}${thp("NP Demo %","demo_net_profit")}${thp("NP Real %","real_net_profit")}
+            ${thp("BACKTEST","backtest_net_profit")}${thp("DEMO","demo_net_profit")}${thp("REAL","real_net_profit")}
             <th>Status</th><th>Actions</th>
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -487,19 +487,13 @@ function toggleAllModalStrategies(source) {
 let equityChart = null;
 let _allEquityPoints = [];
 let _equityPeriod = "all";
+let _equityScale = localStorage.getItem("tm-portfolio-equity-scale") || "monetary";
+const MIN_PORTFOLIO_TRADES_FOR_CHARTS = 15;
 
 const STRAT_COLORS = [
     "#60a5fa","#f472b6","#a78bfa","#34d399","#fb923c",
     "#facc15","#38bdf8","#f87171","#4ade80","#e879f9",
 ];
-
-function filterEquityPoints(pts, period) {
-    if (period === "all" || !pts.length) return pts;
-    const months = { "1M": 1, "3M": 3, "6M": 6, "1Y": 12 }[period] || 0;
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - months);
-    return pts.filter(p => new Date(p.timestamp) >= cutoff);
-}
 
 function setEquityPeriod(period) {
     _equityPeriod = period;
@@ -510,18 +504,45 @@ function setEquityPeriod(period) {
     }
 }
 
+function setEquityScale(scale) {
+    _equityScale = scale;
+    localStorage.setItem("tm-portfolio-equity-scale", scale);
+    document.querySelectorAll(".period-tab[data-es]").forEach(b =>
+        b.classList.toggle("active", b.dataset.es === scale));
+    if (_allEquityPoints.length) {
+        renderEquityChart(_allEquityPoints, {}, _equityPeriod);
+    }
+}
+
 function renderEquityChart(totalPoints, strategiesMap, period) {
-    const ctx = document.getElementById("equity-chart").getContext("2d");
-    const filtered = filterEquityPoints(totalPoints, period);
+    const wrapper = document.querySelector("#chart-section .chart-wrapper");
+    if (!document.getElementById("equity-chart") && wrapper) {
+        wrapper.innerHTML = '<canvas id="equity-chart"></canvas>';
+    }
+    const canvas = document.getElementById("equity-chart");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (typeof _portfolioTotalTrades === "number" && _portfolioTotalTrades < MIN_PORTFOLIO_TRADES_FOR_CHARTS) {
+        if (equityChart) {
+            equityChart.destroy();
+            equityChart = null;
+        }
+        ctx.canvas.parentElement.innerHTML =
+            `<p class="empty-state" style="padding:2rem 0">At least ${MIN_PORTFOLIO_TRADES_FOR_CHARTS} trades are required to render the equity chart.</p>`;
+        return;
+    }
+    if (_portfolioTotalTrades == null) {
+        if (equityChart) { equityChart.destroy(); equityChart = null; }
+        return;
+    }
+    const filtered = filterEquityPointsByPeriod(totalPoints, period);
     if (!filtered.length) {
+        if (equityChart) { equityChart.destroy(); equityChart = null; }
         ctx.canvas.parentElement.innerHTML = '<p class="empty-state" style="padding:2rem 0">No equity data yet.</p>';
         return;
     }
 
-    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
-    const tickColor = isDark ? "#64748b" : "#94a3b8";
-    const gridColor = isDark ? "#334155" : "#e2e8f0";
-    const legendColor = isDark ? "#94a3b8" : "#475569";
+    const { tickColor, gridColor } = getEquityChartColors();
 
     const cutoff = period !== "all" ? (() => {
         const d = new Date();
@@ -529,15 +550,14 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
         return d;
     })() : null;
 
-    const labels = filtered.map(p => {
-        const d = new Date(p.timestamp);
-        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
-    });
+    const labels = buildEquityChartLabels(filtered);
     const tsSet = new Set(filtered.map(p => p.timestamp));
+    const isPct = _equityScale === "pct";
+    const totalSeries = buildRebasedEquitySeries(filtered, _equityScale);
 
     const datasets = [{
-        label: "Portfolio Total",
-        data: filtered.map(p => p.equity),
+        label: isPct ? "Portfolio Return (%)" : "Portfolio Equity Change",
+        data: totalSeries,
         segment: { borderColor: c => c.p1.parsed.y >= 0 ? "#10b981" : "#ef4444" },
         borderColor: "#10b981",
         backgroundColor: "rgba(16,185,129,0.06)",
@@ -551,7 +571,7 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
         const color = STRAT_COLORS[colorIdx++ % STRAT_COLORS.length];
         datasets.push({
             label: info.name || sid,
-            data: pts.map(p => p.equity),
+            data: pts.length ? buildRebasedEquitySeries(pts, _equityScale) : [],
             borderColor: color,
             backgroundColor: "transparent",
             fill: false, tension: 0.3, pointRadius: 0, borderWidth: 1.2,
@@ -572,7 +592,7 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
                 legend: {
                     display: false,
                 },
-                tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)}` } },
+                tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${isPct ? `${c.parsed.y.toFixed(2)}%` : fmt(c.parsed.y)}` } },
                 zoom: {
                     zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
                     pan:  { enabled: true, mode: "x" },
@@ -580,7 +600,13 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
             },
             scales: {
                 x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
-                y: { ticks: { color: tickColor }, grid: { color: gridColor } },
+                y: {
+                    ticks: {
+                        color: tickColor,
+                        callback: value => isPct ? `${Number(value).toFixed(2)}%` : fmt(value),
+                    },
+                    grid: { color: gridColor },
+                },
             },
         },
     });
@@ -665,11 +691,20 @@ function renderPortfolioStrategies() {
     const q = (document.getElementById("port-strat-search")?.value || "").toLowerCase().trim();
     let list = _portStratList.filter(s => !q || `${s.id} ${s.name||""} ${s.symbol||""}`.toLowerCase().includes(q));
 
+    const _netProfit = s =>
+        s.net_profit == null || !Number.isFinite(Number(s.net_profit)) ? null : Number(s.net_profit);
+    const _drawdownPct = s =>
+        s.max_drawdown == null || !Number.isFinite(Number(s.max_drawdown)) ? null : Number(s.max_drawdown) * 100;
     const _retdd = s => {
-        const np = s.net_profit, dd = s.max_drawdown, ib = s.initial_balance;
-        if (np == null || dd == null || dd <= 0 || ib == null || ib <= 0) return null;
-        const val = np / (dd * ib);
-        return val;
+        const np = _netProfit(s);
+        const ddFraction = s.max_drawdown == null || !Number.isFinite(Number(s.max_drawdown))
+            ? null
+            : Number(s.max_drawdown);
+        const ib = s.initial_balance == null || !Number.isFinite(Number(s.initial_balance))
+            ? null
+            : Number(s.initial_balance);
+        if (np == null || ddFraction == null || ddFraction <= 0 || ib == null || ib <= 0) return null;
+        return (np / ib) / ddFraction;
     };
 
     if (_portStratSortCol) {
@@ -679,9 +714,11 @@ function renderPortfolioStrategies() {
                 va = _retdd(a);
                 vb = _retdd(b);
             } else if (_portStratSortCol === "max_drawdown") {
-                // Sort by absolute drawdown amount
-                va = a.max_drawdown != null && a.initial_balance != null ? a.max_drawdown * a.initial_balance : null;
-                vb = b.max_drawdown != null && b.initial_balance != null ? b.max_drawdown * b.initial_balance : null;
+                va = _drawdownPct(a);
+                vb = _drawdownPct(b);
+            } else if (_portStratSortCol === "net_profit") {
+                va = _netProfit(a);
+                vb = _netProfit(b);
             } else {
                 va = a[_portStratSortCol];
                 vb = b[_portStratSortCol];
@@ -703,13 +740,11 @@ function renderPortfolioStrategies() {
     };
 
     const rows = pageList.map(s => {
-        const np = s.net_profit;
+        const np = _netProfit(s);
         const npCls = np == null ? "" : (np >= 0 ? "profit-positive" : "profit-negative");
-        const dd = s.max_drawdown;
-        const ib = s.initial_balance;
-        const ddAmount = dd != null && ib != null ? dd * ib : null;
-        const ddStr = ddAmount != null ? fmt(ddAmount) : "—";
-        const ddCls = dd != null && dd > 0 ? "profit-negative" : "";
+        const ddPct = _drawdownPct(s);
+        const ddStr = ddPct != null ? `${ddPct.toFixed(2)}%` : "—";
+        const ddCls = ddPct != null && ddPct > 0 ? "profit-negative" : "";
         const retDDVal = _retdd(s);
         const retDD = retDDVal != null ? retDDVal.toFixed(2) : "—";
         const retDDCls = retDDVal == null ? "" : retDDVal >= 0 ? "profit-positive" : "profit-negative";
@@ -730,7 +765,7 @@ function renderPortfolioStrategies() {
         <thead><tr>
             ${th("ID","id")}${th("Name","name")}${th("Symbol","symbol")}
             ${th("TF","timeframe")}${th("Type","trade_duration")}
-            ${th("Trades","trades_count")}${th("Net Profit","net_profit")}
+            ${th("Trades","trades_count")}${th("Profit","net_profit")}
             ${th("Drawdown","max_drawdown")}${th("Ret/DD","retdd")}
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -755,18 +790,19 @@ function portStratGoPage(p) { _portStratPage = p; renderPortfolioStrategies(); }
 
 function exportPortfolioStrategiesCSV() {
     if (!_portStratList.length) return;
-    const headers = ["ID","Name","Symbol","TF","Type","Trades","Net Profit","Drawdown","Ret/DD"];
+    const headers = ["ID","Name","Symbol","TF","Type","Trades","Profit","Drawdown","Ret/DD"];
     const rows = _portStratList.map(s => {
-        const dd = s.max_drawdown;
-        const ib = s.initial_balance;
-        const ddAmount = dd != null && ib != null ? dd * ib : null;
-        const ddStr = ddAmount != null ? ddAmount.toFixed(2) : "";
+        const np = s.net_profit == null || !Number.isFinite(Number(s.net_profit)) ? null : Number(s.net_profit);
+        const ddFraction = s.max_drawdown == null || !Number.isFinite(Number(s.max_drawdown))
+            ? null
+            : Number(s.max_drawdown);
+        const ddStr = ddFraction != null ? `${(ddFraction * 100).toFixed(2)}%` : "";
         let retDD = "";
-        if (s.net_profit != null && dd != null && dd > 0 && ib != null && ib > 0) {
-            const val = s.net_profit / (dd * ib);
+        if (np != null && ddFraction != null && ddFraction > 0 && s.initial_balance != null && Number(s.initial_balance) > 0) {
+            const val = (np / Number(s.initial_balance)) / ddFraction;
             retDD = val.toFixed(2);
         }
-        return [s.id, s.name||"", s.symbol||"", s.timeframe||"", s.trade_duration||"", s.trades_count??"",(s.net_profit??""),(ddStr),(retDD)].join(",");
+        return [s.id, s.name||"", s.symbol||"", s.timeframe||"", s.trade_duration||"", s.trades_count??"",(np ?? ""),(ddStr),(retDD)].join(",");
     });
     const csv = [headers.join(","), ...rows].join("\n");
     const a = document.createElement("a");
@@ -822,7 +858,7 @@ function renderEditStrategiesTable() {
         <thead><tr>
             <th style="padding:0.3rem 0.5rem;width:32px"></th>
             ${th("ID","id")}${th("Name","name")}${th("Symbol","symbol")}
-            ${th("TF","timeframe")}${th("Type","trade_duration")}${th("Net Profit","net_profit")}
+            ${th("TF","timeframe")}${th("Type","trade_duration")}${th("Profit","net_profit")}
         </tr></thead>
         <tbody>${rows}</tbody>
     </table>`;

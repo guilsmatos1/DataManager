@@ -9,8 +9,8 @@ from sqlalchemy import engine_from_config, pool
 sys.path.insert(0, os.getcwd())
 
 # Import models and metadata
-from trademachine.tradingmonitor.db.database import DATABASE_URL
-from trademachine.tradingmonitor.db.models import Base
+from trademachine.tradingmonitor_storage.db.database import DATABASE_URL
+from trademachine.tradingmonitor_storage.db.models import Base
 
 # this is the Alembic Config object
 config = context.config

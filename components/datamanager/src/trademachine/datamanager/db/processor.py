@@ -21,37 +21,6 @@ class DataProcessor:
     }
 
     @classmethod
-    def resample_ohlc(cls, df: pd.DataFrame, target_timeframe: str) -> pd.DataFrame:
-        """Takes an OHLCV DataFrame (lower TF) and converts it to a higher timeframe."""
-        if target_timeframe.upper() not in cls.TF_MAPPING:
-            raise ValueError(
-                f"Target timeframe not supported: {target_timeframe}. Use {list(cls.TF_MAPPING.keys())}"
-            )
-
-        rule = cls.TF_MAPPING[target_timeframe.upper()]
-        cols = {c.lower(): c for c in df.columns}
-
-        agg_dict = {}
-        if "open" in cols:
-            agg_dict[cols["open"]] = "first"
-        if "high" in cols:
-            agg_dict[cols["high"]] = "max"
-        if "low" in cols:
-            agg_dict[cols["low"]] = "min"
-        if "close" in cols:
-            agg_dict[cols["close"]] = "last"
-        if "volume" in cols:
-            agg_dict[cols["volume"]] = "sum"
-
-        if not agg_dict:
-            raise ValueError(
-                "The DataFrame does not contain valid OHLC columns for resampling."
-            )
-
-        resampled_df = df.resample(rule).agg(agg_dict).dropna()
-        return resampled_df
-
-    @classmethod
     def fill_gaps(
         cls, df: pd.DataFrame, timeframe: str, method: str = "ffill"
     ) -> pd.DataFrame:

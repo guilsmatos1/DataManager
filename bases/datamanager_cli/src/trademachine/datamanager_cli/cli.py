@@ -1,10 +1,12 @@
 import argparse
 import cmd
 import logging
+import os
 import shlex
 import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 
 from colorama import Fore, Style, init
 from dateutil.parser import parse  # type: ignore[import-untyped]
@@ -16,13 +18,70 @@ from trademachine.core.interactive import (
 from trademachine.core.logger import LOGGER_NAME, setup_logger
 
 __version__ = "0.1.0"
-from trademachine.datamanager.services.manager import DataManager
-from trademachine.datamanager.services.scheduler import SchedulerService
-from trademachine.datamanager.services.series_manager import SeriesManager
+from trademachine.datamanager.public import DataManager, SchedulerService, SeriesManager
 
 init(autoreset=True)
 
 logger = logging.getLogger(LOGGER_NAME)
+
+_UNSET_PLACEHOLDERS = {"your_api_key_here", "YOUR_API_KEY_HERE", ""}
+
+# Keys managed by the config command: (env_var_name, display_label)
+_CONFIG_KEYS: list[tuple[str, str]] = [
+    ("FRED_API_KEY", "FRED API Key"),
+    ("OPENBB_FRED_API_KEY", "OpenBB FRED API Key"),
+    ("DATAMANAGER_API_KEY", "DataManager API Key"),
+]
+
+
+def _find_env_path() -> Path | None:
+    """Walk up from cwd looking for a .env file (max 5 levels)."""
+    current = Path.cwd()
+    for _ in range(5):
+        candidate = current / ".env"
+        if candidate.exists():
+            return candidate
+        current = current.parent
+    return None
+
+
+def _mask(value: str) -> str:
+    if not value or value in _UNSET_PLACEHOLDERS:
+        return f"{Fore.RED}not set{Style.RESET_ALL}"
+    if len(value) <= 8:
+        return "****"
+    return f"{Fore.GREEN}{value[:4]}{'*' * (len(value) - 4)}{Style.RESET_ALL}"
+
+
+def _read_env_vars(env_path: Path) -> dict[str, str]:
+    """Parse key=value pairs from a .env file, skipping comments and blanks."""
+    result: dict[str, str] = {}
+    for line in env_path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" in stripped:
+            k, _, v = stripped.partition("=")
+            result[k.strip()] = v.strip()
+    return result
+
+
+def _write_env_key(env_path: Path, key: str, value: str) -> None:
+    """Update an existing key or append it to the .env file."""
+    lines = env_path.read_text().splitlines(keepends=True)
+    found = False
+    new_lines = []
+    for line in lines:
+        if line.startswith(f"{key}=") or line.startswith(f"{key} ="):
+            new_lines.append(f"{key}={value}\n")
+            found = True
+        else:
+            new_lines.append(line)
+    if not found:
+        if new_lines and not new_lines[-1].endswith("\n"):
+            new_lines.append("\n")
+        new_lines.append(f"{key}={value}\n")
+    env_path.write_text("".join(new_lines))
 
 
 class DataManagerCLI(cmd.Cmd):
@@ -42,17 +101,17 @@ class DataManagerCLI(cmd.Cmd):
         # Decorated title
         title = f" DATAMANAGER v{__version__} "
         padding = max(0, (width - len(title)) // 2)
-        decorated_title = f"{Fore.CYAN}{Style.BRIGHT}{'─' * padding}{Fore.WHITE}{title}{Fore.CYAN}{'─' * (width - padding - len(title))}{Style.RESET_ALL}"
+        decorated_title = f"{Fore.CYAN}{Style.BRIGHT}{'─' * padding}{Fore.GREEN}{title}{Fore.CYAN}{'─' * (width - padding - len(title))}{Style.RESET_ALL}"
 
         self.intro = f"""
 {decorated_title}
-{Fore.WHITE}{sep}
- {Fore.WHITE}Centralized financial data management system for OHLCV and economic series. Efficiently fetch, store, update, and resample market data in TimescaleDB.
+{Fore.GREEN}{sep}
+ {Fore.GREEN}Centralized financial data management system for OHLCV and economic series. Efficiently fetch, store, update, and resample market data in TimescaleDB.
 
- {Fore.YELLOW}● INTERACTIVE MODE ●{Fore.WHITE}
+ {Fore.YELLOW}● INTERACTIVE MODE ●{Fore.GREEN}
 
- {Fore.WHITE}Type {Fore.YELLOW}'help'{Fore.WHITE} for the full manual or {Fore.YELLOW}'exit'{Fore.WHITE} to quit.
-{Fore.WHITE}{sep}
+ {Fore.GREEN}Type {Fore.YELLOW}'help'{Fore.GREEN} for the full manual or {Fore.YELLOW}'exit'{Fore.GREEN} to quit.
+{Fore.GREEN}{sep}
 """
 
     @staticmethod
@@ -94,7 +153,7 @@ class DataManagerCLI(cmd.Cmd):
                         cleaned_doc = "\n".join(
                             "  " + line.strip() for line in doc.strip().split("\n")
                         )
-                        print(f"{Fore.WHITE}{cleaned_doc}\n")
+                        print(f"{Fore.GREEN}{cleaned_doc}\n")
 
     def __init__(self):
         super().__init__()
@@ -108,7 +167,7 @@ class DataManagerCLI(cmd.Cmd):
                 f"\n{Fore.RED}{Style.BRIGHT}ERROR: Could not connect to the Database."
             )
             print(
-                f"{Fore.WHITE}Ensure your TimescaleDB (Postgres) is running and your .env credentials are correct."
+                f"{Fore.GREEN}Ensure your TimescaleDB (Postgres) is running and your .env credentials are correct."
             )
             print(f"{Fore.YELLOW}Details: {e}\n")
             import sys
@@ -152,6 +211,65 @@ class DataManagerCLI(cmd.Cmd):
             stop = self.postcmd(stop, line)
 
         self.postloop()
+
+    def do_config(self, arg):
+        """
+        Manage API key configuration stored in .env.
+        Usage:
+          config show                          → show status of all configured keys
+          config set fred-key <value>          → set FRED_API_KEY and OPENBB_FRED_API_KEY
+          config set api-key <value>           → set DATAMANAGER_API_KEY
+        Examples:
+          config show
+          config set fred-key abc123
+          config set api-key mysecret
+        """
+        args = shlex.split(arg) if arg.strip() else []
+
+        if not args or args[0] == "show":
+            env_path = _find_env_path()
+            width = self.terminal_width
+            print(f"\n{Fore.CYAN}{Style.BRIGHT}API KEY CONFIGURATION{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}{'=' * width}")
+            if env_path:
+                print(f"  {Fore.CYAN}{'File':<24} {Fore.GREEN}» {env_path}")
+                env_vars = _read_env_vars(env_path)
+            else:
+                print(
+                    f"  {Fore.YELLOW}.env file not found — keys read from environment only"
+                )
+                env_vars = {}
+            print(f"{Fore.GREEN}{'-' * width}")
+            for env_key, label in _CONFIG_KEYS:
+                value = env_vars.get(env_key) or os.environ.get(env_key, "")
+                print(f"  {Fore.CYAN}{label:<24} {Fore.GREEN}» {_mask(value)}")
+            print(f"{Fore.GREEN}{'=' * width}\n")
+            return
+
+        if args[0] == "set":
+            if len(args) != 3:
+                logger.error("Usage: config set <fred-key|api-key> <value>")
+                return
+            key_name, value = args[1].lower(), args[2]
+            env_path = _find_env_path()
+            if env_path is None:
+                logger.error(
+                    ".env file not found. Create one at the project root first."
+                )
+                return
+
+            if key_name == "fred-key":
+                _write_env_key(env_path, "FRED_API_KEY", value)
+                _write_env_key(env_path, "OPENBB_FRED_API_KEY", value)
+                logger.info("FRED_API_KEY and OPENBB_FRED_API_KEY updated in .env")
+            elif key_name == "api-key":
+                _write_env_key(env_path, "DATAMANAGER_API_KEY", value)
+                logger.info("DATAMANAGER_API_KEY updated in .env")
+            else:
+                logger.error(f"Unknown key '{key_name}'. Use: fred-key | api-key")
+            return
+
+        logger.error("Usage: config show | config set <fred-key|api-key> <value>")
 
     def do_download(self, arg):
         """
@@ -237,7 +355,7 @@ class DataManagerCLI(cmd.Cmd):
                 try:
                     self.server.download_data(source, asset, start_date, end_date)
                     for tf in target_timeframes:
-                        self.server.resample_database(source, asset, tf)
+                        self.server.resample_data(source, asset, tf)
                 except Exception as e:
                     logger.error(f"Error downloading/resampling {asset}: {e}")
         except Exception as e:
@@ -301,15 +419,51 @@ class DataManagerCLI(cmd.Cmd):
             except Exception as e:
                 logger.error(f"Error updating {asset}: {e}")
 
+    def do_resample(self, arg):
+        """
+        Rebuilds one or more higher timeframes from the stored M1 base and saves them to the database.
+        Usage: resample <source> <asset1,asset2,...> <tf1,tf2,...>
+        Examples:
+          resample DUKASCOPY EURUSD M5,H1,D1
+          resample OPENBB AAPL,MSFT H1,W1
+        """
+        args = shlex.split(arg)
+
+        if len(args) != 3:
+            logger.error(
+                "Correct usage: resample <source> <assets,comma,separated> <timeframes,comma,separated>"
+            )
+            return
+
+        source = args[0]
+        assets = [a.strip() for a in args[1].split(",") if a.strip()]
+        timeframes = [tf.strip() for tf in args[2].split(",") if tf.strip()]
+
+        for asset in assets:
+            for timeframe in timeframes:
+                try:
+                    self.server.resample_data(source, asset, timeframe)
+                except Exception as e:
+                    logger.error(f"Error resampling {asset} to {timeframe}: {e}")
+
     def do_delete(self, arg):
         """
-        Delete database(s). Usage: delete <source> <assets,comma,separated> [timeframe]
-                                    delete fred <series_id>
-                                    delete all
+        Delete database(s).
+
+        Usage:
+          delete <source> <asset(s)>             — deletes M1 data + asset record (disappears from all timeframes)
+          delete <source> <asset(s)> M1          — deletes only M1 rows (keeps asset record)
+          delete <source> <asset(s)> <derived>   — NOT supported: derived timeframes (H1, M15, etc.) are
+                                                   continuous aggregate views shared across all assets.
+                                                   To remove an asset from all timeframes, omit the timeframe.
+          delete fred <series_id>                — deletes a FRED economic series
+          delete all                             — deletes ALL data from all sources
+
         Examples:
-          delete OPENBB AAPL,MSFT M1
+          delete dukascopy eurusd                — remove EURUSD from all timeframes
+          delete dukascopy eurusd M1             — wipe M1 rows only
+          delete OPENBB AAPL,MSFT               — remove multiple assets
           delete FRED CPIAUCSL
-          delete dukascopy eurusd
           delete all
         """
         args = shlex.split(arg)
@@ -364,7 +518,7 @@ class DataManagerCLI(cmd.Cmd):
 
             print(f"\n{Fore.CYAN}{Style.BRIGHT}FRED SERIES INFO:")
             width = self.terminal_width
-            print(f"{Fore.WHITE}{'=' * width}")
+            print(f"{Fore.GREEN}{'=' * width}")
             labels: dict[str, tuple[str, Callable[[object], str]]] = {
                 "source": ("Source", str),
                 "series_id": ("Series ID", str),
@@ -383,10 +537,10 @@ class DataManagerCLI(cmd.Cmd):
                     val_color = (
                         Fore.GREEN
                         if key in ["rows", "series_id", "asset"]
-                        else Fore.WHITE
+                        else Fore.GREEN
                     )
-                    print(f"  {Fore.CYAN}{label:<16} {Fore.WHITE}» {val_color}{val}")
-            print(f"{Fore.WHITE}{'=' * width}\n")
+                    print(f"  {Fore.CYAN}{label:<16} {Fore.GREEN}» {val_color}{val}")
+            print(f"{Fore.GREEN}{'=' * width}\n")
             return
 
         if len(args) != 3:
@@ -404,7 +558,7 @@ class DataManagerCLI(cmd.Cmd):
 
         print(f"\n{Fore.CYAN}{Style.BRIGHT}DATABASE INFO:")
         width = self.terminal_width
-        print(f"{Fore.WHITE}{'=' * width}")
+        print(f"{Fore.GREEN}{'=' * width}")
         labels: dict[str, tuple[str, Callable[[object], str]]] = {
             "source": ("Source", str),
             "asset": ("Asset", str),
@@ -416,90 +570,76 @@ class DataManagerCLI(cmd.Cmd):
         for key, (label, fmt) in labels.items():
             if key in info:
                 val = fmt(info[key])
-                val_color = Fore.GREEN if key in ["rows", "asset"] else Fore.WHITE
-                print(f"  {Fore.CYAN}{label:<14} {Fore.WHITE}» {val_color}{val}")
-        print(f"{Fore.WHITE}{'=' * width}\n")
+                val_color = Fore.GREEN if key in ["rows", "asset"] else Fore.GREEN
+                print(f"  {Fore.CYAN}{label:<14} {Fore.GREEN}» {val_color}{val}")
+        print(f"{Fore.GREEN}{'=' * width}\n")
 
     def do_list(self, arg):
         """
-        Lists saved databases or FRED series.
+        Lists all saved databases and FRED series.
         Usage: list
-               list --source fred
         """
         if arg.strip():
-            parser = argparse.ArgumentParser(prog="list", exit_on_error=False)
-            parser.add_argument("--source", type=str, default=None)
-
-            try:
-                args_parsed = parser.parse_args(shlex.split(arg))
-            except SystemExit:
-                return
-
-            if self._is_series_source(args_parsed.source or ""):
-                try:
-                    items = self.series_server.list_series()
-                    if not items:
-                        logger.info("No FRED series found.")
-                        return
-
-                    width = self.terminal_width
-                    title_len = max(10, width - 80)
-                    print(f"\n{Fore.CYAN}{Style.BRIGHT}FRED SERIES:{Style.RESET_ALL}")
-                    print(f"{Fore.WHITE}=" * width)
-                    header = f"{'SERIES ID':<18} | {'TITLE':<{title_len}} | {'FREQ':<10} | {'ROWS':<8} | {'START':<16} | {'END':<16}"
-                    print(f"{Fore.YELLOW}{header}")
-                    print(f"{Fore.WHITE}{'-' * width}")
-                    for item in items:
-                        start = (item.get("observation_start") or "")[:16]
-                        end = (item.get("observation_end") or "")[:16]
-                        rows = item.get("rows", "N/A")
-                        row = (
-                            f"{Fore.GREEN}{str(item.get('series_id', '')):<18} {Fore.WHITE}| "
-                            f"{Fore.WHITE}{str(item.get('title', ''))[:title_len]:<{title_len}} | "
-                            f"{Fore.CYAN}{str(item.get('frequency', '')):<10} {Fore.WHITE}| "
-                            f"{Fore.YELLOW}{str(rows):<8} {Fore.WHITE}| "
-                            f"{Fore.BLUE}{start:<16} {Fore.WHITE}| "
-                            f"{Fore.BLUE}{end:<16}"
-                        )
-                        print(row)
-                    print(f"{Fore.WHITE}{'=' * width}\n")
-                except Exception as e:
-                    logger.error(f"Error listing FRED series: {e}")
-                return
-
-            logger.error("Correct usage: list or list --source fred")
-            return
-
-        dbs = self.server.list_all()
-        if not dbs:
-            logger.warning("No databases found on disk.")
+            logger.error("Correct usage: list  (no arguments)")
             return
 
         width = self.terminal_width
         asset_len = max(8, width - 75)
-        print(f"\n{Fore.CYAN}{Style.BRIGHT}PERSISTED DATABASES:")
-        print(f"{Fore.WHITE}=" * width)
-        header = f"{'ID':<3} | {'SOURCE':<10} | {'ASSET':<{asset_len}} | {'TF':<4} | {'ROWS':<8} | {'START':<16} | {'END':<16}"
-        print(f"{Fore.YELLOW}{header}")
-        print(f"{Fore.WHITE}-" * width)
 
-        for idx, db in enumerate(dbs):
-            # Date formatting, removing seconds if necessary
-            start = (db["start_date"] or "")[:16]
-            end = (db["end_date"] or "")[:16]
-            rows = db["rows"] if db["rows"] is not None else "N/A"
-            row = (
-                f"{Fore.YELLOW}{idx + 1:<3} {Fore.WHITE}| "
-                f"{Fore.CYAN}{db['source'].upper()[:10]:<10} {Fore.WHITE}| "
-                f"{Fore.GREEN}{db['asset'].upper()[:asset_len]:<{asset_len}} {Fore.WHITE}| "
-                f"{Fore.MAGENTA}{db['timeframe'].upper()[:4]:<4} {Fore.WHITE}| "
-                f"{Fore.WHITE}{str(rows):<8} | "
-                f"{Fore.BLUE}{start:<16} {Fore.WHITE}| "
-                f"{Fore.BLUE}{end:<16}"
-            )
-            print(row)
+        dbs = self.server.list_all()
+        if dbs:
+            print(f"\n{Fore.CYAN}{Style.BRIGHT}PERSISTED DATABASES:{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}=" * width)
+            header = f"{'ID':<3} | {'SOURCE':<10} | {'ASSET':<{asset_len}} | {'TF':<4} | {'ROWS':<8} | {'START':<16} | {'END':<16}"
+            print(f"{Fore.YELLOW}{header}")
+            print(f"{Fore.GREEN}-" * width)
+            for idx, db in enumerate(dbs):
+                start = (db["start_date"] or "")[:16]
+                end = (db["end_date"] or "")[:16]
+                rows = db["rows"] if db["rows"] is not None else "N/A"
+                row = (
+                    f"{Fore.YELLOW}{idx + 1:<3} {Fore.GREEN}| "
+                    f"{Fore.CYAN}{db['source'].upper()[:10]:<10} {Fore.GREEN}| "
+                    f"{Fore.GREEN}{db['asset'].upper()[:asset_len]:<{asset_len}} {Fore.GREEN}| "
+                    f"{Fore.MAGENTA}{db['timeframe'].upper()[:4]:<4} {Fore.GREEN}| "
+                    f"{Fore.GREEN}{str(rows):<8} | "
+                    f"{Fore.BLUE}{start:<16} {Fore.GREEN}| "
+                    f"{Fore.BLUE}{end:<16}"
+                )
+                print(row)
+            print(f"{Fore.GREEN}=" * width)
+        else:
+            logger.warning("No OHLCV databases found.")
 
-        print(f"{Fore.WHITE}=" * width + "\n")
+        try:
+            fred_items = self.series_server.list_series()
+        except Exception as e:
+            logger.error(f"Error listing FRED series: {e}")
+            fred_items = []
+
+        if fred_items:
+            title_len = max(10, width - 80)
+            print(f"\n{Fore.CYAN}{Style.BRIGHT}FRED SERIES:{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}=" * width)
+            header = f"{'SERIES ID':<18} | {'TITLE':<{title_len}} | {'FREQ':<10} | {'ROWS':<8} | {'START':<16} | {'END':<16}"
+            print(f"{Fore.YELLOW}{header}")
+            print(f"{Fore.GREEN}{'-' * width}")
+            for item in fred_items:
+                start = (item.get("observation_start") or "")[:16]
+                end = (item.get("observation_end") or "")[:16]
+                rows = item.get("rows", "N/A")
+                row = (
+                    f"{Fore.GREEN}{str(item.get('series_id', '')):<18} {Fore.GREEN}| "
+                    f"{Fore.GREEN}{str(item.get('title', ''))[:title_len]:<{title_len}} | "
+                    f"{Fore.CYAN}{str(item.get('frequency', '')):<10} {Fore.GREEN}| "
+                    f"{Fore.YELLOW}{str(rows):<8} {Fore.GREEN}| "
+                    f"{Fore.BLUE}{start:<16} {Fore.GREEN}| "
+                    f"{Fore.BLUE}{end:<16}"
+                )
+                print(row)
+            print(f"{Fore.GREEN}{'=' * width}\n")
+        else:
+            print()
 
     def do_search(self, arg):
         """
@@ -543,11 +683,11 @@ class DataManagerCLI(cmd.Cmd):
 
                 print(f"\nFound {len(df)} series. Displaying the first 20:")
                 width = self.terminal_width
-                print(f"{Fore.WHITE}{'=' * width}")
+                print(f"{Fore.GREEN}{'=' * width}")
                 title_len = max(10, width - 52)
                 header = f"{'SERIES ID':<18} | {'TITLE':<{title_len}} | {'FREQ':<10} | {'UNITS':<18}"
                 print(f"{Fore.YELLOW}{header}")
-                print(f"{Fore.WHITE}{'-' * width}")
+                print(f"{Fore.GREEN}{'-' * width}")
                 df = df.reset_index().fillna("")
                 for _, row in df.head(20).iterrows():
                     series_id = str(row.get("series_id", row.get("id", "")))
@@ -557,13 +697,13 @@ class DataManagerCLI(cmd.Cmd):
                     )
                     units = str(row.get("units", ""))[:16]
                     row_str = (
-                        f"{Fore.GREEN}{series_id:<18} {Fore.WHITE}| "
-                        f"{Fore.WHITE}{title:<{title_len}} | "
-                        f"{Fore.CYAN}{frequency:<10} {Fore.WHITE}| "
+                        f"{Fore.GREEN}{series_id:<18} {Fore.GREEN}| "
+                        f"{Fore.GREEN}{title:<{title_len}} | "
+                        f"{Fore.CYAN}{frequency:<10} {Fore.GREEN}| "
                         f"{Fore.YELLOW}{units:<18}"
                     )
                     print(row_str)
-                print(f"{Fore.WHITE}{'=' * width}\n")
+                print(f"{Fore.GREEN}{'=' * width}\n")
                 return
 
             df = self.server.search_assets(
@@ -580,100 +720,51 @@ class DataManagerCLI(cmd.Cmd):
             width = self.terminal_width
 
             if source_key == "OPENBB":
-                print(f"{Fore.WHITE}{'=' * width}")
+                print(f"{Fore.GREEN}{'=' * width}")
                 name_len = max(10, width - 35)
                 header = (
                     f"{'TICKER':<15} | {'COMPANY NAME':<{name_len}} | {'EXCHANGE':<15}"
                 )
                 print(f"{Fore.YELLOW}{header}")
-                print(f"{Fore.WHITE}{'-' * width}")
+                print(f"{Fore.GREEN}{'-' * width}")
                 df = df.reset_index().fillna("")
                 for _, row in df.head(20).iterrows():
                     symbol = str(row.get("symbol", ""))
                     name = str(row.get("name", ""))[:name_len]
                     exc = str(row.get("exchange", ""))
                     row_str = (
-                        f"{Fore.GREEN}{symbol:<15} {Fore.WHITE}| "
-                        f"{Fore.WHITE}{name:<{name_len}} | "
+                        f"{Fore.GREEN}{symbol:<15} {Fore.GREEN}| "
+                        f"{Fore.GREEN}{name:<{name_len}} | "
                         f"{Fore.CYAN}{exc:<15}"
                     )
                     print(row_str)
-                print(f"{Fore.WHITE}{'=' * width}\n")
+                print(f"{Fore.GREEN}{'=' * width}\n")
 
             elif source_key == "DUKASCOPY":
-                print(f"{Fore.WHITE}{'=' * width}")
+                print(f"{Fore.GREEN}{'=' * width}")
                 name_len = max(10, width - 51)
                 header = f"{'TICKER':<20} | {'ALIAS':<15} | {'ASSET NAME':<{name_len}} | {'CATEGORY':<10}"
                 print(f"{Fore.YELLOW}{header}")
-                print(f"{Fore.WHITE}{'-' * width}")
+                print(f"{Fore.GREEN}{'-' * width}")
                 df = df.fillna("")
                 for _, row in df.head(20).iterrows():
                     row_str = (
-                        f"{Fore.GREEN}{str(row['ticker']):<20} {Fore.WHITE}| "
-                        f"{Fore.CYAN}{str(row['alias']):<15} {Fore.WHITE}| "
-                        f"{Fore.WHITE}{str(row['nome_do_ativo'])[:name_len]:<{name_len}} | "
+                        f"{Fore.GREEN}{str(row['ticker']):<20} {Fore.GREEN}| "
+                        f"{Fore.CYAN}{str(row['alias']):<15} {Fore.GREEN}| "
+                        f"{Fore.GREEN}{str(row['nome_do_ativo'])[:name_len]:<{name_len}} | "
                         f"{Fore.YELLOW}{str(row['categoria']):<10}"
                     )
                     print(row_str)
-                print(f"{Fore.WHITE}{'=' * width}\n")
+                print(f"{Fore.GREEN}{'=' * width}\n")
 
             else:
                 # Generic output for new fetchers (like CCXT)
-                print(f"{Fore.WHITE}{df.head(20).to_string()}\n")
+                print(f"{Fore.GREEN}{df.head(20).to_string()}\n")
 
         except SystemExit:
             pass
         except Exception as e:
             logger.error(f"Internal parse error: {e}")
-
-    def do_fred_search(self, arg):
-        """
-        Search FRED economic series.
-        Usage: fred_search [--query QUERY]
-        Examples:
-          fred_search
-          fred_search --query inflation
-        """
-        forwarded = f"--source fred {arg}".strip()
-        self.do_search(forwarded)
-
-    def do_fred_download(self, arg):
-        """
-        Download and save a FRED series.
-        Usage: fred_download <series_id> [start_date] [end_date] [--frequency FREQ]
-        Examples:
-          fred_download CPIAUCSL 2010-01-01 2024-01-01
-          fred_download CPIAUCSL --frequency m
-        """
-        self.do_download(f"fred {arg}".strip())
-
-    def do_fred_update(self, arg):
-        """
-        Update an existing FRED series.
-        Usage: fred_update <series_id> [--lookback LOOKBACK] [--frequency FREQ]
-        Examples:
-          fred_update CPIAUCSL
-          fred_update CPIAUCSL --lookback 30D
-        """
-        self.do_update(f"fred {arg}".strip())
-
-    def do_fred_list(self, arg):
-        """List stored FRED series. Usage: fred_list"""
-        self.do_list("--source fred")
-
-    def do_fred_info(self, arg):
-        """
-        Show info about a stored FRED series.
-        Usage: fred_info <series_id>
-        """
-        self.do_info(f"fred {arg}".strip())
-
-    def do_fred_delete(self, arg):
-        """
-        Delete a stored FRED series.
-        Usage: fred_delete <series_id>
-        """
-        self.do_delete(f"fred {arg}".strip())
 
     def do_quality(self, arg):
         """
@@ -806,10 +897,10 @@ class DataManagerCLI(cmd.Cmd):
             print(
                 f"\n{'JOB ID':<38} | {'SOURCE':<10} | {'ASSET':<{asset_len}} | {'TF':<4} | {'TRIGGER':<20} | NEXT RUN"
             )
-            print(f"{Fore.WHITE}-" * width)
+            print(f"{Fore.GREEN}-" * width)
             for j in jobs:
                 row = (
-                    f"{Fore.WHITE}{j['job_id']:<38} | "
+                    f"{Fore.GREEN}{j['job_id']:<38} | "
                     f"{Fore.CYAN}{j['source']:<10} | "
                     f"{Fore.GREEN}{j['asset']:<{asset_len}} | "
                     f"{Fore.MAGENTA}{j['timeframe']:<4} | "
@@ -837,11 +928,11 @@ class DataManagerCLI(cmd.Cmd):
 
 
 if __name__ == "__main__":
-    setup_logger()
+    setup_logger(log_path="projects/datamanager/log.log")
     DataManagerCLI().cmdloop()
 
 
 def main() -> None:
     """Entry point for the datamanager CLI."""
-    setup_logger()
+    setup_logger(log_path="projects/datamanager/log.log")
     DataManagerCLI().cmdloop()

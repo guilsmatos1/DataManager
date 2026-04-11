@@ -41,22 +41,25 @@ dependencies = [
 
 [tool.uv.workspace]
 members = [
-    "projects/backtestengine",
     "projects/datamanager",
-    "projects/portifoliomaster",
+    "projects/portfoliomaster",
     "projects/tradingmonitor",
+    "projects/metalabelingmaster",
     "components/datamanager",
-    "components/tradingmonitor",
-    "components/portifoliomaster",
-    "components/backtestengine",
+    "components/tradingmonitor_storage",
+    "components/tradingmonitor_ingestion",
+    "components/tradingmonitor_analytics",
+    "components/portfoliomaster",
     "components/mt5",
     "components/core",
+    "components/metrics",
+    "components/metalabelingmaster",
     "bases/datamanager_api",
     "bases/datamanager_cli",
     "bases/trading_monitor_dashboard",
     "bases/trading_monitor_cli",
-    "bases/portifolio_master_cli",
-    "bases/backtest_engine_cli"
+    "bases/portfolio_master_cli",
+    "bases/metalabeling_master_cli"
 ]
 
 [dependency-groups]
@@ -71,27 +74,28 @@ dev = [
     "mutmut>=3.5.0",
     "vulture>=2.15",
     "trademachine-datamanager>=0.1.0",
-    "trademachine-tradingmonitor>=0.1.0",
-    "trademachine-portifoliomaster>=0.1.0",
-    "trademachine-backtestengine>=0.1.0",
+    "trademachine-tradingmonitor-storage>=0.1.0",
+    "trademachine-tradingmonitor-ingestion>=0.1.0",
+    "trademachine-tradingmonitor-analytics>=0.1.0",
+    "trademachine-portfoliomaster>=0.1.0",
     "trademachine-datamanager-api>=0.1.0",
     "trademachine-datamanager-cli>=0.1.0",
     "trademachine-trading-monitor-dashboard>=0.1.0",
     "trademachine-trading-monitor-cli>=0.1.0",
-    "trademachine-portifolio-master-cli>=0.1.0",
-    "trademachine-backtest-engine-cli>=0.1.0",
+    "trademachine-portfolio-master-cli>=0.1.0",
     "trademachine-mt5>=0.1.0",
     "trademachine-core>=0.1.0",
+    "trademachine-metrics>=0.1.0",
     "pytest-cov>=7.1.0",
     "types-python-dateutil>=2.9.0.20260323",
     "types-requests>=2.32.4.20260324",
     "types-pytz>=2026.1.1.20260402",
+    "polylith-cli>=1.44.0",
 ]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 88
-extend-exclude = ["projects/backtestengine/docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP", "S"]
@@ -101,7 +105,7 @@ ignore = ["E501", "S101", "S108", "S603", "B904", "B008", "S110", "B018", "S311"
 namespace = "trademachine"
 
 [tool.polylith.structure]
-theme = "dark"
+theme = "tdd"
 
 [tool.polylith.resources]
 bases = "bases"
@@ -110,17 +114,20 @@ components = "components"
 [tool.uv.sources]
 trademachine = { workspace = true }
 trademachine-datamanager = { workspace = true }
-trademachine-tradingmonitor = { workspace = true }
-trademachine-portifoliomaster = { workspace = true }
-trademachine-backtestengine = { workspace = true }
+trademachine-tradingmonitor-storage = { workspace = true }
+trademachine-tradingmonitor-ingestion = { workspace = true }
+trademachine-tradingmonitor-analytics = { workspace = true }
+trademachine-portfoliomaster = { workspace = true }
 trademachine-mt5 = { workspace = true }
 trademachine-core = { workspace = true }
+trademachine-metrics = { workspace = true }
 trademachine-datamanager-api = { workspace = true }
 trademachine-datamanager-cli = { workspace = true }
 trademachine-trading-monitor-dashboard = { workspace = true }
 trademachine-trading-monitor-cli = { workspace = true }
-trademachine-portifolio-master-cli = { workspace = true }
-trademachine-backtest-engine-cli = { workspace = true }
+trademachine-portfolio-master-cli = { workspace = true }
+trademachine-metalabeling-master-cli = { workspace = true }
+trademachine-metalabelingmaster = { workspace = true }
 
 [tool.deptry]
 exclude = ["venv", ".venv", "tests", ".*_cache"]
@@ -138,20 +145,25 @@ dict_synonyms = ["Struct"]
 addopts = "--import-mode=importlib --cov=components --cov-report=term-missing"
 testpaths = [
     "components/datamanager/test",
-    "components/portifoliomaster/test",
-    "components/tradingmonitor/test"
+    "components/portfoliomaster/test",
+    "bases/portfolio_master_cli/test",
+    "components/tradingmonitor_storage/test",
+    "components/tradingmonitor_ingestion/test",
+    "components/tradingmonitor_analytics/test",
+    "bases/trading_monitor_cli/test",
+    "bases/trading_monitor_dashboard/test"
 ]
 pythonpath = [
     "components/datamanager/src",
-    "components/tradingmonitor/src",
+    "components/tradingmonitor_storage/src",
+    "components/tradingmonitor_ingestion/src",
+    "components/tradingmonitor_analytics/src",
     "bases/datamanager_api/src",
     "bases/datamanager_cli/src",
     "bases/trading_monitor_dashboard/src",
     "bases/trading_monitor_cli/src",
-    "components/portifoliomaster/src",
-    "bases/portifolio_master_cli/src",
-    "components/backtestengine/src",
-    "bases/backtest_engine_cli/src",
+    "components/portfoliomaster/src",
+    "bases/portfolio_master_cli/src",
     "components/core/src",
     "components/mt5/src"
 ]
@@ -162,7 +174,7 @@ markers = [
 [tool.mypy]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
-exclude = ["build", ".venv", "venv", "projects/backtestengine/docs", "dist"]
+exclude = ["build", ".venv", "venv", "dist"]
 explicit_package_bases = true
 warn_return_any = true
 warn_unused_ignores = true

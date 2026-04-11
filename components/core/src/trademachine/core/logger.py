@@ -2,6 +2,7 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 
 LOGGER_NAME = "TradeMachine"
 CONSOLE_HANDLER_NAME = "trademachine-console"
@@ -142,6 +143,9 @@ def setup_logger(
         None,
     )
     if file_handler is None:
+        log_file = Path(log_path)
+        if log_file.parent != Path("."):
+            log_file.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(log_path, encoding="utf-8")
         file_handler.set_name(FILE_HANDLER_NAME)
         logger.addHandler(file_handler)

@@ -22,7 +22,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY bases/ ./bases/
 COPY components/ ./components/
 COPY projects/datamanager/pyproject.toml ./pyproject.toml
-COPY uv.lock ./uv.lock 2>/dev/null || true
+COPY uv.lock ./uv.lock
 
 # Install dependencies into /app/.venv
 RUN uv sync --no-dev --frozen --no-install-project
@@ -44,7 +44,7 @@ COPY bases/ ./bases/
 COPY components/ ./components/
 COPY projects/datamanager/pyproject.toml ./pyproject.toml
 COPY projects/datamanager/alembic/ ./alembic/
-COPY metadata/ ./metadata/
+COPY projects/datamanager/metadata/ ./projects/datamanager/metadata/
 
 # Default command: start the REST API using the venv's uvicorn
 CMD ["uvicorn", "trademachine.datamanager_api.router:app", "--host", "0.0.0.0", "--port", "8686"]

@@ -4,29 +4,41 @@
 {% block content %}
 <style>
     #metrics-container.metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    #info-container.info-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .strategy-nav {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
     @media (max-width: 900px) {
+        #info-container.info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         #metrics-container.metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 640px) {
+        #info-container.info-grid { grid-template-columns: 1fr; }
         #metrics-container.metrics-grid { grid-template-columns: 1fr; }
     }
 </style>
 <div class="page-header">
-    <a href="/" class="back-link">← Overview</a>
-    <h1 id="strategy-title">Strategy <span class="mono">{{ strategy_id }}</span></h1>
+    <h1 id="strategy-title"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg> Strategy <span class="mono">{{ strategy_id }}</span></h1>
     <span id="strategy-status-badge" class="badge"></span>
     <div style="margin-left:auto;display:flex;align-items:center;gap:0.75rem">
+        <div class="strategy-nav">
+            <button id="strategy-prev-btn" class="btn btn-ghost btn-sm" type="button" onclick="navigateStrategy(-1)" title="Previous strategy" disabled>←</button>
+            <button id="strategy-next-btn" class="btn btn-ghost btn-sm" type="button" onclick="navigateStrategy(1)" title="Next strategy" disabled>→</button>
+        </div>
         <a class="btn btn-ghost btn-sm" href="/advanced-analysis">Advanced Analysis</a>
         <div class="period-tabs" id="side-filter-tabs">
             <button class="period-tab active" data-side="both"  onclick="setSideFilter('both')">Both</button>
-            <button class="period-tab"        data-side="long"  onclick="setSideFilter('long')">Long</button>
-            <button class="period-tab"        data-side="short" onclick="setSideFilter('short')">Short</button>
+            <button class="period-tab"        data-side="buy"   onclick="setSideFilter('buy')">Buy</button>
+            <button class="period-tab"        data-side="sell"  onclick="setSideFilter('sell')">Sell</button>
         </div>
         <div class="period-tabs">
             <button class="period-tab" data-sm="backtest"   onclick="setPageMode('backtest')">Backtest</button>
             <button class="period-tab" data-sm="incubation" onclick="setPageMode('incubation')">Incubation</button>
             <button class="period-tab" data-sm="real"       onclick="setPageMode('real')">Real</button>
         </div>
+        <button class="btn btn-sm" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3)" onclick="confirmDeleteStrategy()">Delete</button>
     </div>
 </div>
 
@@ -90,20 +102,6 @@
                         <input class="field-input" type="text" id="edit-description" placeholder="Short description…">
                     </div>
                 </div>
-                <div class="field-group">
-                    <span class="field-label">Max Drawdown Limit (%)</span>
-                    <input class="field-input" type="number" id="edit-max-dd" min="0" max="100" step="0.1" placeholder="e.g. 20 (leave empty to disable)">
-                </div>
-                <div class="edit-toggles">
-                    <label class="toggle-group">
-                        <input type="checkbox" id="edit-live">
-                        <span class="toggle-label">Live</span>
-                    </label>
-                    <label class="toggle-group">
-                        <input type="checkbox" id="edit-real">
-                        <span class="toggle-label">Real Account</span>
-                    </label>
-                </div>
                 <div class="edit-actions">
                     <button class="btn btn-primary btn-sm" onclick="saveStrategy()">Save changes</button>
                     <button class="btn btn-ghost btn-sm" onclick="toggleEdit()">Cancel</button>
@@ -138,7 +136,6 @@
             <span id="equity-side-info" class="badge badge-neutral" style="display:none;margin-left:0.5rem">Equity shows all trades</span>
             <div style="margin-left:auto; display:flex; gap:0.4rem">
                 <button class="btn-chart-action" onclick="exportChart('equity-chart', 'equity.png')" title="Export image">⭳ Export</button>
-                <button class="btn-chart-action" onclick="equityChart&&equityChart.resetZoom()" title="Reset zoom">⤢ Reset</button>
             </div>
             <div class="period-tabs" style="margin-left:0.75rem" id="equity-scale-tabs">
                 <button class="period-tab" data-es="monetary" onclick="setEquityScale('monetary')">$</button>
@@ -256,10 +253,59 @@ let underwaterChart = null;
 let _distHourChart = null;
 let _distDowChart  = null;
 let _dealsSearchTimer = null;
+const MIN_STRATEGY_TRADES_FOR_CHARTS = 15;
 const PAGE_SIZE = 25;
 let _dealsSortCol = "timestamp";
 let _dealsSortAsc = false;
 let _viewController = null;
+let _strategyNavList = [];
+let _strategyNavIndex = -1;
+let _currentTotalTrades = null;
+
+function compareStrategyIds(a, b) {
+    return String(a).localeCompare(String(b), undefined, {
+        numeric: true,
+        sensitivity: "base",
+    });
+}
+
+function renderStrategyNavigation() {
+    const prevBtn = document.getElementById("strategy-prev-btn");
+    const nextBtn = document.getElementById("strategy-next-btn");
+    if (!prevBtn || !nextBtn) return;
+
+    const hasPrev = _strategyNavIndex > 0;
+    const hasNext = _strategyNavIndex >= 0 && _strategyNavIndex < _strategyNavList.length - 1;
+    prevBtn.disabled = !hasPrev;
+    nextBtn.disabled = !hasNext;
+
+    prevBtn.title = hasPrev
+        ? `Previous strategy: ${_strategyNavList[_strategyNavIndex - 1].name || _strategyNavList[_strategyNavIndex - 1].id}`
+        : "Previous strategy";
+    nextBtn.title = hasNext
+        ? `Next strategy: ${_strategyNavList[_strategyNavIndex + 1].name || _strategyNavList[_strategyNavIndex + 1].id}`
+        : "Next strategy";
+}
+
+function navigateStrategy(offset) {
+    const target = _strategyNavList[_strategyNavIndex + offset];
+    if (!target) return;
+    window.location.href = `/strategy/${encodeURIComponent(target.id)}`;
+}
+
+async function loadStrategyNavigation() {
+    try {
+        const strategies = await fetchJson("/api/strategies");
+        _strategyNavList = [...strategies].sort((a, b) => compareStrategyIds(a.id, b.id));
+        _strategyNavIndex = _strategyNavList.findIndex(
+            (strategy) => String(strategy.id) === String(STRATEGY_ID)
+        );
+    } catch (error) {
+        _strategyNavList = [];
+        _strategyNavIndex = -1;
+    }
+    renderStrategyNavigation();
+}
 
 /* ── Side filter (both / long / short) ── */
 let _sideFilter = "both";
@@ -289,6 +335,40 @@ function renderChartEmptyState(wrapperId, message = "No data yet.") {
     const wrapper = document.getElementById(wrapperId);
     if (!wrapper) return;
     wrapper.innerHTML = `<p class="empty-state" style="padding:1rem 0">${message}</p>`;
+}
+
+function extractTotalTrades(metrics) {
+    const trades = metrics?.["Total Trades"];
+    return Number.isFinite(Number(trades)) ? Number(trades) : null;
+}
+
+function renderTradeThresholdState() {
+    const message = `At least ${MIN_STRATEGY_TRADES_FOR_CHARTS} trades are required to render equity and drawdown charts.`;
+    if (equityChart) {
+        equityChart.destroy();
+        equityChart = null;
+    }
+    if (underwaterChart) {
+        underwaterChart.destroy();
+        underwaterChart = null;
+    }
+    const equityWrapper = document.querySelector("#chart-section .chart-wrapper");
+    if (equityWrapper) {
+        equityWrapper.innerHTML = `<p class="empty-state" style="padding:2rem 0">${message}</p>`;
+    }
+    const drawdownWrapper = document.querySelector("#underwater-section .chart-wrapper");
+    if (drawdownWrapper) {
+        drawdownWrapper.innerHTML = `<p class="empty-state" style="padding:1rem 0">${message}</p>`;
+    }
+}
+
+function maybeRenderStrategyCharts() {
+    if (_currentTotalTrades == null) return;
+    if (_currentTotalTrades < MIN_STRATEGY_TRADES_FOR_CHARTS) {
+        renderTradeThresholdState();
+        return;
+    }
+    renderEquityChart(filterEquityPointsByPeriod(_allEquityPoints, _equityPeriod));
 }
 
 function refreshCurrentView() {
@@ -330,8 +410,17 @@ function showMetricsSkeleton() {
         '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>';
 }
 
+function renderStrategyMetrics(container, data) {
+    renderMetricsGrid(container, data, {
+        hiddenKeys: ["gross profit", "gross loss", "expected value"],
+        integerKeys: ["total trades"],
+        negateKeys: ["gross loss"],
+    });
+}
+
 function setSideFilter(side) {
     _sideFilter = side;
+    _currentTotalTrades = null;
     document.querySelectorAll("#side-filter-tabs .period-tab").forEach(b =>
         b.classList.toggle("active", b.dataset.side === side));
     const eqInfo = document.getElementById("equity-side-info");
@@ -370,6 +459,7 @@ function setPageMode(mode) {
     const btn = document.querySelector(`.period-tab[data-sm="${mode}"]`);
     if (btn && btn.classList.contains("disabled")) return;
     _pageMode = mode;
+    _currentTotalTrades = null;
     document.querySelectorAll(".period-tab[data-sm]").forEach(b =>
         b.classList.toggle("active", b.dataset.sm === mode));
 
@@ -464,33 +554,14 @@ async function loadBtMetricsInMain(btId, signal = null) {
         const res = await fetch(`/api/backtests/${btId}/metrics?${qs.toString()}`, { signal });
         const data = await res.json();
         if (requestKey !== currentViewKey()) return;
-        if (data.error) { container.innerHTML = `<p class="empty-state">${data.error}</p>`; return; }
-        const ADVANCED_KEYS = new Set(["risk-reward ratio","sharpe ratio","sortino ratio","calmar ratio","var 95% (daily)","cvar 95% (daily)"]);
-        const HIDDEN_KEYS = new Set(["gross profit","gross loss","expected value"]);
-        const INTEGER_KEYS = ["total trades"];
-        container.innerHTML = Object.entries(data)
-            .filter(([k]) => !ADVANCED_KEYS.has(k.toLowerCase()) && !HIDDEN_KEYS.has(k.toLowerCase()))
-            .map(([k, v]) => {
-            const keyLower = k.toLowerCase();
-            let val;
-            if (v === null || v === undefined) {
-                val = "—";
-            } else if (typeof v === "number") {
-                val = INTEGER_KEYS.includes(keyLower) ? v.toFixed(0) : fmt(v);
-            } else {
-                val = v;
-            }
-            const isTotal = keyLower === "total trades";
-            let cls = "metric-value";
-            if (!isTotal && typeof v === "number" && v !== null) {
-                cls += v > 0 ? " profit-positive" : v < 0 ? " profit-negative" : "";
-            }
-            let displayVal = val;
-            return `<div class="metric-item">
-                <span class="metric-label">${k}</span>
-                <span class="${cls}">${displayVal}</span>
-            </div>`;
-        }).join("");
+        if (data.error) {
+            _currentTotalTrades = null;
+            container.innerHTML = `<p class="empty-state">${data.error}</p>`;
+            return;
+        }
+        _currentTotalTrades = extractTotalTrades(data);
+        renderStrategyMetrics(container, data);
+        maybeRenderStrategyCharts();
     } catch(e) {
         if (!isAbortError(e)) {
             container.innerHTML = '<p class="error">Error loading metrics.</p>';
@@ -519,7 +590,7 @@ async function loadBtEquityInMain(btId, signal = null) {
             const wrapper = document.querySelector("#chart-section .chart-wrapper");
             if (wrapper) wrapper.innerHTML = '<canvas id="equity-chart"></canvas>';
         }
-        renderEquityChart(filterEquityPoints(_allEquityPoints, _equityPeriod));
+        maybeRenderStrategyCharts();
     } catch(e) {
         if (!isAbortError(e)) console.error("BT equity (main) error:", e);
     }
@@ -594,9 +665,6 @@ function toggleEdit() {
         document.getElementById("edit-style").value = s.operational_style || "";
         document.getElementById("edit-duration").value = s.trade_duration || "";
         document.getElementById("edit-description").value = s.description || "";
-        document.getElementById("edit-max-dd").value = s.max_allowed_drawdown != null ? s.max_allowed_drawdown : "";
-        document.getElementById("edit-live").checked = s.live || false;
-        document.getElementById("edit-real").checked = s.real_account || false;
     }
     form.style.display = isHidden ? "block" : "none";
     document.getElementById("edit-status").textContent = "";
@@ -605,7 +673,6 @@ function toggleEdit() {
 async function saveStrategy() {
     const status = document.getElementById("edit-status");
     status.textContent = "Saving...";
-    const rawMaxDd = document.getElementById("edit-max-dd").value.trim();
     const payload = {
         name: document.getElementById("edit-name").value || null,
         symbol: document.getElementById("edit-symbol").value || null,
@@ -613,9 +680,6 @@ async function saveStrategy() {
         operational_style: document.getElementById("edit-style").value || null,
         trade_duration: document.getElementById("edit-duration").value || null,
         description: document.getElementById("edit-description").value || null,
-        max_allowed_drawdown: rawMaxDd !== "" ? parseFloat(rawMaxDd) : null,
-        live: document.getElementById("edit-live").checked,
-        real_account: document.getElementById("edit-real").checked,
     };
     try {
         const res = await fetch(`/api/strategies/${STRATEGY_ID}`, {
@@ -632,6 +696,24 @@ async function saveStrategy() {
         }, 800);
     } catch(err) {
         status.textContent = "❌ Error: " + err.message;
+    }
+}
+
+async function confirmDeleteStrategy() {
+    const strategyName = _currentStrategy?.name || STRATEGY_ID;
+    if (!confirm(`Delete strategy "${strategyName}" (${STRATEGY_ID})?\n\nThis will permanently remove all associated deals and equity data.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/strategies/${STRATEGY_ID}`, { method: "DELETE" });
+        if (res.ok) {
+            window.location.href = "/";
+            return;
+        }
+        alert("Failed to delete strategy.");
+    } catch (error) {
+        alert("Failed to delete strategy.");
     }
 }
 
@@ -693,41 +775,15 @@ async function loadMetrics(signal = null) {
         if (requestKey !== currentViewKey()) return;
         const container = document.getElementById("metrics-container");
         if (data.error) {
+            _currentTotalTrades = null;
             container.innerHTML = `<p class="empty-state">${data.error}</p>`;
             return;
         }
-        const ADVANCED_KEYS = new Set(["risk-reward ratio","sharpe ratio","sortino ratio","calmar ratio","var 95% (daily)","cvar 95% (daily)"]);
-        const HIDDEN_KEYS = new Set(["gross profit","gross loss","expected value"]);
-        const INTEGER_KEYS = ["total trades"];
-        container.innerHTML = Object.entries(data)
-            .filter(([k]) => !ADVANCED_KEYS.has(k.toLowerCase()) && !HIDDEN_KEYS.has(k.toLowerCase()))
-            .map(([k, v]) => {
-            const keyLower = k.toLowerCase();
-            let val;
-            if (v === null || v === undefined) {
-                val = "—";
-            } else if (typeof v === "number") {
-                val = INTEGER_KEYS.includes(keyLower) ? v.toFixed(0) : fmt(v);
-            } else {
-                val = v;
-            }
-            const isTotal = keyLower === "total trades";
-            let cls = "metric-value";
-            if (!isTotal && typeof v === "number" && v !== null) {
-                cls += v > 0 ? " profit-positive" : v < 0 ? " profit-negative" : "";
-            }
-            let displayVal = val;
-            if (k === "Gross Loss" && typeof v === "number" && v !== null) {
-                displayVal = fmt(-v);  // Force negative display
-                cls = "metric-value profit-negative";  // Force red
-            }
-            return `<div class="metric-item">
-                <span class="metric-label">${k}</span>
-                <span class="${cls}">${displayVal}</span>
-            </div>`;
-        }).join("");
+        renderStrategyMetrics(container, data);
         _currentMetrics = data;
+        _currentTotalTrades = extractTotalTrades(data);
         checkDrawdownAlert();
+        maybeRenderStrategyCharts();
         markUpdated("metrics");
     } catch(e) {
         if (!isAbortError(e)) {
@@ -741,7 +797,7 @@ function checkDrawdownAlert() {
     if (!banner || !_currentStrategy || !_currentMetrics) return;
     const limit = _currentStrategy.max_allowed_drawdown;
     if (!limit || limit <= 0) { banner.style.display = "none"; return; }
-    const liveDd = _currentMetrics["Max Drawdown (%)"];
+    const liveDd = _currentMetrics["Drawdown"];
     if (liveDd == null) { banner.style.display = "none"; return; }
     const pctUsed = (liveDd / limit) * 100;
     if (liveDd < limit * 0.8) { banner.style.display = "none"; return; }
@@ -762,19 +818,11 @@ async function loadEquity(signal = null) {
         const res = await fetch(`/api/strategies/${STRATEGY_ID}/equity?${qs.toString()}`, { signal });
         _allEquityPoints = await res.json();
         if (requestKey !== currentViewKey()) return;
-        renderEquityChart(filterEquityPoints(_allEquityPoints, _equityPeriod));
+        maybeRenderStrategyCharts();
         markUpdated("equity");
     } catch(e) {
         if (!isAbortError(e)) console.error("Equity load error:", e);
     }
-}
-
-function filterEquityPoints(pts, period) {
-    if (period === "all" || !pts.length) return pts;
-    const months = { "1M": 1, "3M": 3, "6M": 6, "1Y": 12 }[period] || 0;
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - months);
-    return pts.filter(p => new Date(p.timestamp) >= cutoff);
 }
 
 function setEquityPeriod(period) {
@@ -782,7 +830,7 @@ function setEquityPeriod(period) {
     localStorage.setItem("tm-equity-period", period);
     document.querySelectorAll(".period-tab[data-ep]").forEach(b =>
         b.classList.toggle("active", b.dataset.ep === period));
-    renderEquityChart(filterEquityPoints(_allEquityPoints, period));
+    maybeRenderStrategyCharts();
 }
 
 function setEquityScale(scale) {
@@ -790,7 +838,7 @@ function setEquityScale(scale) {
     localStorage.setItem("tm-equity-scale", scale);
     document.querySelectorAll(".period-tab[data-es]").forEach(b =>
         b.classList.toggle("active", b.dataset.es === scale));
-    renderEquityChart(filterEquityPoints(_allEquityPoints, _equityPeriod));
+    maybeRenderStrategyCharts();
 }
 
 function renderEquityChart(points) {
@@ -805,24 +853,14 @@ function renderEquityChart(points) {
         return;
     }
     const isPct = _equityScale === "pct";
-    const firstEq = points[0].equity || 1;
-
-    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
-    const tickColor = isDark ? "#64748b" : "#94a3b8";
-    const gridColor = isDark ? "#334155" : "#e2e8f0";
-    const labels = points.map(p => {
-        const d = new Date(p.timestamp);
-        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
-    });
-
-    const chartValues = isPct
-        ? points.map(p => parseFloat((((p.equity / firstEq) - 1) * 100).toFixed(4)))
-        : points.map(p => p.equity);
+    const { tickColor, gridColor } = getEquityChartColors();
+    const labels = buildEquityChartLabels(points);
+    const chartValues = buildRebasedEquitySeries(points, _equityScale);
 
     const yTickCb = isPct ? v => `${v.toFixed(2)}%` : v => fmt(v);
     const tooltipCb = isPct
         ? c => ` Return: ${c.parsed.y.toFixed(2)}%`
-        : c => ` Equity: ${fmt(c.parsed.y)}`;
+        : c => ` P&L: ${fmt(c.parsed.y)}`;
 
     if (equityChart) equityChart.destroy();
     equityChart = new Chart(ctx, {
@@ -830,10 +868,10 @@ function renderEquityChart(points) {
         data: {
             labels,
             datasets: [{
-                label: isPct ? "Return (%)" : "Equity",
+                label: isPct ? "Return (%)" : "Equity Change",
                 data: chartValues,
                 segment: {
-                    borderColor: ctx => ctx.p1.parsed.y >= (isPct ? 0 : -Infinity) ? '#10b981' : '#ef4444',
+                    borderColor: ctx => ctx.p1.parsed.y >= 0 ? '#10b981' : '#ef4444',
                 },
                 borderColor: '#10b981',
                 backgroundColor: "rgba(100,116,139,0.06)",
@@ -847,6 +885,19 @@ function renderEquityChart(points) {
             responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: "index", intersect: false },
+            onHover: (e, elements, chart) => {
+                if (!underwaterChart) return;
+                if (elements.length > 0) {
+                    const idx = elements[0].index;
+                    underwaterChart.setActiveElements([{ datasetIndex: 0, index: idx }]);
+                    underwaterChart.tooltip.setActiveElements([{ datasetIndex: 0, index: idx }], { x: 0, y: 0 });
+                    underwaterChart.update();
+                } else {
+                    underwaterChart.setActiveElements([]);
+                    underwaterChart.tooltip.setActiveElements([], { x: 0, y: 0 });
+                    underwaterChart.update();
+                }
+            },
             plugins: {
                 legend: { display: false },
                 tooltip: { callbacks: { label: tooltipCb } },
@@ -882,27 +933,21 @@ function renderUnderwaterChart(points) {
         return;
     }
 
-    // Compute running drawdown — % or monetary depending on _equityScale
     const isPct = _equityScale === "pct";
+    const seriesValues = buildRebasedEquitySeries(
+        points,
+        _equityScale,
+        (point) => point.equity ?? point.balance ?? 0
+    );
+
     let peak = -Infinity;
-    const ddValues = points.map(p => {
-        const eq = p.equity ?? p.balance ?? 0;
-        if (eq > peak) peak = eq;
-        if (isPct) {
-            return peak > 0 ? -((peak - eq) / peak * 100) : 0;
-        } else {
-            return -(peak - eq);
-        }
+    const ddValues = seriesValues.map(value => {
+        if (value > peak) peak = value;
+        return parseFloat((value - peak).toFixed(4));
     });
 
-    const labels = points.map(p => {
-        const d = new Date(p.timestamp);
-        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
-    });
-
-    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
-    const tickColor = isDark ? "#64748b" : "#94a3b8";
-    const gridColor = isDark ? "#334155" : "#e2e8f0";
+    const labels = buildEquityChartLabels(points);
+    const { tickColor, gridColor } = getEquityChartColors();
 
     const ddLabel    = isPct ? "Drawdown %" : "Drawdown $";
     const ddTickCb   = isPct ? v => `${v.toFixed(1)}%` : v => fmt(v);
@@ -930,6 +975,19 @@ function renderUnderwaterChart(points) {
             responsive: true,
             maintainAspectRatio: false,
             interaction: { mode: "index", intersect: false },
+            onHover: (e, elements, chart) => {
+                if (!equityChart) return;
+                if (elements.length > 0) {
+                    const idx = elements[0].index;
+                    equityChart.setActiveElements([{ datasetIndex: 0, index: idx }]);
+                    equityChart.tooltip.setActiveElements([{ datasetIndex: 0, index: idx }], { x: 0, y: 0 });
+                    equityChart.update();
+                } else {
+                    equityChart.setActiveElements([]);
+                    equityChart.tooltip.setActiveElements([], { x: 0, y: 0 });
+                    equityChart.update();
+                }
+            },
             plugins: {
                 legend: { display: false },
                 tooltip: { callbacks: { label: ddTooltipCb } },
@@ -1370,7 +1428,7 @@ function renderBacktestsList() {
         <table class="data-table">
             <thead><tr>
                 <th>Name</th><th>Symbol</th><th>TF</th><th>Period</th>
-                <th>Status</th><th>Net Profit</th><th></th>
+                <th>Status</th><th>Profit</th><th></th>
             </tr></thead>
             <tbody>${rows}</tbody>
         </table>`;
@@ -1430,5 +1488,6 @@ if (_savedPs) {
 
 loadInfo();       // sets _currentStrategy, then calls setPageMode based on strategy type
 loadBacktests();  // always load backtests list in background
+loadStrategyNavigation();
 </script>
 {% endblock %}

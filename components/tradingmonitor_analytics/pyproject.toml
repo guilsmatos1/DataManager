@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trademachine-tradingmonitor-analytics"
+version = "0.1.0"
+description = "trademachine-tradingmonitor-analytics brick"
+dependencies = [
+    "trademachine-tradingmonitor-ingestion",
+    "trademachine-tradingmonitor-storage",
+]
+
+[project.entry-points."trademachine.metrics"]
+sharpe = "trademachine.tradingmonitor_analytics.metrics.plugins.sharpe:SharpeRatio"
+drawdown = "trademachine.tradingmonitor_analytics.metrics.plugins.max_drawdown:DrawdownMetric"
+ret_dd = "trademachine.tradingmonitor_analytics.metrics.plugins.recovery:RetDDMetric"
+sortino = "trademachine.tradingmonitor_analytics.metrics.plugins.sortino:SortinoRatio"
+calmar = "trademachine.tradingmonitor_analytics.metrics.plugins.calmar:CalmarRatio"
+var95 = "trademachine.tradingmonitor_analytics.metrics.plugins.var95:VaR95"
+cvar95 = "trademachine.tradingmonitor_analytics.metrics.plugins.cvar95:CVaR95"
+risk_reward = "trademachine.tradingmonitor_analytics.metrics.plugins.risk_reward:RiskRewardRatio"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["trademachine*"]

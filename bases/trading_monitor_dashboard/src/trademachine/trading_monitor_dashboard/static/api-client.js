@@ -1,6 +1,7 @@
 /* ── API Client — shared data-fetching functions ─────────────────────────────── */
 
 let _portfolio = null;
+let _portfolioTotalTrades = null;
 
 // ── Overview page (index.html) ───────────────────────────────────────────────
 
@@ -266,6 +267,7 @@ async function loadPortfolio() {
         ["Status",       _portfolio.live ? "Live" : "Incubation"],
         ["Account Type", _portfolio.real_account ? "Real" : "Demo"],
         ["Strategies",   _portfolio.strategy_ids.length + " linked"],
+        ["Initial Balance", _portfolio.initial_balance != null ? fmt(_portfolio.initial_balance) : null],
         ["Description",  _portfolio.description],
     ];
     document.getElementById("info-container").innerHTML = fields
@@ -282,29 +284,25 @@ async function loadMetrics() {
         const res = await fetch(`/api/portfolios/${PORTFOLIO_ID}/metrics`);
         const data = await res.json();
         const container = document.getElementById("metrics-container");
-        if (data.error) { container.innerHTML = `<p class="empty-state">${data.error}</p>`; return; }
-        const INTEGER_KEYS = ["total trades"];
-        const NEGATE_KEYS = ["gross loss"];
-        const HIDDEN_KEYS = new Set(["gross profit","gross loss"]);
-        container.innerHTML = Object.entries(data).filter(([k]) => !HIDDEN_KEYS.has(k.toLowerCase())).map(([k, v]) => {
-            const keyLower = k.toLowerCase();
-            const shouldNegate = NEGATE_KEYS.includes(keyLower);
-            const displayVal = shouldNegate && typeof v === "number" && v !== null ? -Math.abs(v) : v;
-            let val = displayVal === null || displayVal === undefined ? "—"
-                : typeof displayVal === "number" ? (INTEGER_KEYS.includes(keyLower) ? displayVal.toFixed(0) : fmt(displayVal))
-                : displayVal;
-            const isTotal = keyLower === "total trades";
-            let cls = "metric-value";
-            if (!isTotal && typeof v === "number" && v !== null) {
-                cls += shouldNegate ? " profit-negative" : (v >= 0 ? " profit-positive" : " profit-negative");
-            }
-            return `<div class="metric-item">
-                <span class="metric-label">${k}</span>
-                <span class="${cls}">${val}</span>
-            </div>`;
-        }).join("");
+        if (data.error) {
+            _portfolioTotalTrades = null;
+            container.innerHTML = `<p class="empty-state">${data.error}</p>`;
+            return;
+        }
+        _portfolioTotalTrades = Number.isFinite(Number(data["Total Trades"]))
+            ? Number(data["Total Trades"])
+            : null;
+        renderMetricsGrid(container, data, {
+            hiddenKeys: ["gross profit", "gross loss"],
+            integerKeys: ["total trades"],
+            negateKeys: ["gross loss"],
+        });
+        if (_allEquityPoints.length) {
+            renderEquityChart(_allEquityPoints, {}, _equityPeriod);
+        }
         markUpdated("metrics");
     } catch(e) {
+        _portfolioTotalTrades = null;
         document.getElementById("metrics-container").innerHTML = '<p class="error">Error loading metrics.</p>';
     }
 }

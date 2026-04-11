@@ -6,7 +6,14 @@ build-backend = "setuptools.build_meta"
 name = "trademachine-trading-monitor-dashboard"
 version = "0.1.0"
 description = "trademachine-trading-monitor-dashboard brick"
-dependencies = []
+dependencies = [
+    "trademachine-core",
+    "trademachine-tradingmonitor-storage",
+    "trademachine-tradingmonitor-ingestion",
+    "trademachine-tradingmonitor-analytics",
+    "trademachine-mt5",
+    "trademachine-datamanager",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

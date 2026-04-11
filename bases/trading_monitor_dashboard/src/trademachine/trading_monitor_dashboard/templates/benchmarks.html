@@ -3,8 +3,7 @@
 
 {% block content %}
 <div class="page-header">
-    <a href="/" class="back-link">← Overview</a>
-    <h1>Benchmarks</h1>
+    <h1><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg> Benchmarks</h1>
 </div>
 
 <div class="dashboard-grid">
@@ -12,7 +11,7 @@
         <div class="section-header">
             <h2>Add Benchmark</h2>
         </div>
-        <div class="edit-grid" style="max-width:1080px">
+        <div class="edit-grid benchmark-form-grid">
             <div class="field-group">
                 <span class="field-label">Name</span>
                 <input class="field-input" id="benchmark-name" type="text" placeholder="S&P 500">
@@ -29,7 +28,7 @@
                 <span class="field-label">Timeframe</span>
                 <input class="field-input" id="benchmark-timeframe" type="text" value="D1">
             </div>
-            <div class="field-group" style="grid-column:1 / -1">
+            <div class="field-group benchmark-form-full-width">
                 <span class="field-label">Description</span>
                 <input class="field-input" id="benchmark-description" type="text" placeholder="US large cap proxy">
             </div>
@@ -94,6 +93,7 @@ function renderBenchmarks(list) {
             <td style="display:flex;gap:0.5rem">
                 <button class="btn btn-ghost btn-sm" onclick="syncBenchmark(${b.id})">Sync</button>
                 <button class="btn btn-ghost btn-sm" onclick="setDefaultBenchmark(${b.id})">Set Default</button>
+                <button class="btn btn-sm" style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3)" onclick='deleteBenchmark(${b.id}, ${JSON.stringify(b.name)})'>Delete</button>
             </td>
         </tr>
     `).join("");
@@ -128,16 +128,47 @@ function renderRemoteBenchmarks(list) {
     </table>`;
 }
 
+function renderBenchmarksUnavailable() {
+    document.getElementById("benchmarks-table").innerHTML =
+        '<p class="empty-state">No benchmarks configured.</p>';
+}
+
+function renderRemoteBenchmarksUnavailable() {
+    document.getElementById("benchmarks-remote-table").innerHTML =
+        '<p class="empty-state">No remote databases found.</p>';
+}
+
+function isDataManagerUnavailable(error) {
+    return String(error?.message || "").includes("HTTP 503: DataManager service is unavailable");
+}
+
 async function loadBenchmarksPage() {
-    try {
-        const [benchmarks, remote] = await Promise.all([
-            fetchJson("/api/benchmarks"),
-            fetchJson("/api/benchmarks/available-from-datamanager"),
-        ]);
-        renderBenchmarks(benchmarks);
-        renderRemoteBenchmarks(remote);
-    } catch (e) {
-        document.getElementById("benchmarks-status").textContent = `Error: ${e.message}`;
+    const status = document.getElementById("benchmarks-status");
+    status.textContent = "";
+
+    const [benchmarksResult, remoteResult] = await Promise.allSettled([
+        fetchJson("/api/benchmarks"),
+        fetchJson("/api/benchmarks/available-from-datamanager"),
+    ]);
+
+    if (benchmarksResult.status === "fulfilled") {
+        renderBenchmarks(benchmarksResult.value);
+    } else {
+        renderBenchmarksUnavailable();
+        status.textContent = `Error: ${benchmarksResult.reason.message}`;
+    }
+
+    if (remoteResult.status === "fulfilled") {
+        renderRemoteBenchmarks(remoteResult.value);
+    } else {
+        renderRemoteBenchmarksUnavailable();
+        if (isDataManagerUnavailable(remoteResult.reason)) {
+            if (!status.textContent) {
+                status.textContent = "DataManager indisponível. Exibindo apenas os benchmarks locais.";
+            }
+        } else if (!status.textContent) {
+            status.textContent = `Error: ${remoteResult.reason.message}`;
+        }
     }
 }
 
@@ -185,6 +216,23 @@ async function setDefaultBenchmark(id) {
     try {
         await fetchJson(`/api/benchmarks/${id}/set-default`, { method: "POST" });
         status.textContent = "Default benchmark updated.";
+        loadBenchmarksPage();
+    } catch (e) {
+        status.textContent = `Error: ${e.message}`;
+    }
+}
+
+async function deleteBenchmark(id, name) {
+    const benchmarkName = name || `#${id}`;
+    if (!confirm(`Delete benchmark "${benchmarkName}"?\n\nThis will permanently remove the benchmark and all synced price history.`)) {
+        return;
+    }
+
+    const status = document.getElementById("benchmarks-status");
+    status.textContent = "Deleting benchmark...";
+    try {
+        await fetchJson(`/api/benchmarks/${id}`, { method: "DELETE" });
+        status.textContent = "Benchmark deleted.";
         loadBenchmarksPage();
     } catch (e) {
         status.textContent = `Error: ${e.message}`;

@@ -6,7 +6,6 @@ import pandas as pd
 from colorama import init
 from tqdm import tqdm
 from trademachine.core.logger import LOGGER_NAME
-from trademachine.datamanager.db.processor import DataProcessor
 from trademachine.datamanager.db.storage import StorageManager
 from trademachine.datamanager.fetchers import get_all_fetchers
 from trademachine.datamanager.fetchers.base import BaseFetcher
@@ -132,38 +131,29 @@ class DataManager:
             )
 
     def resample_data(self, source: str, asset: str, timeframe: str) -> None:
-        """Rebuilds and persists a derived timeframe from M1."""
+        """Creates a continuous aggregate for the requested timeframe.
+
+        On first call: creates the view and backfills all M1 history.
+        Idempotent: no-op if the aggregate already exists.
+        """
         target_timeframe = timeframe.upper()
         if target_timeframe == self.BASE_TIMEFRAME:
-            raise ValueError(
-                "M1 is the source timeframe and cannot be rebuilt via resample."
-            )
-        if target_timeframe not in DataProcessor.TF_MAPPING:
-            raise ValueError(
-                f"Target timeframe not supported: {timeframe}. Use {list(DataProcessor.TF_MAPPING.keys())}"
-            )
+            raise ValueError("M1 is the source timeframe and cannot be resampled.")
 
-        try:
-            m1_df = self.storage.load_data(source, asset, self.BASE_TIMEFRAME)
-        except FileNotFoundError as exc:
+        m1_info = self.storage.get_database_info(source, asset, self.BASE_TIMEFRAME)
+        if m1_info.get("status") == "Not Found":
             raise FileNotFoundError(
-                f"Cannot resample {asset} ({target_timeframe}) because the M1 base does not exist."
-            ) from exc
-
-        if m1_df.empty:
-            raise ValueError(
-                f"Cannot resample {asset} ({target_timeframe}) because the M1 base is empty."
+                f"Cannot resample {asset} ({target_timeframe}): M1 base does not exist."
             )
 
-        resampled_df = DataProcessor.resample_ohlc(m1_df, target_timeframe)
-        self.storage.replace_data(resampled_df, source, asset, target_timeframe)
-        logger.info(
-            f"Database {asset} ({target_timeframe}) rebuilt successfully with {len(resampled_df):,} rows."
-        )
-
-    def resample_database(self, source: str, asset: str, timeframe: str) -> None:
-        """Backward-compatible alias for the explicit resample operation."""
-        self.resample_data(source, asset, timeframe)
+        if self.storage.aggregate_exists(target_timeframe):
+            logger.info(
+                f"Continuous aggregate for {target_timeframe} already exists — refreshing."
+            )
+            self.storage.refresh_continuous_aggregate(target_timeframe)
+        else:
+            self.storage.create_continuous_aggregate(target_timeframe)
+        logger.info(f"Continuous aggregate for {target_timeframe} is ready.")
 
     def update_data(self, source: str, asset: str, timeframe: str = "M1") -> None:
         """Updates the M1 database with new data.
@@ -242,6 +232,18 @@ class DataManager:
                 logger.warning(f"  ✗ {entry}")
         else:
             logger.info(f"=== UPDATE COMPLETE: {ok}/{len(m1_dbs)} succeeded ===")
+
+        agg_timeframes = sorted(
+            {db["timeframe"] for db in dbs if db["timeframe"] != self.BASE_TIMEFRAME}
+        )
+        if agg_timeframes:
+            logger.info(f"Refreshing continuous aggregates: {agg_timeframes}")
+            for tf in agg_timeframes:
+                try:
+                    self.storage.refresh_continuous_aggregate(tf)
+                    logger.info(f"  ✓ {tf} refreshed")
+                except Exception as e:
+                    logger.error(f"  ✗ Failed to refresh {tf}: {e}")
 
     def delete_database(
         self, source: str, asset: str, timeframe: str | None = None

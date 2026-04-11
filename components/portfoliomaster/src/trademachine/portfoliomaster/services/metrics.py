@@ -125,6 +125,7 @@ def _compute_win_loss_streaks(outcomes: list[int]) -> tuple:
 def calculate_metrics_from_deals(deals_df: pd.DataFrame) -> dict[str, Any]:
     """Orchestrates full MT5 report metrics calculation via the metrics component."""
     from trademachine.metrics.public import EquityPoint, TradeRecord, compute_all
+    from trademachine.portfoliomaster.core.constants import MT5_TIMESTAMP_FORMAT
 
     processed_df = preprocess_deals(deals_df)
 
@@ -138,9 +139,12 @@ def calculate_metrics_from_deals(deals_df: pd.DataFrame) -> dict[str, Any]:
         return {}
 
     # Parse MT5 timestamps (format: "YYYY.MM.DD HH:MM:SS")
-    ts_fmt = "%Y.%m.%d %H:%M:%S"
-    trade_ts = pd.to_datetime(trades_df["Horário"], format=ts_fmt, errors="coerce")
-    equity_ts = pd.to_datetime(processed_df["Horário"], format=ts_fmt, errors="coerce")
+    trade_ts = pd.to_datetime(
+        trades_df["Horário"], format=MT5_TIMESTAMP_FORMAT, errors="coerce"
+    )
+    equity_ts = pd.to_datetime(
+        processed_df["Horário"], format=MT5_TIMESTAMP_FORMAT, errors="coerce"
+    )
 
     # Build TradeRecord list (Horário is close time; used as entry and exit)
     trade_records: list[TradeRecord] = [

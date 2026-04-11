@@ -3,7 +3,7 @@
 //|                                     Copyright 2024, TradingMonitor|
 //+------------------------------------------------------------------+
 #property copyright "TradingMonitor"
-#property version   "2.00"
+#property version   "2.01"
 
 // Uses MT5 native socket API (no DLL required, available since build 2485)
 // Enable "Allow DLL imports" is NOT needed for native sockets.
@@ -21,6 +21,9 @@ input int      TimerInterval = 60;               // Equity publish interval (sec
 
 //--- Historical export
 input bool     SendHistoryOnInit = true;         // Send historical data on attach
+input bool     SendHistoryDaily = true;          // Send the full history once per day
+input int      DailyHistoryHour = 0;             // Server hour for the daily full history sync
+input int      DailyHistoryMinute = 5;           // Server minute for the daily full history sync
 input datetime HistoryStartDate  = D'2024.01.01'; // Initial date to search history
 
 // Internal state for per-magic equity tracking (max 64 distinct strategies)
@@ -30,6 +33,10 @@ double g_magic_balance[MAX_STRATEGIES];
 int    g_magic_count = 0;
 
 int    g_socket = INVALID_HANDLE;
+int    g_last_daily_history_sync_day = -1;
+
+string BuildRuntimeFieldsJson(long magic);
+void   SendStrategyRuntime(long magic);
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -45,7 +52,10 @@ int OnInit()
     }
 
     if(SendHistoryOnInit)
-        SendHistoricalDeals();
+    {
+        if(SendHistoricalDeals())
+            MarkDailyHistorySyncIfScheduledTimePassed(TimeCurrent());
+    }
 
     EventSetTimer(TimerInterval);
     return(INIT_SUCCEEDED);
@@ -122,14 +132,14 @@ bool SendMessage(const string msg)
 //+------------------------------------------------------------------+
 //| Historical export — runs once on EA attach                        |
 //+------------------------------------------------------------------+
-void SendHistoricalDeals()
+bool SendHistoricalDeals()
 {
     Print("Loading history from ", TimeToString(HistoryStartDate, TIME_DATE), " ...");
 
     if(!HistorySelect(HistoryStartDate, TimeCurrent()))
     {
         Print("HistorySelect failed.");
-        return;
+        return false;
     }
 
     int total = HistoryDealsTotal();
@@ -158,12 +168,13 @@ void SendHistoricalDeals()
         string type_str   = (dtype == DEAL_TYPE_BUY) ? "buy" : "sell";
 
         // --- DEAL message ---
+        string runtime_fields = BuildRuntimeFieldsJson(magic);
         string deal_msg = StringFormat(
             "DEAL {\"time\": %d, \"ticket\": %d, \"magic\": %d, \"symbol\": \"%s\","
             " \"type\": \"%s\", \"volume\": %.2f, \"price\": %.5f,"
-            " \"profit\": %.2f, \"commission\": %.2f, \"swap\": %.2f}\n",
+            " \"profit\": %.2f, \"commission\": %.2f, \"swap\": %.2f%s}\n",
             time_val, ticket, magic, symbol, type_str,
-            volume, price, profit, commission, swap
+            volume, price, profit, commission, swap, runtime_fields
         );
         if(!SendMessage(deal_msg)) continue;
 
@@ -172,9 +183,10 @@ void SendHistoricalDeals()
         double cum = GetBalance(magic) + net;
         SetBalance(magic, cum);
 
+        string eq_runtime_fields = BuildRuntimeFieldsJson(magic);
         string eq_msg = StringFormat(
-            "EQUITY {\"time\": %d, \"magic\": %d, \"balance\": %.2f, \"equity\": %.2f}\n",
-            time_val, magic, cum, cum
+            "EQUITY {\"time\": %d, \"magic\": %d, \"balance\": %.2f, \"equity\": %.2f%s}\n",
+            time_val, magic, cum, cum, eq_runtime_fields
         );
         SendMessage(eq_msg);
 
@@ -182,6 +194,19 @@ void SendHistoricalDeals()
     }
 
     Print("Historical export complete: ", sent, " deals sent.");
+
+    // Send one STRATEGY_RUNTIME per exported magic after the full history is flushed
+    if(MagicNumber != 0)
+    {
+        SendStrategyRuntime(MagicNumber);
+    }
+    else
+    {
+        for(int i = 0; i < g_magic_count; i++)
+            SendStrategyRuntime(g_magic_ids[i]);
+    }
+
+    return true;
 }
 
 //+------------------------------------------------------------------+
@@ -189,6 +214,8 @@ void SendHistoricalDeals()
 //+------------------------------------------------------------------+
 void OnTimer()
 {
+    TrySendDailyHistoricalDeals();
+
     double balance     = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity      = AccountInfoDouble(ACCOUNT_EQUITY);
     double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
@@ -198,39 +225,25 @@ void OnTimer()
     double withdrawals = 0;
 
     // EQUITY — identifies which strategy via MagicNumber
+    string runtime_fields = BuildRuntimeFieldsJson(MagicNumber);
     string eq_msg = StringFormat(
-        "EQUITY {\"time\": %d, \"magic\": %d, \"balance\": %.2f, \"equity\": %.2f}\n",
-        TimeCurrent(), MagicNumber, balance, equity
+        "EQUITY {\"time\": %d, \"magic\": %d, \"balance\": %.2f, \"equity\": %.2f%s}\n",
+        TimeCurrent(), MagicNumber, balance, equity, runtime_fields
     );
     SendMessage(eq_msg);
     Print("Published: EQUITY magic=", MagicNumber, " balance=", balance, " equity=", equity);
 
     // ACCOUNT — account-level snapshot
     string acc_msg = StringFormat(
-        "ACCOUNT {\"login\": %d, \"broker\": \"%s\", \"balance\": %.2f,"
-        " \"free_margin\": %.2f, \"deposits\": %.2f, \"withdrawals\": %.2f}\n",
-        login, broker, balance, free_margin, deposits, withdrawals
+        "ACCOUNT {\"time\": %d, \"magic\": %d, \"login\": %d, \"broker\": \"%s\","
+        " \"balance\": %.2f, \"free_margin\": %.2f, \"deposits\": %.2f,"
+        " \"withdrawals\": %.2f%s}\n",
+        TimeCurrent(), MagicNumber, login, broker, balance, free_margin, deposits,
+        withdrawals, runtime_fields
     );
     SendMessage(acc_msg);
     Print("Published: ACCOUNT login=", login, " broker=", broker);
 
-    if(MagicNumber != 0)
-    {
-        double open_profit = GetOpenProfit(MagicNumber);
-        int open_trades = GetOpenTradesCount(MagicNumber);
-        int pending_orders = GetPendingOrdersCount(MagicNumber);
-
-        string runtime_msg = StringFormat(
-            "STRATEGY_RUNTIME {\"time\": %d, \"magic\": %d, \"open_profit\": %.2f,"
-            " \"open_trades_count\": %d, \"pending_orders_count\": %d}\n",
-            TimeCurrent(), MagicNumber, open_profit, open_trades, pending_orders
-        );
-        SendMessage(runtime_msg);
-        Print("Published: STRATEGY_RUNTIME magic=", MagicNumber,
-              " open_profit=", open_profit,
-              " open_trades=", open_trades,
-              " pending_orders=", pending_orders);
-    }
 }
 
 //+------------------------------------------------------------------+
@@ -259,16 +272,21 @@ void OnTradeTransaction(
     double swap       = HistoryDealGetDouble(ticket,  DEAL_SWAP);
     string type_str   = (deal_type == DEAL_TYPE_BUY) ? "buy" : "sell";
 
+    string runtime_fields = BuildRuntimeFieldsJson(magic);
     string msg = StringFormat(
         "DEAL {\"time\": %d, \"ticket\": %d, \"magic\": %d, \"symbol\": \"%s\","
         " \"type\": \"%s\", \"volume\": %.2f, \"price\": %.5f,"
-        " \"profit\": %.2f, \"commission\": %.2f, \"swap\": %.2f}\n",
+        " \"profit\": %.2f, \"commission\": %.2f, \"swap\": %.2f%s}\n",
         time_val, ticket, magic, symbol, type_str,
-        volume, price, profit, commission, swap
+        volume, price, profit, commission, swap, runtime_fields
     );
 
     if(SendMessage(msg))
+    {
         Print("Published: DEAL ticket=", ticket, " magic=", magic, " profit=", profit);
+        if(magic != 0)
+            SendStrategyRuntime(magic);
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -304,7 +322,7 @@ int GetOpenTradesCount(long magic)
         if(symbol == "") continue;
 
         long position_magic = PositionGetInteger(POSITION_MAGIC);
-        if(position_magic == magic)
+        if(magic == 0 || position_magic == magic)
             count++;
     }
     return count;
@@ -320,7 +338,7 @@ double GetOpenProfit(long magic)
         if(symbol == "") continue;
 
         long position_magic = PositionGetInteger(POSITION_MAGIC);
-        if(position_magic != magic)
+        if(magic != 0 && position_magic != magic)
             continue;
 
         total_profit += PositionGetDouble(POSITION_PROFIT);
@@ -339,9 +357,98 @@ int GetPendingOrdersCount(long magic)
         if(ticket == 0) continue;
 
         long order_magic = OrderGetInteger(ORDER_MAGIC);
-        if(order_magic == magic)
+        if(magic == 0 || order_magic == magic)
             count++;
     }
     return count;
+}
+
+void SendStrategyRuntime(long magic)
+{
+    if(magic == 0) return;
+
+    double open_profit    = GetOpenProfit(magic);
+    int    open_trades    = GetOpenTradesCount(magic);
+    int    pending_orders = GetPendingOrdersCount(magic);
+
+    string msg = StringFormat(
+        "STRATEGY_RUNTIME {\"time\": %d, \"magic\": %d, \"open_profit\": %.2f,"
+        " \"open_trades_count\": %d, \"pending_orders_count\": %d}\n",
+        TimeCurrent(), magic, open_profit, open_trades, pending_orders
+    );
+    SendMessage(msg);
+    Print("Published: STRATEGY_RUNTIME magic=", magic,
+          " open_profit=", open_profit,
+          " open_trades=", open_trades,
+          " pending_orders=", pending_orders);
+}
+
+string BuildRuntimeFieldsJson(long magic)
+{
+    double open_profit = GetOpenProfit(magic);
+    int open_trades = GetOpenTradesCount(magic);
+    int pending_orders = GetPendingOrdersCount(magic);
+
+    return StringFormat(
+        ", \"open_profit\": %.2f, \"open_trades_count\": %d,"
+        " \"pending_orders_count\": %d",
+        open_profit, open_trades, pending_orders
+    );
+}
+
+int GetDayId(datetime value)
+{
+    MqlDateTime parts;
+    TimeToStruct(value, parts);
+    return parts.year * 10000 + parts.mon * 100 + parts.day;
+}
+
+int GetMinutesOfDay(datetime value)
+{
+    MqlDateTime parts;
+    TimeToStruct(value, parts);
+    return parts.hour * 60 + parts.min;
+}
+
+int GetScheduledHistorySyncMinute()
+{
+    int hour = DailyHistoryHour;
+    int minute = DailyHistoryMinute;
+
+    if(hour < 0) hour = 0;
+    if(hour > 23) hour = 23;
+    if(minute < 0) minute = 0;
+    if(minute > 59) minute = 59;
+
+    return hour * 60 + minute;
+}
+
+void MarkDailyHistorySyncIfScheduledTimePassed(datetime now)
+{
+    if(!SendHistoryDaily)
+        return;
+
+    if(GetMinutesOfDay(now) < GetScheduledHistorySyncMinute())
+        return;
+
+    g_last_daily_history_sync_day = GetDayId(now);
+}
+
+void TrySendDailyHistoricalDeals()
+{
+    if(!SendHistoryDaily)
+        return;
+
+    datetime now = TimeCurrent();
+    int today = GetDayId(now);
+    if(g_last_daily_history_sync_day == today)
+        return;
+
+    if(GetMinutesOfDay(now) < GetScheduledHistorySyncMinute())
+        return;
+
+    Print("MetricsPublisher: starting scheduled daily historical export.");
+    if(SendHistoricalDeals())
+        g_last_daily_history_sync_day = today;
 }
 //+------------------------------------------------------------------+

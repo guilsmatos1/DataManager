@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>Overview</h1>
+    <h1><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg> Overview</h1>
 </div>
 
 <!-- Summary Cards -->
@@ -63,7 +63,7 @@
     <div class="card" style="margin-top:0.5rem">
         <div class="section-header">
             <h2>Strategies</h2>
-            <span id="badge-strategies" class="badge badge-neutral">0</span>
+            <span id="badge-strategies" class="badge badge-neutral"></span>
             <button class="btn btn-ghost btn-sm" style="margin-left:auto" title="Export CSV" onclick="exportTableCSV('strategies')">Export</button>
         </div>
         <div style="padding:0.4rem 0 0.25rem;display:flex;align-items:center;gap:0.5rem">
@@ -186,12 +186,12 @@
                     <input class="field-input" type="text" id="new-name" placeholder="Portfolio name">
                 </div>
                 <div class="field-group">
-                    <span class="field-label">Description</span>
-                    <input class="field-input" type="text" id="new-description" placeholder="Short description…">
-                </div>
-                <div class="field-group">
                     <span class="field-label">Initial Balance</span>
                     <input class="field-input" type="number" step="any" id="new-initial-balance" placeholder="e.g. 10000">
+                </div>
+                <div class="field-group" style="grid-column:1 / -1">
+                    <span class="field-label">Description</span>
+                    <input class="field-input" type="text" id="new-description" placeholder="Short description…">
                 </div>
             </div>
             <div class="field-group">

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import tempfile
@@ -16,7 +17,10 @@ from trademachine.core.logger import LOGGER_NAME, setup_logger
 from trademachine.trading_monitor_dashboard.bridge import init_bridge, push_event
 from trademachine.trading_monitor_dashboard.routes import router
 from trademachine.trading_monitor_dashboard.websocket import manager
-from trademachine.tradingmonitor.config import settings
+from trademachine.tradingmonitor_storage.public import (
+    ensure_database_connection,
+    settings,
+)
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -28,6 +32,10 @@ METRICS_PUBLISHER_PATH = (
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
+def _file_hash(path: Path) -> str:
+    return hashlib.md5(path.read_bytes()).hexdigest()[:8]  # noqa: S324
+
+
 def create_app(
     with_ingestion: bool = False,
     server_host: str = "127.0.0.1",
@@ -35,19 +43,23 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        setup_logger()
+        setup_logger(log_path="projects/tradingmonitor/log.log")
         loop = asyncio.get_event_loop()
         init_bridge(manager.queue, loop)
 
         broadcaster_task = asyncio.create_task(manager.run_broadcaster())
 
         if with_ingestion:
-            from trademachine.tradingmonitor.ingestion.tcp_server import start_server
+            from trademachine.tradingmonitor_ingestion.public import (
+                start_server,
+            )
+
+            ensure_database_connection("TradingMonitor dashboard ingestion")
 
             threading.Thread(
                 target=start_server,
                 args=(server_host, server_port),
-                kwargs={"on_event": push_event},
+                kwargs={"on_event": push_event, "require_database": False},
                 daemon=True,
             ).start()
             logger.info(f"TCP ingestion thread started on {server_host}:{server_port}.")
@@ -69,7 +81,10 @@ def create_app(
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
     app.include_router(router)
 
-    _ctx = {"api_key": settings.api_key}
+    _ctx = {
+        "api_key": settings.api_key,
+        "js_v": _file_hash(BASE_DIR / "static" / "dashboard.js"),
+    }
 
     @app.get("/")
     async def index(request: Request):
@@ -150,7 +165,9 @@ def create_app(
 
     @app.get("/strategy/{strategy_id}/quantstats-report", response_class=HTMLResponse)
     async def strategy_quantstats_report(strategy_id: str):
-        from trademachine.tradingmonitor.metrics.calculator import generate_qs_report
+        from trademachine.tradingmonitor_analytics.public import (
+            generate_qs_report,
+        )
 
         fd, tmp_path = tempfile.mkstemp(suffix=".html")
         os.close(fd)
@@ -172,7 +189,9 @@ def create_app(
 
     @app.get("/backtest/{backtest_id}/quantstats-report", response_class=HTMLResponse)
     async def backtest_quantstats_report(backtest_id: int):
-        from trademachine.tradingmonitor.metrics.calculator import generate_qs_report
+        from trademachine.tradingmonitor_analytics.public import (
+            generate_qs_report,
+        )
 
         fd, tmp_path = tempfile.mkstemp(suffix=".html")
         os.close(fd)
@@ -194,7 +213,9 @@ def create_app(
 
     @app.get("/portfolio/{portfolio_id}/quantstats-report", response_class=HTMLResponse)
     async def portfolio_quantstats_report(portfolio_id: int):
-        from trademachine.tradingmonitor.metrics.calculator import generate_qs_report
+        from trademachine.tradingmonitor_analytics.public import (
+            generate_qs_report,
+        )
 
         fd, tmp_path = tempfile.mkstemp(suffix=".html")
         os.close(fd)
@@ -224,3 +245,24 @@ def create_app(
             manager.disconnect(websocket)
 
     return app
+
+
+def create_configured_app() -> FastAPI:
+    """No-argument factory for uvicorn factory mode.
+
+    Reads dashboard configuration from environment variables set by the CLI
+    launcher so that trading_monitor_cli does not need to import this module.
+
+    Env vars:
+        _TM_WITH_INGESTION  — "1" to start the TCP ingestion thread (default "0")
+        _TM_INGESTION_HOST  — TCP server host (default "127.0.0.1")
+        _TM_INGESTION_PORT  — TCP server port (default: settings.server_port)
+    """
+    with_ingestion = os.environ.get("_TM_WITH_INGESTION", "0") == "1"
+    server_host = os.environ.get("_TM_INGESTION_HOST", "127.0.0.1")
+    server_port = int(os.environ.get("_TM_INGESTION_PORT", str(settings.server_port)))
+    return create_app(
+        with_ingestion=with_ingestion,
+        server_host=server_host,
+        server_port=server_port,
+    )

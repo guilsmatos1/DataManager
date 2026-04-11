@@ -9,9 +9,9 @@ This project is built using the **Polylith Architecture**, organized into reusab
 
 ### Core Architecture
 - **Data Source**: MQL5 Expert Advisor running in MT5, pushing trade deals, equity updates, and account info via **TCP**.
-- **Ingestion Layer**: A TCP server located in the `tradingmonitor` component (`components/tradingmonitor/src/trademachine/tradingmonitor/ingestion/tcp_server.py`) that validates incoming JSON payloads using Pydantic schemas and persists them to the database.
+- **Ingestion Layer**: A TCP server located in `components/tradingmonitor_ingestion/src/trademachine/tradingmonitor_ingestion/ingestion/tcp_server.py` that validates incoming JSON payloads using Pydantic schemas and persists them through the storage component.
 - **Storage**: TimescaleDB (PostgreSQL) for efficient time-series storage. It uses **hypertables** for `deals` and `equity_curve` tables to handle high-frequency updates.
-- **Analysis Engine**: Uses `Pandas` and `QuantStats` (`components/tradingmonitor/src/trademachine/tradingmonitor/metrics/calculator.py`) to compute financial metrics like Sharpe Ratio, Max Drawdown, Win Rate, and portfolio correlations.
+- **Analysis Engine**: Uses `Pandas` and `QuantStats` (`components/tradingmonitor_analytics/src/trademachine/tradingmonitor_analytics/metrics/calculator.py`) to compute financial metrics like Sharpe Ratio, Drawdown, Win Rate, and portfolio correlations.
 - **Interfaces (Bases)**:
     - **CLI**: A `Typer`-based command-line tool (`bases/trading_monitor_cli/`) for management, database initialization, and terminal reporting.
     - **Dashboard**: A `FastAPI` web application (`bases/trading_monitor_dashboard/`) providing real-time visualization via WebSockets.
@@ -74,7 +74,7 @@ This project is built using the **Polylith Architecture**, organized into reusab
   ```
 - **Tests**:
   ```bash
-  uv run pytest components/tradingmonitor/test
+  uv run pytest components/tradingmonitor_storage/test components/tradingmonitor_ingestion/test components/tradingmonitor_analytics/test bases/trading_monitor_cli/test bases/trading_monitor_dashboard/test
   ```
 
 ---
@@ -86,18 +86,18 @@ This project is built using the **Polylith Architecture**, organized into reusab
 - **Account ID**: Primarily identified by the **MT5 Login Number**.
 
 ### Code Style & Structure (Polylith)
-- **Namespace**: All internal imports MUST use the `trademachine` namespace (e.g., `from trademachine.tradingmonitor import ...`).
+- **Namespace**: All internal imports MUST use the `trademachine` namespace (e.g., `from trademachine.tradingmonitor_storage import ...`).
 - **Components**: Lógica pura e reutilizável em `components/`.
 - **Bases**: Pontos de entrada (CLI, Web) em `bases/`.
-- **Database Access**: Use `SessionLocal` from `trademachine.tradingmonitor.db.database`.
-- **Migrations**: High-frequency tables (`deals`, `equity_curve`) are initialized as hypertables in `trademachine.tradingmonitor.db.database.py`. Standard relational tables are managed via Alembic in `projects/tradingmonitor/alembic/`.
+- **Database Access**: Use `SessionLocal` from `trademachine.tradingmonitor_storage.db.database`.
+- **Migrations**: High-frequency tables (`deals`, `equity_curve`) are initialized as hypertables in `trademachine.tradingmonitor_storage.db.database.py`. Standard relational tables are managed via Alembic in `projects/tradingmonitor/alembic/`.
 
 ### Testing
-- Component tests are located in `components/tradingmonitor/test/`.
+- TradingMonitor tests are split across `components/tradingmonitor_storage/test/`, `components/tradingmonitor_ingestion/test/`, `components/tradingmonitor_analytics/test/`, `bases/trading_monitor_cli/test/`, and `bases/trading_monitor_dashboard/test/`.
 - Use `uv run pytest` for execution.
 
 ### Environment Configuration
-Managed via `trademachine.tradingmonitor.config` using `pydantic-settings`.
+Managed via `trademachine.tradingmonitor_storage.config` using `pydantic-settings`.
 - `DATABASE_URL`: Connection string.
 - `SERVER_HOST` / `SERVER_PORT`: Ingestion server settings.
 - `DASHBOARD_HOST` / `DASHBOARD_PORT`: Web server settings.

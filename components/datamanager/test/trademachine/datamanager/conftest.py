@@ -40,7 +40,6 @@ def db_engine():
         # Apaga as tabelas
         conn.execute(text("DROP TABLE IF EXISTS economic_observations CASCADE;"))
         conn.execute(text("DROP TABLE IF EXISTS economic_series CASCADE;"))
-        conn.execute(text("DROP TABLE IF EXISTS ohlcv_resampled CASCADE;"))
         conn.execute(text("DROP TABLE IF EXISTS ohlcv_m1 CASCADE;"))
         conn.execute(text("DROP TABLE IF EXISTS assets CASCADE;"))
         conn.execute(text("DROP TABLE IF EXISTS sources CASCADE;"))
@@ -91,7 +90,7 @@ def db_session(db_engine):
     # Limpa os dados, mas mantém a estrutura (tabelas e visões)
     session.execute(
         text(
-            "TRUNCATE TABLE economic_observations, economic_series, ohlcv_resampled, ohlcv_m1, assets, sources CASCADE;"
+            "TRUNCATE TABLE economic_observations, economic_series, ohlcv_m1, assets, sources CASCADE;"
         )
     )
     session.commit()

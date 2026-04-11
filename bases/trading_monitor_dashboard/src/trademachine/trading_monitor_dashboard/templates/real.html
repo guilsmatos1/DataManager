@@ -6,12 +6,11 @@
     .text-warning { color: var(--yellow); font-weight: 600; }
     .pnl-alert { background-color: rgba(239, 68, 68, 0.4) !important; color: white !important; }
     .recent-deals-card { margin-top: 1.5rem; }
-    #strategies-card { margin-top: 1.5rem; }
     #real-summary { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
     .summary-footnote { margin: -0.25rem 0 1.25rem; color: var(--text-muted); font-size: 0.78rem; }
 </style>
 <div class="page-header">
-    <h1 id="real-page-title">Account Monitor</h1>
+    <h1 id="real-page-title"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg> Account Monitor</h1>
     <span id="real-status-badge" class="badge"></span>
     <button class="btn" style="margin-left: auto; background-color: var(--red); color: white; border: none; padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 0.8rem;" onclick="killAll()">Kill All</button>
 </div>
@@ -40,11 +39,9 @@
     </div>
     <div class="summary-card">
         <span class="summary-num" id="sum-net-profit">—</span>
-        <span class="summary-label">Total Net Profit</span>
+        <span class="summary-label">Total Profit</span>
     </div>
 </div>
-<p id="real-summary-note" class="summary-footnote" style="display:none"></p>
-
 <!-- Aggregated P&L -->
 <div class="card" id="pnl-card" style="display:none">
     <div class="section-header">
@@ -60,36 +57,6 @@
     </div>
     <div class="chart-box" style="height:260px">
         <canvas id="real-pnl-chart"></canvas>
-    </div>
-</div>
-
-<!-- Strategies Table -->
-<div class="card" id="strategies-card" style="display:none">
-    <div class="section-header">
-        <h2>Strategies</h2>
-        <span id="badge-real-strategies" class="badge badge-neutral">0</span>
-    </div>
-    <div class="table-wrap">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Name</th>
-                    <th>Symbol</th>
-                    <th>Last Update</th>
-                    <th>Net Profit</th>
-                    <th>Max DD</th>
-                    <th>VaR 95%</th>
-                    <th>Ret/DD</th>
-
-                    <th>Balance</th>
-                    <th>Equity</th>
-                    <th>Open P&amp;L</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="real-strategies-body"></tbody>
-        </table>
     </div>
 </div>
 
@@ -122,7 +89,7 @@
                     <th class="sortable" onclick="recentDealsSortBy('profit')">Profit<span id="recent-deals-arrow-profit"></span></th>
                     <th class="sortable" onclick="recentDealsSortBy('commission')">Commission<span id="recent-deals-arrow-commission"></span></th>
                     <th class="sortable" onclick="recentDealsSortBy('swap')">Swap<span id="recent-deals-arrow-swap"></span></th>
-                    <th class="sortable" onclick="recentDealsSortBy('net_profit')">Net Profit<span id="recent-deals-arrow-net_profit"></span></th>
+                    <th class="sortable" onclick="recentDealsSortBy('net_profit')">Profit<span id="recent-deals-arrow-net_profit"></span></th>
                 </tr>
             </thead>
             <tbody id="recent-deals-body">
@@ -171,8 +138,8 @@ async function loadReal() {
     const flCls = totals.floating_pnl >= 0 ? "profit-positive" : "profit-negative";
 
     document.getElementById("sum-strategies").textContent = data.strategies.length;
-    document.getElementById("sum-open-trades").textContent = totals.open_trades_count ?? "—";
-    document.getElementById("sum-pending-orders").textContent = totals.pending_orders_count ?? "—";
+    document.getElementById("sum-open-trades").textContent = totals.open_trades_count != null ? totals.open_trades_count : "—";
+    document.getElementById("sum-pending-orders").textContent = totals.pending_orders_count != null ? totals.pending_orders_count : "—";
     document.getElementById("sum-day-pnl").textContent = fmt(totals.day_pnl);
     document.getElementById("sum-day-pnl").className = "summary-num " + dayCls;
     document.getElementById("sum-net-profit").textContent = fmt(totals.net_profit);
@@ -180,79 +147,9 @@ async function loadReal() {
     document.getElementById("sum-floating").textContent = fmt(totals.floating_pnl);
     document.getElementById("sum-floating").className = "summary-num " + flCls;
     document.getElementById("real-summary").style.display = "";
-    const note = document.getElementById("real-summary-note");
-    if (totals.counts_available === false) {
-        note.textContent = "Open trades and pending orders require MT5 snapshot data; the current feed only persists deals and equity.";
-        note.style.display = "";
-    } else {
-        note.style.display = "none";
-    }
     document.getElementById("real-status-badge").textContent = isDemoMode ? "Demo" : "Real";
     document.getElementById("real-status-badge").className = `badge ${isDemoMode ? "badge-demo" : "badge-real"}`;
 
-    // Strategies table
-    const tbody = document.getElementById("real-strategies-body");
-    tbody.innerHTML = ""; // Clear for refresh
-    data.strategies.forEach(s => {
-        const np = s.net_profit;
-        const npC = np >= 0 ? "profit-positive" : "profit-negative";
-        const fl = s.floating_pnl;
-        const flC = fl > 0 ? "profit-positive" : fl < 0 ? "profit-negative" : "";
-
-        // P&L Alert style if below -100
-        const pnlAlert = fl < -100 ? "pnl-alert" : "";
-
-        // Last update logic
-        const lu = s.last_update;
-        const luStr = lu ? new Date(lu).toLocaleTimeString() : "—";
-        const isOld = lu && (new Date() - new Date(lu)) > 5 * 60 * 1000;
-        const luCls = isOld ? "text-warning" : "";
-
-        const rd = s.ret_dd;
-        const rdC = rd == null ? "" : rd >= 0 ? "profit-positive" : "profit-negative";
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-            <td><a href="/strategy/${s.id}" style="color:var(--accent)">${s.id}</a><button class="btn-copy-id" onclick="event.stopPropagation();copyId('${s.id}',this)" title="Copy Magic Number">⎘</button></td>
-            <td>${s.name || "—"}</td>
-            <td><span class="badge badge-neutral">${s.symbol || "—"}</span></td>
-            <td class="${luCls}" style="font-variant-numeric:tabular-nums">${luStr}</td>
-            <td class="${npC}" style="font-variant-numeric:tabular-nums;font-weight:600">${fmt(s.net_profit)}</td>
-            <td class="${rdC}" style="font-variant-numeric:tabular-nums">${s.max_drawdown_pct != null ? s.max_drawdown_pct.toFixed(2) + "%" : "—"}</td>
-            <td style="font-variant-numeric:tabular-nums">${s.var_95_pct != null ? s.var_95_pct.toFixed(2) + "%" : "—"}</td>
-            <td class="${rdC}" style="font-variant-numeric:tabular-nums">${rd != null ? rd.toFixed(3) : "—"}</td>
-
-            <td style="font-variant-numeric:tabular-nums">${s.balance != null ? fmt(s.balance) : "—"}</td>
-            <td style="font-variant-numeric:tabular-nums">${s.equity != null ? fmt(s.equity) : "—"}</td>
-            <td class="${flC} ${pnlAlert}" style="font-variant-numeric:tabular-nums;font-weight:600">${fl !== 0 ? fmt(fl) : "—"}</td>
-            <td>
-                <button class="badge" style="cursor:pointer; border:none; background-color:var(--red); color:white; padding: 0.3rem 0.6rem; border-radius: 4px;" onclick="killStrategy('${s.id}')">Kill</button>
-            </td>`;
-        tbody.appendChild(tr);
-    });
-    document.getElementById("badge-real-strategies").textContent = data.strategies.length;
-    document.getElementById("strategies-card").style.display = "";
-
-}
-
-async function killStrategy(strategyId) {
-    if (!confirm(`Are you sure you want to KILL strategy ${strategyId}? This will close all positions and stop the EA.`)) {
-        return;
-    }
-
-    try {
-        const res = await fetch(`/api/strategies/${strategyId}/kill`, {
-            method: "POST"
-        });
-        const result = await res.json();
-
-        if (res.ok) {
-            alert(result.message || "Kill command sent successfully.");
-        } else {
-            alert("Error: " + (result.detail || "Failed to send kill command. Is the strategy connected?"));
-        }
-    } catch (e) {
-        alert("Request failed: " + e.message);
-    }
 }
 
 function filterRealPnlPoints(points, period) {

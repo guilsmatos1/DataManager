@@ -16,14 +16,16 @@
 "type_"  # lambda arg in SQLite BigInteger type compiler shim
 
 
-# PortifolioMaster False Positives
+# PortfolioMaster False Positives
 class Ignored:
     model_config = 1
     side_effect = 1
+    return_value = 1
 
 
 Ignored.model_config
 Ignored.side_effect
+Ignored.return_value
 
 
 def global_callback():
@@ -31,6 +33,13 @@ def global_callback():
 
 
 global_callback
+
+
+def drawdown_pairing_command():
+    pass
+
+
+drawdown_pairing_command
 
 
 def pairing():
@@ -66,3 +75,10 @@ def validate_rank_by():
 
 
 validate_rank_by
+
+
+def columns():
+    pass
+
+
+columns
