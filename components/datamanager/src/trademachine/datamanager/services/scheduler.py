@@ -1,5 +1,4 @@
 import logging
-import uuid
 from typing import Any
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -63,7 +62,7 @@ class SchedulerService:
     so they survive restarts and crashes natively.
     """
 
-    def __init__(self, manager: Any = None, **kwargs: Any) -> None:
+    def __init__(self, manager: Any = None) -> None:
         self._manager = (
             manager  # kept for backward compatibility if instantiated with one
         )
@@ -129,7 +128,7 @@ class SchedulerService:
         Raises:
             ValueError: If neither cron nor interval_minutes is provided.
         """
-        job_id = str(uuid.uuid4())
+        job_id = f"{source.upper()}_{asset.upper()}_{timeframe.upper()}"
         trigger = self._build_trigger(cron=cron, interval_minutes=interval_minutes)
 
         apsjob = self._scheduler.add_job(
@@ -167,7 +166,7 @@ class SchedulerService:
         interval_minutes: int | None = None,
     ) -> dict[str, Any]:
         """Schedule a recurring update for a FRED/economic series."""
-        job_id = str(uuid.uuid4())
+        job_id = f"{source.upper()}_{series_id.upper()}_SERIES"
         trigger = self._build_trigger(cron=cron, interval_minutes=interval_minutes)
 
         apsjob = self._scheduler.add_job(
