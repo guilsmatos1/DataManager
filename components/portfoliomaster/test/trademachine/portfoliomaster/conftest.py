@@ -5,6 +5,8 @@ import pytest
 from trademachine.mt5.parser import MT5ReportParser
 from trademachine.portfoliomaster.services.portfolio import PortfolioManager
 
+pytestmark = pytest.mark.integration
+
 _TEST_DIR = os.path.dirname(__file__)
 REPORTS_DIR = os.path.join(_TEST_DIR, "reports")
 REPORTS_EN_DIR = os.path.join(_TEST_DIR, "reports-en")

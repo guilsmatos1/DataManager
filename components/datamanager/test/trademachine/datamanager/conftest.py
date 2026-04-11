@@ -5,6 +5,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from trademachine.datamanager.db.models import Base
 
+pytestmark = pytest.mark.integration
+
 # Forçamos o uso de um banco de dados de teste
 TEST_DB_URL = (
     "postgresql://postgres:password@localhost:5433/trademachine.datamanager_test"
