@@ -41,3 +41,4 @@ htmlcov/
 **/catalog/data/
 build/
 *.egg-info/
+scheduler_jobs*.json
