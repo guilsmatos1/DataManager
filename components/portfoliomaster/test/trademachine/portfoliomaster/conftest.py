@@ -5,7 +5,16 @@ import pytest
 from trademachine.mt5.parser import MT5ReportParser
 from trademachine.portfoliomaster.services.portfolio import PortfolioManager
 
-pytestmark = pytest.mark.integration
+
+def pytest_collection_modifyitems(items):
+    from pathlib import Path
+
+    here = Path(__file__).parent
+    marker = pytest.mark.integration
+    for item in items:
+        if Path(item.fspath).is_relative_to(here):
+            item.add_marker(marker)
+
 
 _TEST_DIR = os.path.dirname(__file__)
 REPORTS_DIR = os.path.join(_TEST_DIR, "reports")

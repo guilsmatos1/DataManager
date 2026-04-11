@@ -5,7 +5,16 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from trademachine.datamanager.db.models import Base
 
-pytestmark = pytest.mark.integration
+
+def pytest_collection_modifyitems(items):
+    from pathlib import Path
+
+    here = Path(__file__).parent
+    marker = pytest.mark.integration
+    for item in items:
+        if Path(item.fspath).is_relative_to(here):
+            item.add_marker(marker)
+
 
 # Forçamos o uso de um banco de dados de teste
 TEST_DB_URL = (
