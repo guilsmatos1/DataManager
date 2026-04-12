@@ -145,6 +145,11 @@ class GeneticEngine:
             .select(["Horário"] + self.strategy_names)
         )
 
+        # Pre-compute trade matrix once; reused by run()
+        self.trade_matrix = (
+            self.wide_trades.drop("Horário").to_numpy().astype(np.float64)
+        )
+
         if correlation_matrix is not None:
             self.correlation_matrix = correlation_matrix
         else:
@@ -185,7 +190,7 @@ class GeneticEngine:
     ) -> list[dict]:
         """Runs the genetic algorithm and returns the top-N portfolios."""
         n = len(self.strategy_names)
-        trade_matrix = self.wide_trades.drop("Horário").to_numpy().astype(np.float64)
+        trade_matrix = self.trade_matrix
         sort_metric_index = (
             METRIC_IDX_RET_DD if rank_by == "RetDD" else METRIC_IDX_NET_PROFIT
         )
@@ -296,6 +301,7 @@ class GeneticEngine:
             brute_force = BruteForceEngine(
                 self.all_trades_raw,
                 correlation_period=self.correlation_period,
+                correlation_matrix=self.correlation_matrix,
             )
             results = brute_force.run(
                 min_assets=min_assets,
@@ -441,7 +447,7 @@ class GeneticEngine:
 
         return pd.DataFrame(mock_data)
 
-    def print_results(self, columns: list[str] | None = None) -> None:
+    def print_results(self, _columns: list[str] | None = None) -> None:
         """Prints top portfolios to terminal in the same format as BruteForceEngine."""
         if not self.best_portfolios:
             return

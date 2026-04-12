@@ -223,7 +223,9 @@ class PortfolioManager:
 
                 left_overlap = left[overlap]
                 right_overlap = right[overlap]
-                if np.std(left_overlap) == 0.0 or np.std(right_overlap) == 0.0:
+                std_l = np.std(left_overlap)
+                std_r = np.std(right_overlap)
+                if std_l == 0.0 or std_r == 0.0:
                     continue
 
                 pair_corr = float(np.corrcoef(left_overlap, right_overlap)[0, 1])

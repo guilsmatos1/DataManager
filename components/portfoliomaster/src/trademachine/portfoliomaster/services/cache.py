@@ -93,10 +93,13 @@ class CacheService:
             "%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(self.cache_path))
         )
 
-        df = pl.read_parquet(self.cache_path)
-        strats = [c for c in df.columns if c != "Horário"]
-        if "Horário" in df.columns and strats:
-            dates = df["Horário"].drop_nulls()
+        # Use lazy scan to read only the Horário column — avoids loading all
+        # strategy return columns just for metadata inspection.
+        lf = pl.scan_parquet(self.cache_path)
+        all_columns = lf.collect_schema().names()
+        strats = [c for c in all_columns if c != "Horário"]
+        if "Horário" in all_columns and strats:
+            dates = lf.select("Horário").collect()["Horário"].drop_nulls()
             date_min = str(dates.min())[:10] if len(dates) > 0 else "N/A"
             date_max = str(dates.max())[:10] if len(dates) > 0 else "N/A"
             date_range = f"{date_min} → {date_max}"

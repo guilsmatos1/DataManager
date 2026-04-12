@@ -258,12 +258,17 @@ def _worker_process_partition(args: tuple) -> tuple[list[tuple[float, dict]], in
 
 
 def _merge_heaps(worker_results: list[tuple[list, int]], top_n: int) -> list[dict]:
-    """Merges top-N local heaps from workers into a global top-N ranking."""
-    all_items: list[tuple[float, dict]] = []
-    for heap_items, _ in worker_results:
-        all_items.extend(heap_items)
-    all_items.sort(key=lambda x: x[0], reverse=True)
-    return [item[1] for item in all_items[:top_n]]
+    """Merges top-N local heaps from workers into a global top-N ranking.
+
+    Each worker returns at most top_n items. Sorting each small list first and
+    using heapq.merge yields O(k*top_n * log k) instead of O(k*top_n * log(k*top_n)).
+    """
+    sorted_lists = [
+        sorted(heap_items, key=lambda x: x[0], reverse=True)
+        for heap_items, _ in worker_results
+    ]
+    merged = heapq.merge(*sorted_lists, key=lambda x: x[0], reverse=True)
+    return [item[1] for item in itertools.islice(merged, top_n)]
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +291,7 @@ class BruteForceEngine:
         corr_filter_batch_size: int = 10000,
         matrix_algebra_batch_size: int = 1000,
         initial_balance: float = 100_000.0,
+        correlation_matrix: np.ndarray | None = None,
     ):
         # Align strategy returns on a 1-hour grid for QA Consistency
         self.all_trades_raw = all_trades_df.sort("Horário")
@@ -307,10 +313,19 @@ class BruteForceEngine:
             )  # enforce alphabetical column order
         )
 
+        # Pre-compute trade matrix once; reused by run() and run_greedy()
+        self.trade_matrix = (
+            self.wide_trades.drop("Horário").to_numpy().astype(np.float64)
+        )
+
         self.initial_balance = initial_balance
         self.best_portfolios: list[dict] = []
         self.greedy_history: list[dict] = []
-        self.correlation_matrix = self._compute_correlation(correlation_period)
+
+        if correlation_matrix is not None:
+            self.correlation_matrix = correlation_matrix
+        else:
+            self.correlation_matrix = self._compute_correlation(correlation_period)
 
         # 0 = auto-detect (use all physical CPUs)
         self.num_workers = num_workers if num_workers >= 1 else (os.cpu_count() or 1)
@@ -350,7 +365,7 @@ class BruteForceEngine:
         min_metric: float = 0.0,
     ):
         """Executes trade-by-trade brute force optimization on the entire dataset."""
-        trade_matrix = self.wide_trades.drop("Horário").to_numpy().astype(np.float64)
+        trade_matrix = self.trade_matrix
         num_strategies = len(self.strategy_names)
         total_combos = sum(
             math.comb(num_strategies, k) for k in range(min_assets, max_assets + 1)
@@ -587,7 +602,7 @@ class BruteForceEngine:
         )
         metric_label = rank_by
 
-        trade_matrix = self.wide_trades.drop("Horário").to_numpy().astype(np.float64)
+        trade_matrix = self.trade_matrix
         name_to_idx = {name: idx for idx, name in enumerate(self.strategy_names)}
 
         current_indices = [name_to_idx[name] for name in seed_combo]
@@ -676,7 +691,7 @@ class BruteForceEngine:
         self.best_portfolios = [final_result]
         return self.best_portfolios
 
-    def print_results(self, columns: list[str] | None = None):
+    def print_results(self, _columns: list[str] | None = None):
         """Prints the top optimization results to the terminal in a concise table."""
         if not self.best_portfolios:
             return

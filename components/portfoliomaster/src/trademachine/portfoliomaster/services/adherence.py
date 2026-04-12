@@ -155,7 +155,9 @@ def _load_mt5_strategies(mt5_dir: str) -> tuple[dict, dict]:
 
     for name, df in portfolio_manager.strategies.items():
         returns_by_name[name] = df["Net_Profit"].to_numpy().astype(np.float64)
-        timestamps_by_name[name] = df["Horário"].cast(str).to_list()
+        timestamps_by_name[name] = (
+            df["Horário"].dt.to_string("%Y-%m-%d %H:%M:%S").to_list()
+        )
 
     logger.info(f"[MT5] {len(returns_by_name)} strategies loaded successfully.")
     return returns_by_name, timestamps_by_name
