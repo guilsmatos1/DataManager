@@ -35,6 +35,7 @@ from trademachine.datamanager.public import (
     SeriesUpdateRequest,
     TaskResponse,
     UpdateRequest,
+    init_db,
     settings,
 )
 
@@ -63,6 +64,7 @@ async def lifespan(app: FastAPI):
         logger.warning(
             "⚠  DATAMANAGER_API_KEY is not set — the API is running UNPROTECTED!"
         )
+    init_db()
     scheduler.start()
     yield
     scheduler.shutdown()
