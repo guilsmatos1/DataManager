@@ -124,12 +124,14 @@ def download_data(
 ):
     try:
         start_dt = (
-            datetime.fromisoformat(req.start_date)
+            datetime.fromisoformat(req.start_date).replace(tzinfo=None)
             if req.start_date
             else datetime(2000, 1, 1)
         )
         end_dt = (
-            datetime.fromisoformat(req.end_date) if req.end_date else datetime.now(UTC)
+            datetime.fromisoformat(req.end_date).replace(tzinfo=None)
+            if req.end_date
+            else datetime.now(UTC).replace(tzinfo=None)
         )
 
         assets = [a.strip() for a in req.asset.split(",") if a.strip()]
