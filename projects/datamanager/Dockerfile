@@ -31,7 +31,7 @@ RUN uv sync --no-dev --frozen
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
+    PYTHONPATH=/app/bases/datamanager_api/src:/app/bases/datamanager_cli/src:/app/components/datamanager/src:/app/components/core/src:/app/components/metrics/src:/app/components/mt5/src \
     PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
