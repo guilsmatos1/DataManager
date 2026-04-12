@@ -21,7 +21,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Copy workspace structure needed for Polylith resolution
 COPY bases/ ./bases/
 COPY components/ ./components/
-COPY projects/datamanager/pyproject.toml ./pyproject.toml
+COPY projects/ ./projects/
+COPY pyproject.toml ./pyproject.toml
 COPY uv.lock ./uv.lock
 
 # Install dependencies into /app/.venv
