@@ -25,7 +25,7 @@ COPY projects/datamanager/pyproject.toml ./pyproject.toml
 COPY uv.lock ./uv.lock
 
 # Install dependencies into /app/.venv
-RUN uv sync --no-dev --frozen --no-install-project
+RUN uv sync --no-dev --frozen
 
 # --- Stage 2: Final ---
 FROM python:3.12-slim
