@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}TradingMonitor — Account Monitor{% endblock %}
 
+{% block chartjs %}
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <style>
     .text-warning { color: var(--yellow); font-weight: 600; }
@@ -12,7 +16,11 @@
 <div class="page-header">
     <h1 id="real-page-title"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg> Account Monitor</h1>
     <span id="real-status-badge" class="badge"></span>
-    <button class="btn" style="margin-left: auto; background-color: var(--red); color: white; border: none; padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; font-size: 0.8rem;" onclick="killAll()">Kill All</button>
+        <button class="btn btn-sm btn-danger" onclick="killAll()">Kill All</button>
+</div>
+<div id="last-updated-bar" class="last-updated-bar">
+    <span id="last-updated-text">Refreshing…</span>
+    <div class="last-updated-track"><div id="last-updated-fill" class="last-updated-fill"></div></div>
 </div>
 
 <!-- Summary Cards -->
@@ -78,22 +86,20 @@
         </select>
         <span class="text-muted" style="font-size:0.8rem">per page</span>
     </div>
-    <div class="table-wrap">
+    <div class="table-responsive">
         <table class="data-table">
-            <thead>
-                <tr>
-                    <th class="sortable" onclick="recentDealsSortBy('timestamp')">Time<span id="recent-deals-arrow-timestamp"></span></th>
-                    <th class="sortable" onclick="recentDealsSortBy('strategy_name')">Strategy<span id="recent-deals-arrow-strategy_name"></span></th>
-                    <th class="sortable" onclick="recentDealsSortBy('symbol')">Symbol<span id="recent-deals-arrow-symbol"></span></th>
-                    <th class="sortable" onclick="recentDealsSortBy('type')">Type<span id="recent-deals-arrow-type"></span></th>
-                    <th class="sortable" onclick="recentDealsSortBy('profit')">Profit<span id="recent-deals-arrow-profit"></span></th>
-                    <th class="sortable" onclick="recentDealsSortBy('commission')">Commission<span id="recent-deals-arrow-commission"></span></th>
-                    <th class="sortable" onclick="recentDealsSortBy('swap')">Swap<span id="recent-deals-arrow-swap"></span></th>
-                    <th class="sortable" onclick="recentDealsSortBy('net_profit')">Profit<span id="recent-deals-arrow-net_profit"></span></th>
-                </tr>
-            </thead>
+            <thead><tr>
+                <th class="sortable" id="recent-deals-th-timestamp" onclick="recentDealsSortBy('timestamp')">Date<span id="recent-deals-arrow-timestamp"></span></th>
+                <th class="sortable" id="recent-deals-th-strategy_name" onclick="recentDealsSortBy('strategy_name')">Strategy<span id="recent-deals-arrow-strategy_name"></span></th>
+                <th class="sortable" id="recent-deals-th-symbol" onclick="recentDealsSortBy('symbol')">Symbol<span id="recent-deals-arrow-symbol"></span></th>
+                <th class="sortable" id="recent-deals-th-type" onclick="recentDealsSortBy('type')">Type<span id="recent-deals-arrow-type"></span></th>
+                <th class="sortable" id="recent-deals-th-profit" onclick="recentDealsSortBy('profit')">Profit<span id="recent-deals-arrow-profit"></span></th>
+                <th class="sortable" id="recent-deals-th-commission" onclick="recentDealsSortBy('commission')">Commission<span id="recent-deals-arrow-commission"></span></th>
+                <th class="sortable" id="recent-deals-th-swap" onclick="recentDealsSortBy('swap')">Swap<span id="recent-deals-arrow-swap"></span></th>
+                <th class="sortable" id="recent-deals-th-net_profit" onclick="recentDealsSortBy('net_profit')">Net<span id="recent-deals-arrow-net_profit"></span></th>
+            </tr></thead>
             <tbody id="recent-deals-body">
-                <tr><td colspan="8" class="empty-state" style="padding: 2rem;">No recent deals found or loading...</td></tr>
+                <tr><td colspan="8"><div class="skel box-full" style="height:150px"></div></td></tr>
             </tbody>
         </table>
     </div>
@@ -102,301 +108,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-let realPnlChart = null;
-let _allRealPnlPoints = [];
-let _realPnlPeriod = localStorage.getItem("tm-real-pnl-period") || "all";
-let _realPnlDataKey = "";
-let _realPnlRenderedKey = "";
-let _recentDeals = [];
-let _recentDealsSortCol = "timestamp";
-let _recentDealsSortAsc = false;
-let _recentDealsPage = 1;
-
-async function loadReal() {
-    let data;
-    try {
-        const res = await fetch("/api/real");
-        data = await res.json();
-    } catch(e) {
-        document.getElementById("real-status-badge").textContent = "Error";
-        document.getElementById("real-status-badge").className = "badge badge-inactive";
-        return;
-    }
-
-    const isDemoMode = (data.mode || "real") === "demo";
-    document.getElementById("real-page-title").textContent = "Account Monitor";
-
-    if (!data.strategies || data.strategies.length === 0) {
-        document.getElementById("real-empty").style.display = "block";
-        return;
-    }
-
-    const totals = data.totals;
-    const dayCls = totals.day_pnl >= 0 ? "profit-positive" : "profit-negative";
-    const npCls = totals.net_profit >= 0 ? "profit-positive" : "profit-negative";
-    const flCls = totals.floating_pnl >= 0 ? "profit-positive" : "profit-negative";
-
-    document.getElementById("sum-strategies").textContent = data.strategies.length;
-    document.getElementById("sum-open-trades").textContent = totals.open_trades_count != null ? totals.open_trades_count : "—";
-    document.getElementById("sum-pending-orders").textContent = totals.pending_orders_count != null ? totals.pending_orders_count : "—";
-    document.getElementById("sum-day-pnl").textContent = fmt(totals.day_pnl);
-    document.getElementById("sum-day-pnl").className = "summary-num " + dayCls;
-    document.getElementById("sum-net-profit").textContent = fmt(totals.net_profit);
-    document.getElementById("sum-net-profit").className = "summary-num " + npCls;
-    document.getElementById("sum-floating").textContent = fmt(totals.floating_pnl);
-    document.getElementById("sum-floating").className = "summary-num " + flCls;
-    document.getElementById("real-summary").style.display = "";
-    document.getElementById("real-status-badge").textContent = isDemoMode ? "Demo" : "Real";
-    document.getElementById("real-status-badge").className = `badge ${isDemoMode ? "badge-demo" : "badge-real"}`;
-
-}
-
-function filterRealPnlPoints(points, period) {
-    if (period === "all" || !points.length) return points;
-    const cutoff = new Date();
-    if (period === "1W") {
-        cutoff.setDate(cutoff.getDate() - 7);
-    } else if (period === "1M") {
-        cutoff.setMonth(cutoff.getMonth() - 1);
-    } else if (period === "1Y") {
-        cutoff.setFullYear(cutoff.getFullYear() - 1);
-    }
-    return points.filter(point => new Date(point.date) >= cutoff);
-}
-
-function syncRealPnlPeriodButtons() {
-    document.querySelectorAll(".period-tab[data-rp]").forEach(btn =>
-        btn.classList.toggle("active", btn.dataset.rp === _realPnlPeriod)
-    );
-}
-
-function renderRealPnlIfNeeded(force = false) {
-    const renderKey = `${_realPnlPeriod}::${_realPnlDataKey}`;
-    if (!force && renderKey === _realPnlRenderedKey) {
-        return;
-    }
-    renderRealPnlChart(filterRealPnlPoints(_allRealPnlPoints, _realPnlPeriod));
-    _realPnlRenderedKey = renderKey;
-}
-
-function setRealPnlPeriod(period) {
-    _realPnlPeriod = period;
-    localStorage.setItem("tm-real-pnl-period", period);
-    syncRealPnlPeriodButtons();
-    renderRealPnlIfNeeded(true);
-}
-
-function renderRealPnlChart(points) {
-    const wrapper = document.querySelector("#pnl-card .chart-box");
-    if (!document.getElementById("real-pnl-chart")) {
-        wrapper.innerHTML = '<canvas id="real-pnl-chart"></canvas>';
-    }
-    const canvas = document.getElementById("real-pnl-chart");
-    if (!points.length) {
-        wrapper.innerHTML = '<p class="empty-state" style="padding:2rem 0">No P&amp;L data yet.</p>';
-        document.getElementById("pnl-badge").textContent = "0 points";
-        document.getElementById("pnl-card").style.display = "";
-        return;
-    }
-
-    const ctx = canvas.getContext("2d");
-    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
-    const tickColor = isDark ? "#64748b" : "#94a3b8";
-    const gridColor = isDark ? "#334155" : "#e2e8f0";
-    const labels = points.map(point => {
-        const d = new Date(point.date);
-        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
-    });
-    const values = points.map(point => point.net_profit);
-    const colors = values.map(value => value >= 0 ? "rgba(16,185,129,0.85)" : "rgba(239,68,68,0.85)");
-
-    if (realPnlChart) realPnlChart.destroy();
-    realPnlChart = new Chart(ctx, {
-        type: "bar",
-        data: {
-            labels,
-            datasets: [{
-                label: "Daily P&L",
-                data: values,
-                backgroundColor: colors,
-                borderColor: colors,
-                borderWidth: 1,
-                borderRadius: 4,
-                barPercentage: 0.9,
-                categoryPercentage: 0.9,
-            }],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: { callbacks: { label: ctx => ` P&L: ${fmt(ctx.parsed.y)}` } },
-            },
-            scales: {
-                x: {
-                    ticks: { maxTicksLimit: 12, color: tickColor, font: { size: 11 } },
-                    grid: { color: gridColor },
-                },
-                y: {
-                    ticks: { color: tickColor, font: { size: 11 }, callback: v => fmt(v) },
-                    grid: { color: gridColor },
-                },
-            },
-        },
-    });
-
-    document.getElementById("pnl-badge").textContent = `${labels.length} points`;
-    document.getElementById("pnl-card").style.display = "";
-}
-
-async function loadRealDailyPnl() {
-    try {
-        const res = await fetch("/api/real/daily");
-        const points = await res.json();
-        const nextKey = JSON.stringify(points);
-        if (nextKey === _realPnlDataKey) {
-            return;
-        }
-        _allRealPnlPoints = points;
-        _realPnlDataKey = nextKey;
-        renderRealPnlIfNeeded(true);
-    } catch (e) {
-        const wrapper = document.querySelector("#pnl-card .chart-box");
-        if (wrapper) {
-            wrapper.innerHTML = '<p class="empty-state" style="padding:2rem 0">Failed to load P&amp;L data.</p>';
-        }
-        _realPnlRenderedKey = "";
-        document.getElementById("pnl-card").style.display = "";
-    }
-}
-
-async function killAll() {
-    if (!confirm("CRITICAL: Are you sure you want to KILL ALL active strategies? This will close ALL positions on the connected accounts!")) {
-        return;
-    }
-
-    try {
-        const res = await fetch("/api/strategies/kill-all", { method: "POST" });
-        const result = await res.json();
-        alert(result.message || "Kill-all command sent.");
-        loadReal();
-    } catch (e) {
-        alert("Request failed: " + e.message);
-    }
-}
-
-async function loadRecentDeals() {
-    const container = document.getElementById("recent-deals-body");
-    const badge = document.getElementById("badge-recent-deals");
-    try {
-        const res = await fetch("/api/real/recent-deals?limit=250");
-        const deals = await res.json();
-        _recentDeals = deals;
-        badge.textContent = String(deals.length);
-        renderRecentDealsTable();
-    } catch (e) {
-        _recentDeals = [];
-        container.innerHTML = `<tr><td colspan="8" class="empty-state" style="padding: 2rem;">Failed to load recent deals.</td></tr>`;
-        badge.textContent = "—";
-        document.getElementById("recent-deals-pagination").innerHTML = "";
-    }
-}
-
-function recentDealsSortBy(col) {
-    if (_recentDealsSortCol === col) _recentDealsSortAsc = !_recentDealsSortAsc;
-    else {
-        _recentDealsSortCol = col;
-        _recentDealsSortAsc = col !== "timestamp";
-    }
-    _recentDealsPage = 1;
-    renderRecentDealsTable();
-}
-
-function recentDealsGoPage(page) {
-    _recentDealsPage = page;
-    renderRecentDealsTable();
-}
-
-function renderRecentDealsTable() {
-    const container = document.getElementById("recent-deals-body");
-    const pagination = document.getElementById("recent-deals-pagination");
-    const pageSize = parseInt(document.getElementById("recent-deals-page-size")?.value || "25", 10);
-
-    ["timestamp", "strategy_name", "symbol", "type", "profit", "commission", "swap", "net_profit"].forEach(col => {
-        const el = document.getElementById(`recent-deals-arrow-${col}`);
-        if (el) el.textContent = _recentDealsSortCol === col ? (_recentDealsSortAsc ? " ↑" : " ↓") : "";
-    });
-
-    if (!_recentDeals.length) {
-        container.innerHTML = `<tr><td colspan="8" class="empty-state" style="padding: 2rem;">No recent deals found.</td></tr>`;
-        pagination.innerHTML = "";
-        return;
-    }
-
-    const sorted = [..._recentDeals].sort((a, b) => {
-        let va = a[_recentDealsSortCol];
-        let vb = b[_recentDealsSortCol];
-
-        if (_recentDealsSortCol === "timestamp") {
-            va = va ? new Date(va).getTime() : 0;
-            vb = vb ? new Date(vb).getTime() : 0;
-        } else if (["profit", "commission", "swap", "net_profit"].includes(_recentDealsSortCol)) {
-            va = Number(va ?? 0);
-            vb = Number(vb ?? 0);
-        } else {
-            va = String(va || "").toLowerCase();
-            vb = String(vb || "").toLowerCase();
-        }
-
-        if (va === vb) return 0;
-        return _recentDealsSortAsc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
-    });
-
-    const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-    if (_recentDealsPage > totalPages) _recentDealsPage = 1;
-    const pageDeals = sorted.slice((_recentDealsPage - 1) * pageSize, _recentDealsPage * pageSize);
-
-    container.innerHTML = pageDeals.map(d => {
-        const ts = d.timestamp ? new Date(d.timestamp).toLocaleString() : "—";
-        const profit = d.profit ?? 0;
-        const commission = d.commission ?? 0;
-        const swap = d.swap ?? 0;
-        const net = d.net_profit ?? 0;
-        const profitCls = profit > 0 ? "profit-positive" : profit < 0 ? "profit-negative" : "";
-        const commissionCls = commission > 0 ? "profit-positive" : commission < 0 ? "profit-negative" : "";
-        const swapCls = swap > 0 ? "profit-positive" : swap < 0 ? "profit-negative" : "";
-        const cls = net > 0 ? "profit-positive" : net < 0 ? "profit-negative" : "";
-        return `
-            <tr>
-                <td style="font-variant-numeric:tabular-nums;white-space:nowrap">${ts}</td>
-                <td><a href="/strategy/${d.strategy_id}" style="color:var(--accent)">${d.strategy_name || d.strategy_id || "—"}</a></td>
-                <td><span class="badge badge-neutral">${d.symbol || "—"}</span></td>
-                <td><span class="badge badge-neutral">${d.type || "—"}</span></td>
-                <td class="${profitCls}" style="font-variant-numeric:tabular-nums">${fmt(profit)}</td>
-                <td class="${commissionCls}" style="font-variant-numeric:tabular-nums">${fmt(commission)}</td>
-                <td class="${swapCls}" style="font-variant-numeric:tabular-nums">${fmt(swap)}</td>
-                <td class="${cls}" style="font-variant-numeric:tabular-nums;font-weight:600">${fmt(net)}</td>
-            </tr>
-        `;
-    }).join("");
-
-    pagination.innerHTML = totalPages <= 1 ? "" : `
-        <button onclick="recentDealsGoPage(${_recentDealsPage - 1})" ${_recentDealsPage <= 1 ? "disabled" : ""}>← Previous</button>
-        <span>Page ${_recentDealsPage} of ${totalPages}</span>
-        <button onclick="recentDealsGoPage(${_recentDealsPage + 1})" ${_recentDealsPage >= totalPages ? "disabled" : ""}>Next →</button>
-    `;
-}
-
-syncRealPnlPeriodButtons();
-loadReal();
-loadRealDailyPnl();
-loadRecentDeals();
-setInterval(() => {
-    loadReal();
-    loadRealDailyPnl();
-    loadRecentDeals();
-}, 5000);
-</script>
+<script src="/static/table-renderer.js"></script>
+<script src="/static/page-real.js"></script>
 {% endblock %}

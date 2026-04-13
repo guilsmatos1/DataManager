@@ -256,6 +256,43 @@ class DataManager:
         else:
             logger.warning(f"Database not found: {target}")
 
+    def delete_by_source(self, source: str) -> tuple[int, list[str]]:
+        """Delete all assets belonging to a source.
+
+        Returns:
+            Tuple of (deleted_count, list of failed asset tickers).
+        """
+        dbs = self.list_all()
+        m1_assets = [
+            db["asset"]
+            for db in dbs
+            if db["source"].upper() == source.upper() and db["timeframe"] == "M1"
+        ]
+
+        if not m1_assets:
+            logger.info(f"No databases found for source {source.upper()}.")
+            return 0, []
+
+        ok, failed = 0, []
+        for asset in m1_assets:
+            try:
+                self.delete_database(source, asset)
+                ok += 1
+            except Exception as e:
+                failed.append(asset)
+                logger.error(f"Error deleting {source}/{asset}: {e}")
+
+        if failed:
+            logger.warning(
+                f"Deleted {ok}/{len(m1_assets)} databases from {source.upper()} — "
+                f"{len(failed)} failed"
+            )
+        else:
+            logger.info(
+                f"All {ok} database(s) from {source.upper()} deleted successfully."
+            )
+        return ok, failed
+
     def delete_all_databases(self) -> None:
         """Deletes all databases from all sources"""
         success = self.storage.delete_all()

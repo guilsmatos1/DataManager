@@ -270,6 +270,7 @@ def _collect_deal_and_equity_frames(
         for backtest in backtests:
             deals_df = get_backtest_deals(backtest.id)
             if not deals_df.empty:
+                deals_df["strategy_id"] = backtest.strategy_id
                 if dt_from is not None:
                     deals_df = deals_df[deals_df.index >= dt_from]
                 if dt_to is not None:
@@ -610,3 +611,50 @@ def get_advanced_analysis_payload(
             combined_deals, strategy_name_map
         ),
     }
+
+
+def get_portfolio_contributions_payload(
+    db: Session,
+    strategies: list[Strategy],
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> dict[str, dict[str, float]]:
+    strategy_ids = [s.id for s in strategies]
+    if not strategy_ids:
+        return {"positive": {}, "negative": {}}
+
+    query = db.query(
+        Deal.strategy_id, func.sum(Deal.profit).label("total_profit")
+    ).filter(Deal.strategy_id.in_(strategy_ids))
+    if date_from is not None:
+        query = query.filter(Deal.timestamp >= date_from)
+    if date_to is not None:
+        query = query.filter(Deal.timestamp <= date_to)
+
+    rows = query.group_by(Deal.strategy_id).all()
+    profit_map = {row.strategy_id: float(row.total_profit or 0.0) for row in rows}
+
+    per_strategy: dict[str, float] = {}
+    for s in strategies:
+        label = s.name or s.id
+        per_strategy[label] = profit_map.get(s.id, 0.0)
+
+    positive = {k: v for k, v in per_strategy.items() if v > 0}
+    negative = {k: v for k, v in per_strategy.items() if v < 0}
+
+    total_pos = sum(positive.values()) if positive else 0.0
+    total_neg = sum(abs(v) for v in negative.values()) if negative else 0.0
+
+    pos_pct = (
+        {k: round(v / total_pos * 100, 2) for k, v in positive.items()}
+        if total_pos > 0
+        else {}
+    )
+    neg_pct = (
+        {k: round(abs(v) / total_neg * 100, 2) for k, v in negative.items()}
+        if total_neg > 0
+        else {}
+    )
+
+    return {"positive": pos_pct, "negative": neg_pct}

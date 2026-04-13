@@ -99,6 +99,11 @@ class ScheduleRequest(BaseModel):
     interval_minutes: int | None = None
 
 
+class ScheduleUpdateAllRequest(BaseModel):
+    cron: str | None = None
+    interval_minutes: int | None = None
+
+
 class ScheduleJobInfo(BaseModel):
     job_id: str
     source: str

@@ -7,6 +7,83 @@ const CHART_COLORS = [
 
 const charts = { symbol: null, style: null, duration: null };
 
+// ── Shared UI primitives ──────────────────────────────────────────────────────
+
+/**
+ * Generic list sort.
+ * @param {Array}   list     - Items to sort (not mutated; returns new array)
+ * @param {string}  col      - Property name to sort by
+ * @param {boolean} asc      - Ascending when true
+ * @param {Function} [valueFn] - Optional: (item) => sortValue override
+ */
+/**
+ * Toggle sort state for a column.
+ * @param {string}  currentCol  - Currently sorted column
+ * @param {boolean} currentAsc  - Current ascending state
+ * @param {string}  newCol      - Column being clicked
+ * @param {boolean} [defaultAsc=true] - Default direction when switching columns
+ * @returns {{ col: string, asc: boolean }}
+ */
+function toggleSort(currentCol, currentAsc, newCol, defaultAsc = true) {
+    if (currentCol === newCol) return { col: newCol, asc: !currentAsc };
+    return { col: newCol, asc: defaultAsc };
+}
+
+function sortList(list, col, asc, valueFn) {
+    return [...list].sort((a, b) => {
+        let va = valueFn ? valueFn(a) : a[col];
+        let vb = valueFn ? valueFn(b) : b[col];
+        if (va == null) va = asc ? "\uffff" : "";
+        if (vb == null) vb = asc ? "\uffff" : "";
+        if (typeof va === "number" && typeof vb === "number")
+            return asc ? va - vb : vb - va;
+        return asc
+            ? String(va).localeCompare(String(vb))
+            : String(vb).localeCompare(String(va));
+    });
+}
+
+/**
+ * Render pagination buttons into a container element.
+ * @param {string}   containerId - DOM id of the pagination container
+ * @param {number}   page        - Current page (1-based)
+ * @param {number}   totalPages  - Total page count
+ * @param {Function} goFn        - Called with target page number on click
+ */
+function renderPagination(containerId, page, totalPages, goFn) {
+    const pg = document.getElementById(containerId);
+    if (!pg) return;
+    if (totalPages <= 1) { pg.innerHTML = ""; return; }
+    // Expose goFn under a predictable global name derived from containerId
+    const cbName = `_pgCb_${containerId.replace(/[^a-z0-9]/gi, "_")}`;
+    window[cbName] = goFn;
+    pg.innerHTML = `
+        <button onclick="${cbName}(${page - 1})" ${page <= 1 ? "disabled" : ""}>← Previous</button>
+        <span>Page ${page} of ${totalPages}</span>
+        <button onclick="${cbName}(${page + 1})" ${page >= totalPages ? "disabled" : ""}>Next →</button>`;
+}
+
+/**
+ * Return an HTML string of N skeleton row divs for loading states.
+ * @param {number} [n=3]
+ */
+function skelRows(n = 3) {
+    return Array.from({ length: n }, () => '<div class="skel skel-row"></div>').join("");
+}
+
+/**
+ * Build a sortable <th> element.
+ * @param {string}   label      - Header text
+ * @param {string}   col        - Sort column key
+ * @param {string}   sortCol    - Currently active sort column
+ * @param {boolean}  sortAsc    - Current sort direction
+ * @param {string}   sortFnName - Global function name to call (e.g. "stratSortBy")
+ */
+function sortTh(label, col, sortCol, sortAsc, sortFnName) {
+    const arrow = sortCol === col ? (sortAsc ? " ↑" : " ↓") : "";
+    return `<th class="sortable" onclick="${sortFnName}('${col}')">${label}${arrow}</th>`;
+}
+
 // ── Pie charts (index.html) ───────────────────────────────────────────────────
 
 function renderPie(key, canvasId, data) {
@@ -93,14 +170,10 @@ function renderStrategiesTable() {
         });
     }
 
-    const th = (label, c) => {
-        const arrow = _stratSortCol === c ? (_stratSortAsc ? " ↑" : " ↓") : "";
-        return `<th class="sortable" onclick="stratSortBy('${c}')">${label}${arrow}</th>`;
-    };
+    const th = (label, c) => sortTh(label, c, _stratSortCol, _stratSortAsc, "stratSortBy");
 
     const ps = parseInt(document.getElementById("strat-page-size")?.value || "25");
-    const total = list.length;
-    const totalPages = Math.ceil(total / ps) || 1;
+    const totalPages = Math.ceil(list.length / ps) || 1;
     if (_stratPage > totalPages) _stratPage = 1;
     const pageList = list.slice((_stratPage - 1) * ps, _stratPage * ps);
 
@@ -133,7 +206,7 @@ function renderStrategiesTable() {
         </tr>`;
     }).join("");
 
-    container.innerHTML = `<table class="data-table">
+    container.innerHTML = `<div class="table-responsive"><table class="data-table">
         <thead><tr>
             ${th("ID","id")}${th("Name","name")}${th("Symbol","symbol")}
             ${th("TF","timeframe")}${th("Style","operational_style")}${th("Duration","trade_duration")}
@@ -142,20 +215,13 @@ function renderStrategiesTable() {
             <th>Status</th><th>Actions</th>
         </tr></thead>
         <tbody>${rows}</tbody>
-    </table>`;
+    </table></div>`;
 
-    const pg = document.getElementById("strat-pagination");
-    if (pg) {
-        pg.innerHTML = totalPages <= 1 ? "" : `
-            <button onclick="stratGoPage(${_stratPage-1})" ${_stratPage<=1?"disabled":""}>← Previous</button>
-            <span>Page ${_stratPage} of ${totalPages}</span>
-            <button onclick="stratGoPage(${_stratPage+1})" ${_stratPage>=totalPages?"disabled":""}>Next →</button>`;
-    }
+    renderPagination("strat-pagination", _stratPage, totalPages, p => { _stratPage = p; renderStrategiesTable(); });
 }
 
 function stratSortBy(col) {
-    if (_stratSortCol === col) _stratSortAsc = !_stratSortAsc;
-    else { _stratSortCol = col; _stratSortAsc = true; }
+    ({ col: _stratSortCol, asc: _stratSortAsc } = toggleSort(_stratSortCol, _stratSortAsc, col));
     _stratPage = 1;
     renderStrategiesTable();
 }
@@ -178,23 +244,10 @@ function renderAccountsTable() {
         document.getElementById("acct-pagination").innerHTML = "";
         return;
     }
-    if (_acctSortCol) {
-        list = [...list].sort((a, b) => {
-            let va = a[_acctSortCol], vb = b[_acctSortCol];
-            if (va == null) va = _acctSortAsc ? "\uffff" : "";
-            if (vb == null) vb = _acctSortAsc ? "\uffff" : "";
-            if (typeof va === "number" && typeof vb === "number")
-                return _acctSortAsc ? va - vb : vb - va;
-            return _acctSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
-        });
-    }
-    const tha = (label, c) => {
-        const arrow = _acctSortCol === c ? (_acctSortAsc ? " ↑" : " ↓") : "";
-        return `<th class="sortable" onclick="acctSortBy('${c}')">${label}${arrow}</th>`;
-    };
+    if (_acctSortCol) list = sortList(list, _acctSortCol, _acctSortAsc);
+    const tha = (label, c) => sortTh(label, c, _acctSortCol, _acctSortAsc, "acctSortBy");
     const ps = parseInt(document.getElementById("acct-page-size")?.value || "25");
-    const total = list.length;
-    const totalPages = Math.ceil(total / ps) || 1;
+    const totalPages = Math.ceil(list.length / ps) || 1;
     if (_acctPage > totalPages) _acctPage = 1;
     const pageList = list.slice((_acctPage - 1) * ps, _acctPage * ps);
 
@@ -217,7 +270,7 @@ function renderAccountsTable() {
             <td class="${npCls}" style="font-variant-numeric:tabular-nums;font-weight:600">${a.net_profit != null ? fmt(a.net_profit) : "—"}</td>
         </tr>`;
     }).join("");
-    container.innerHTML = `<table class="data-table">
+    container.innerHTML = `<div class="table-responsive"><table class="data-table">
         <thead><tr>
             ${tha("Number","id")}${tha("Name","name")}${tha("Broker","broker")}
             ${tha("Type","account_type")}${tha("Currency","currency")}
@@ -226,20 +279,13 @@ function renderAccountsTable() {
             ${tha("Profit","net_profit")}
         </tr></thead>
         <tbody>${rows}</tbody>
-    </table>`;
+    </table></div>`;
 
-    const pg = document.getElementById("acct-pagination");
-    if (pg) {
-        pg.innerHTML = totalPages <= 1 ? "" : `
-            <button onclick="acctGoPage(${_acctPage-1})" ${_acctPage<=1?"disabled":""}>← Previous</button>
-            <span>Page ${_acctPage} of ${totalPages}</span>
-            <button onclick="acctGoPage(${_acctPage+1})" ${_acctPage>=totalPages?"disabled":""}>Next →</button>`;
-    }
+    renderPagination("acct-pagination", _acctPage, totalPages, p => { _acctPage = p; renderAccountsTable(); });
 }
 
 function acctSortBy(col) {
-    if (_acctSortCol === col) _acctSortAsc = !_acctSortAsc;
-    else { _acctSortCol = col; _acctSortAsc = true; }
+    ({ col: _acctSortCol, asc: _acctSortAsc } = toggleSort(_acctSortCol, _acctSortAsc, col));
     _acctPage = 1;
     renderAccountsTable();
 }
@@ -262,23 +308,10 @@ function renderPortfoliosTable() {
         document.getElementById("port-pagination").innerHTML = "";
         return;
     }
-    if (_portSortCol) {
-        list = [...list].sort((a, b) => {
-            let va = a[_portSortCol], vb = b[_portSortCol];
-            if (va == null) va = _portSortAsc ? "\uffff" : "";
-            if (vb == null) vb = _portSortAsc ? "\uffff" : "";
-            if (typeof va === "number" && typeof vb === "number")
-                return _portSortAsc ? va - vb : vb - va;
-            return _portSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
-        });
-    }
-    const thp = (label, c) => {
-        const arrow = _portSortCol === c ? (_portSortAsc ? " ↑" : " ↓") : "";
-        return `<th class="sortable" onclick="portSortBy('${c}')">${label}${arrow}</th>`;
-    };
+    if (_portSortCol) list = sortList(list, _portSortCol, _portSortAsc);
+    const thp = (label, c) => sortTh(label, c, _portSortCol, _portSortAsc, "portSortBy");
     const ps = parseInt(document.getElementById("port-page-size")?.value || "25");
-    const total = list.length;
-    const totalPages = Math.ceil(total / ps) || 1;
+    const totalPages = Math.ceil(list.length / ps) || 1;
     if (_portPage > totalPages) _portPage = 1;
     const pageList = list.slice((_portPage - 1) * ps, _portPage * ps);
 
@@ -309,7 +342,7 @@ function renderPortfoliosTable() {
             </td>
         </tr>`;
     }).join("");
-    container.innerHTML = `<table class="data-table">
+    container.innerHTML = `<div class="table-responsive"><table class="data-table">
         <thead><tr>
             ${thp("ID","id")}${thp("Name","name")}${thp("Description","description")}
             <th>Strategies</th>${thp("Initial Balance","initial_balance")}
@@ -317,20 +350,13 @@ function renderPortfoliosTable() {
             <th>Status</th><th>Actions</th>
         </tr></thead>
         <tbody>${rows}</tbody>
-    </table>`;
+    </table></div>`;
 
-    const pg = document.getElementById("port-pagination");
-    if (pg) {
-        pg.innerHTML = totalPages <= 1 ? "" : `
-            <button onclick="portGoPage(${_portPage-1})" ${_portPage<=1?"disabled":""}>← Previous</button>
-            <span>Page ${_portPage} of ${totalPages}</span>
-            <button onclick="portGoPage(${_portPage+1})" ${_portPage>=totalPages?"disabled":""}>Next →</button>`;
-    }
+    renderPagination("port-pagination", _portPage, totalPages, p => { _portPage = p; renderPortfoliosTable(); });
 }
 
 function portSortBy(col) {
-    if (_portSortCol === col) _portSortAsc = !_portSortAsc;
-    else { _portSortCol = col; _portSortAsc = true; }
+    ({ col: _portSortCol, asc: _portSortAsc } = toggleSort(_portSortCol, _portSortAsc, col));
     _portPage = 1;
     renderPortfoliosTable();
 }
@@ -353,23 +379,10 @@ function renderSymbolsTable() {
         document.getElementById("sym-pagination").innerHTML = "";
         return;
     }
-    if (_symSortCol) {
-        list = [...list].sort((a, b) => {
-            let va = a[_symSortCol], vb = b[_symSortCol];
-            if (va == null) va = _symSortAsc ? "\uffff" : "";
-            if (vb == null) vb = _symSortAsc ? "\uffff" : "";
-            if (typeof va === "number" && typeof vb === "number")
-                return _symSortAsc ? va - vb : vb - va;
-            return _symSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
-        });
-    }
-    const ths = (label, c) => {
-        const arrow = _symSortCol === c ? (_symSortAsc ? " ↑" : " ↓") : "";
-        return `<th class="sortable" onclick="symSortBy('${c}')">${label}${arrow}</th>`;
-    };
+    if (_symSortCol) list = sortList(list, _symSortCol, _symSortAsc);
+    const ths = (label, c) => sortTh(label, c, _symSortCol, _symSortAsc, "symSortBy");
     const ps = parseInt(document.getElementById("sym-page-size")?.value || "25");
-    const total = list.length;
-    const totalPages = Math.ceil(total / ps) || 1;
+    const totalPages = Math.ceil(list.length / ps) || 1;
     if (_symPage > totalPages) _symPage = 1;
     const pageList = list.slice((_symPage - 1) * ps, _symPage * ps);
 
@@ -382,23 +395,16 @@ function renderSymbolsTable() {
         <td><button class="btn-delete-row" title="Delete" onclick="event.stopPropagation();deleteSymbol(${s.id},'${s.name.replace(/'/g,"\\'")}')">✕</button></td>
     </tr>`).join("");
 
-    container.innerHTML = `<table class="data-table">
+    container.innerHTML = `<div class="table-responsive"><table class="data-table">
         <thead><tr>${ths("ID","id")}${ths("Name","name")}${ths("Market","market")}${ths("Lot Tick","lot")}<th class="sortable" style="text-align:center" onclick="symSortBy('strategies_count')">Strategies${_symSortCol==="strategies_count"?(_symSortAsc?" ↑":" ↓"):""}</th><th>Actions</th></tr></thead>
         <tbody>${rows}</tbody>
-    </table>`;
+    </table></div>`;
 
-    const pg = document.getElementById("sym-pagination");
-    if (pg) {
-        pg.innerHTML = totalPages <= 1 ? "" : `
-            <button onclick="symGoPage(${_symPage-1})" ${_symPage<=1?"disabled":""}>← Previous</button>
-            <span>Page ${_symPage} of ${totalPages}</span>
-            <button onclick="symGoPage(${_symPage+1})" ${_symPage>=totalPages?"disabled":""}>Next →</button>`;
-    }
+    renderPagination("sym-pagination", _symPage, totalPages, p => { _symPage = p; renderSymbolsTable(); });
 }
 
 function symSortBy(col) {
-    if (_symSortCol === col) _symSortAsc = !_symSortAsc;
-    else { _symSortCol = col; _symSortAsc = true; }
+    ({ col: _symSortCol, asc: _symSortAsc } = toggleSort(_symSortCol, _symSortAsc, col));
     _symPage = 1;
     renderSymbolsTable();
 }
@@ -411,8 +417,7 @@ let _modalStratSort = "id", _modalStratSortAsc = true;
 let _modalLastClickedIdx = null;
 
 function modalStratSortBy(col) {
-    if (_modalStratSort === col) _modalStratSortAsc = !_modalStratSortAsc;
-    else { _modalStratSort = col; _modalStratSortAsc = true; }
+    ({ col: _modalStratSort, asc: _modalStratSortAsc } = toggleSort(_modalStratSort, _modalStratSortAsc, col));
     _modalLastClickedIdx = null;
     renderModalStrategiesTable();
 }
@@ -435,17 +440,8 @@ function renderModalStrategiesTable() {
     const q = (document.getElementById("new-strategy-search")?.value || "").toLowerCase().trim();
     const checked = new Set([...document.querySelectorAll("#new-strategy-list input:checked")].map(el => el.value));
     let list = _allStrategies.filter(s => !q || `${s.id} ${s.name||""} ${s.symbol||""}`.toLowerCase().includes(q));
-    list = [...list].sort((a, b) => {
-        let va = a[_modalStratSort], vb = b[_modalStratSort];
-        if (va == null) va = _modalStratSortAsc ? "\uffff" : "";
-        if (vb == null) vb = _modalStratSortAsc ? "\uffff" : "";
-        if (typeof va === "number" && typeof vb === "number") return _modalStratSortAsc ? va - vb : vb - va;
-        return _modalStratSortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
-    });
-    const mth = (label, col) => {
-        const arrow = _modalStratSort === col ? (_modalStratSortAsc ? " ↑" : " ↓") : "";
-        return `<th class="sortable" onclick="modalStratSortBy('${col}')">${label}${arrow}</th>`;
-    };
+    list = sortList(list, _modalStratSort, _modalStratSortAsc);
+    const mth = (label, col) => sortTh(label, col, _modalStratSort, _modalStratSortAsc, "modalStratSortBy");
     const container = document.getElementById("new-strategy-list");
     if (!list.length) {
         container.innerHTML = '<p class="empty-state" style="padding:0.5rem">No strategies found.</p>';
@@ -459,14 +455,14 @@ function renderModalStrategiesTable() {
         <td>${s.timeframe || "—"}</td>
         <td>${s.trade_duration || "—"}</td>
     </tr>`).join("");
-    container.innerHTML = `<table class="data-table" style="width:100%">
+    container.innerHTML = `<div class="table-responsive"><table class="data-table" style="width:100%">
         <thead><tr>
             <th style="width:2rem;text-align:center"><input type="checkbox" id="modal-strat-select-all" onclick="toggleAllModalStrategies(this)"></th>
             ${mth("ID","id")}${mth("Name","name")}${mth("Symbol","symbol")}
             ${mth("TF","timeframe")}${mth("Type","trade_duration")}
         </tr></thead>
         <tbody>${rows}</tbody>
-    </table>`;
+    </table></div>`;
 
     const checkboxes = container.querySelectorAll('.modal-strat-checkbox');
     const selectAllCheckbox = document.getElementById('modal-strat-select-all');
@@ -542,8 +538,6 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
         return;
     }
 
-    const { tickColor, gridColor } = getEquityChartColors();
-
     const cutoff = period !== "all" ? (() => {
         const d = new Date();
         d.setMonth(d.getMonth() - ({"1M":1,"3M":3,"6M":6,"1Y":12}[period]||0));
@@ -556,9 +550,8 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
     const totalSeries = buildRebasedEquitySeries(filtered, _equityScale);
 
     const datasets = [{
-        label: isPct ? "Portfolio Return (%)" : "Portfolio Equity Change",
+        label: isPct ? "Portfolio Return (%)" : "Portfolio Equity",
         data: totalSeries,
-        segment: { borderColor: c => c.p1.parsed.y >= 0 ? "#10b981" : "#ef4444" },
         borderColor: "#10b981",
         backgroundColor: "rgba(16,185,129,0.06)",
         fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2.5,
@@ -582,34 +575,7 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
     }
 
     if (equityChart) equityChart.destroy();
-    equityChart = new Chart(ctx, {
-        type: "line",
-        data: { labels, datasets },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            interaction: { mode: "index", intersect: false },
-            plugins: {
-                legend: {
-                    display: false,
-                },
-                tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${isPct ? `${c.parsed.y.toFixed(2)}%` : fmt(c.parsed.y)}` } },
-                zoom: {
-                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
-                    pan:  { enabled: true, mode: "x" },
-                },
-            },
-            scales: {
-                x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
-                y: {
-                    ticks: {
-                        color: tickColor,
-                        callback: value => isPct ? `${Number(value).toFixed(2)}%` : fmt(value),
-                    },
-                    grid: { color: gridColor },
-                },
-            },
-        },
-    });
+    equityChart = createEquityLineChart(ctx, { labels, datasets, isPct });
 }
 
 // ── Profit Calendar ────────────────────────────────────────────────────────────
@@ -695,49 +661,22 @@ function renderPortfolioStrategies() {
         s.net_profit == null || !Number.isFinite(Number(s.net_profit)) ? null : Number(s.net_profit);
     const _drawdownPct = s =>
         s.max_drawdown == null || !Number.isFinite(Number(s.max_drawdown)) ? null : Number(s.max_drawdown) * 100;
-    const _retdd = s => {
-        const np = _netProfit(s);
-        const ddFraction = s.max_drawdown == null || !Number.isFinite(Number(s.max_drawdown))
-            ? null
-            : Number(s.max_drawdown);
-        const ib = s.initial_balance == null || !Number.isFinite(Number(s.initial_balance))
-            ? null
-            : Number(s.initial_balance);
-        if (np == null || ddFraction == null || ddFraction <= 0 || ib == null || ib <= 0) return null;
-        return (np / ib) / ddFraction;
-    };
+    const _retdd = s =>
+        s.ret_dd == null || !Number.isFinite(Number(s.ret_dd)) ? null : Number(s.ret_dd);
 
     if (_portStratSortCol) {
-        list.sort((a, b) => {
-            let va, vb;
-            if (_portStratSortCol === "retdd") {
-                va = _retdd(a);
-                vb = _retdd(b);
-            } else if (_portStratSortCol === "max_drawdown") {
-                va = _drawdownPct(a);
-                vb = _drawdownPct(b);
-            } else if (_portStratSortCol === "net_profit") {
-                va = _netProfit(a);
-                vb = _netProfit(b);
-            } else {
-                va = a[_portStratSortCol];
-                vb = b[_portStratSortCol];
-            }
-            if (va == null) va = _portStratSortAsc ? Infinity : -Infinity;
-            if (vb == null) vb = _portStratSortAsc ? Infinity : -Infinity;
-            return _portStratSortAsc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
-        });
+        const valFn = _portStratSortCol === "retdd" ? _retdd
+            : _portStratSortCol === "max_drawdown" ? _drawdownPct
+            : _portStratSortCol === "net_profit"   ? _netProfit
+            : null;
+        list = sortList(list, _portStratSortCol, _portStratSortAsc, valFn);
     }
 
-    const total = list.length;
-    const totalPages = Math.ceil(total / ps);
+    const totalPages = Math.max(1, Math.ceil(list.length / ps));
     if (_portStratPage > totalPages) _portStratPage = 1;
     const pageList = list.slice((_portStratPage - 1) * ps, _portStratPage * ps);
 
-    const th = (label, c) => {
-        const arrow = _portStratSortCol === c ? (_portStratSortAsc ? " ↑" : " ↓") : "";
-        return `<th class="sortable" onclick="portStratSortBy('${c}')">${label}${arrow}</th>`;
-    };
+    const th = (label, c) => sortTh(label, c, _portStratSortCol, _portStratSortAsc, "portStratSortBy");
 
     const rows = pageList.map(s => {
         const np = _netProfit(s);
@@ -761,7 +700,7 @@ function renderPortfolioStrategies() {
         </tr>`;
     }).join("");
 
-    container.innerHTML = `<table class="data-table">
+    container.innerHTML = `<div class="table-responsive"><table class="data-table">
         <thead><tr>
             ${th("ID","id")}${th("Name","name")}${th("Symbol","symbol")}
             ${th("TF","timeframe")}${th("Type","trade_duration")}
@@ -769,19 +708,13 @@ function renderPortfolioStrategies() {
             ${th("Drawdown","max_drawdown")}${th("Ret/DD","retdd")}
         </tr></thead>
         <tbody>${rows}</tbody>
-    </table>`;
+    </table></div>`;
 
-    const pg = document.getElementById("port-strat-pagination");
-    if (totalPages <= 1) { pg.innerHTML = ""; return; }
-    pg.innerHTML = `
-        <button onclick="portStratGoPage(${_portStratPage - 1})" ${_portStratPage <= 1 ? "disabled" : ""}>← Previous</button>
-        <span>Page ${_portStratPage} of ${totalPages}</span>
-        <button onclick="portStratGoPage(${_portStratPage + 1})" ${_portStratPage >= totalPages ? "disabled" : ""}>Next →</button>`;
+    renderPagination("port-strat-pagination", _portStratPage, totalPages, p => { _portStratPage = p; renderPortfolioStrategies(); });
 }
 
 function portStratSortBy(col) {
-    if (_portStratSortCol === col) _portStratSortAsc = !_portStratSortAsc;
-    else { _portStratSortCol = col; _portStratSortAsc = col !== "net_profit"; }
+    ({ col: _portStratSortCol, asc: _portStratSortAsc } = toggleSort(_portStratSortCol, _portStratSortAsc, col, col !== "net_profit"));
     _portStratPage = 1;
     renderPortfolioStrategies();
 }
@@ -797,11 +730,9 @@ function exportPortfolioStrategiesCSV() {
             ? null
             : Number(s.max_drawdown);
         const ddStr = ddFraction != null ? `${(ddFraction * 100).toFixed(2)}%` : "";
-        let retDD = "";
-        if (np != null && ddFraction != null && ddFraction > 0 && s.initial_balance != null && Number(s.initial_balance) > 0) {
-            const val = (np / Number(s.initial_balance)) / ddFraction;
-            retDD = val.toFixed(2);
-        }
+        const retDD = s.ret_dd != null && Number.isFinite(Number(s.ret_dd))
+            ? Number(s.ret_dd).toFixed(2)
+            : "";
         return [s.id, s.name||"", s.symbol||"", s.timeframe||"", s.trade_duration||"", s.trades_count??"",(np ?? ""),(ddStr),(retDD)].join(",");
     });
     const csv = [headers.join(","), ...rows].join("\n");
@@ -854,12 +785,12 @@ function renderEditStrategiesTable() {
             <td class="${npCls}" style="padding:0.25rem 0.5rem;font-variant-numeric:tabular-nums">${np != null ? fmt(np, 2) : "—"}</td>
         </tr>`;
     }).join("");
-    container.innerHTML = `<table class="data-table" style="width:100%;font-size:0.82rem">
+    container.innerHTML = `<div class="table-responsive"><table class="data-table" style="width:100%;font-size:0.82rem">
         <thead><tr>
             <th style="padding:0.3rem 0.5rem;width:32px"></th>
             ${th("ID","id")}${th("Name","name")}${th("Symbol","symbol")}
             ${th("TF","timeframe")}${th("Type","trade_duration")}${th("Profit","net_profit")}
         </tr></thead>
         <tbody>${rows}</tbody>
-    </table>`;
+    </table></div>`;
 }

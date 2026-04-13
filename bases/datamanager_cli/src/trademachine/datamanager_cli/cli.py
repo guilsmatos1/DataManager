@@ -2,6 +2,7 @@ import argparse
 import cmd
 import logging
 import os
+import re
 import shlex
 import shutil
 from collections.abc import Callable
@@ -446,6 +447,8 @@ class DataManagerCLI(cmd.Cmd):
                 except Exception as e:
                     logger.error(f"Error resampling {asset} to {timeframe}: {e}")
 
+    _TIMEFRAME_RE = re.compile(r"^(M[0-9]+|H[0-9]+|D[0-9]+|W[0-9]+)$", re.IGNORECASE)
+
     def do_delete(self, arg):
         """
         Delete database(s).
@@ -456,6 +459,7 @@ class DataManagerCLI(cmd.Cmd):
           delete <source> <asset(s)> <derived>   — NOT supported: derived timeframes (H1, M15, etc.) are
                                                    continuous aggregate views shared across all assets.
                                                    To remove an asset from all timeframes, omit the timeframe.
+          delete <source> <timeframe>            — deletes ALL assets from <source> (M1 data + records)
           delete fred <series_id>                — deletes a FRED economic series
           delete all                             — deletes ALL data from all sources
 
@@ -463,6 +467,7 @@ class DataManagerCLI(cmd.Cmd):
           delete dukascopy eurusd                — remove EURUSD from all timeframes
           delete dukascopy eurusd M1             — wipe M1 rows only
           delete OPENBB AAPL,MSFT               — remove multiple assets
+          delete dukascopy H1                    — remove all DUKASCOPY assets
           delete FRED CPIAUCSL
           delete all
         """
@@ -485,6 +490,31 @@ class DataManagerCLI(cmd.Cmd):
                     logger.warning(f"Series not found: {args[1]}")
             except Exception as e:
                 logger.error(f"Error deleting FRED series: {e}")
+            return
+
+        if (
+            len(args) == 2
+            and not self._is_series_source(args[0])
+            and self._TIMEFRAME_RE.match(args[1])
+        ):
+            source = args[0]
+            dbs = self.server.list_all()
+            matching = [
+                db["asset"]
+                for db in dbs
+                if db["source"].upper() == source.upper() and db["timeframe"] == "M1"
+            ]
+            if not matching:
+                logger.info(f"No databases found for source {source.upper()}.")
+                return
+            confirm = input(
+                f"{Fore.RED}WARNING: You are about to delete {len(matching)} database(s) "
+                f"from {source.upper()}: {', '.join(matching)}. Continue? (y/N): {Style.RESET_ALL}"
+            )
+            if confirm.lower() == "y":
+                self.server.delete_by_source(source)
+            else:
+                logger.info("Operation cancelled.")
             return
 
         if len(args) < 2 or len(args) > 3:
@@ -803,12 +833,16 @@ class DataManagerCLI(cmd.Cmd):
           schedule add <source> <asset> [timeframe] --interval <minutes>
           schedule add-series <series_id> --cron "0 */4 * * *"
           schedule add-series <series_id> --interval <minutes>
+          schedule update-all --cron "0 2 * * *"
+          schedule update-all --interval <minutes>
           schedule list
           schedule remove <job_id>
         Examples:
           schedule add DUKASCOPY EURUSD M1 --interval 60
           schedule add OPENBB AAPL H1 --cron "0 9 * * 1-5"
           schedule add-series CPIAUCSL --interval 720
+          schedule update-all --cron "0 2 * * *"
+          schedule update-all --interval 360
           schedule list
           schedule remove <job_id>
         """
@@ -832,6 +866,12 @@ class DataManagerCLI(cmd.Cmd):
         )
         add_series_p.add_argument("--lookback", dest="lookback_period", default=None)
         add_series_p.add_argument("--frequency", type=str, default=None)
+
+        update_all_p = subparsers.add_parser("update-all")
+        update_all_p.add_argument("--cron", type=str, default=None)
+        update_all_p.add_argument(
+            "--interval", type=int, default=None, dest="interval_minutes"
+        )
 
         subparsers.add_parser("list")
 
@@ -886,6 +926,21 @@ class DataManagerCLI(cmd.Cmd):
                 )
             except Exception as e:
                 logger.error(f"Failed to schedule series job: {e}")
+
+        elif parsed.subcmd == "update-all":
+            if not parsed.cron and not parsed.interval_minutes:
+                logger.error("Provide --cron or --interval.")
+                return
+            try:
+                job = self.scheduler.add_update_all_job(
+                    cron=parsed.cron,
+                    interval_minutes=parsed.interval_minutes,
+                )
+                logger.info(
+                    f"Update-all job scheduled: {job['job_id']} | next run: {job['next_run']}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to schedule update-all job: {e}")
 
         elif parsed.subcmd == "list":
             jobs = self.scheduler.list_jobs()

@@ -25,6 +25,7 @@ from trademachine.datamanager.public import (
     ScheduleListResponse,
     ScheduleRequest,
     SchedulerService,
+    ScheduleUpdateAllRequest,
     SearchResponse,
     SeriesDeleteRequest,
     SeriesDownloadRequest,
@@ -442,6 +443,25 @@ def create_schedule(req: ScheduleRequest, api_key: str = Depends(get_api_key)):
             source=req.source,
             asset=req.asset,
             timeframe=req.timeframe,
+            cron=req.cron,
+            interval_minutes=req.interval_minutes,
+        )
+        return job
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid schedule configuration: {e}"
+        )
+
+
+@app.post("/schedule/update-all", response_model=ScheduleJobInfo)
+def create_schedule_update_all(
+    req: ScheduleUpdateAllRequest, api_key: str = Depends(get_api_key)
+):
+    """Schedule a recurring job that updates all M1 databases and refreshes aggregates."""
+    try:
+        job = scheduler.add_update_all_job(
             cron=req.cron,
             interval_minutes=req.interval_minutes,
         )

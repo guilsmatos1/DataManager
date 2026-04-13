@@ -9,9 +9,6 @@ from typing import TYPE_CHECKING
 from trademachine.tradingmonitor_analytics.metrics.plugins.base import BaseMetric
 from trademachine.tradingmonitor_analytics.metrics.plugins.calmar import CalmarRatio
 from trademachine.tradingmonitor_analytics.metrics.plugins.cvar95 import CVaR95
-from trademachine.tradingmonitor_analytics.metrics.plugins.expected_value import (
-    ExpectedValue,
-)
 from trademachine.tradingmonitor_analytics.metrics.plugins.max_drawdown import (
     DrawdownMetric,
 )
@@ -38,7 +35,6 @@ DEFAULT_PLUGINS: list[type[BaseMetric]] = [
     VaR95,
     CVaR95,
     RiskRewardRatio,
-    ExpectedValue,
 ]
 
 LEGACY_PLUGIN_NAME_ALIASES = {
@@ -130,7 +126,6 @@ __all__ = [
     "VaR95",
     "CVaR95",
     "RiskRewardRatio",
-    "ExpectedValue",
     "PLUGINS",
     "DEFAULT_PLUGINS",
     "discover_plugins",

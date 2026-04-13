@@ -3,8 +3,12 @@ function _applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("tm-theme", theme);
 
-    const btn = document.getElementById("theme-toggle");
-    if (btn) btn.textContent = theme === "dark" ? "🌙" : "☀";
+    const darkIcon = document.getElementById("theme-icon-dark");
+    const lightIcon = document.getElementById("theme-icon-light");
+    if (darkIcon && lightIcon) {
+        darkIcon.style.display = theme === "dark" ? "block" : "none";
+        lightIcon.style.display = theme === "dark" ? "none" : "block";
+    }
 
     // Update Chart.js global defaults
     if (typeof Chart !== "undefined") {
@@ -25,6 +29,7 @@ function toggleTheme() {
 document.addEventListener("DOMContentLoaded", function() {
     const saved = localStorage.getItem("tm-theme") || "dark";
     _applyTheme(saved);
+    setupMobileNav();
     setupNavDropdown({
         wrapperId: "strategies-nav",
         toggleId: "strategies-toggle",
@@ -55,13 +60,29 @@ document.addEventListener("DOMContentLoaded", function() {
     });
 });
 
-// ── Time utilities ──────────────────────────────────────────────────────────
+// ── Time & Cache utilities ──────────────────────────────────────────────────
+async function fetchJsonCached(url, ttlMs = 60000) {
+    const cacheKey = `tm_cache_${url}`;
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+        try {
+            const parsed = JSON.parse(cached);
+            if (Date.now() - parsed.timestamp < ttlMs) {
+                return parsed.data;
+            }
+        } catch (e) { /* ignore parse error */ }
+    }
+    const data = await fetchJson(url);
+    sessionStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data }));
+    return data;
+}
+
 function timeAgo(ts) {
     const s = Math.floor((Date.now() - ts) / 1000);
-    if (s < 10)   return "agora";
-    if (s < 60)   return `${s}s atrás`;
-    if (s < 3600) return `${Math.floor(s / 60)}m atrás`;
-    return `${Math.floor(s / 3600)}h atrás`;
+    if (s < 10)   return "just now";
+    if (s < 60)   return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    return `${Math.floor(s / 3600)}h ago`;
 }
 
 const _updatedAt = {};
@@ -81,7 +102,8 @@ setInterval(_flushUpdatedAt, 15000);
 function fmt(value, decimals = 2) {
     if (value === null || value === undefined) return "—";
     if (typeof value !== "number") return value;
-    return value.toLocaleString("pt-BR", {
+    const locale = navigator.language || "en-US";
+    return value.toLocaleString(locale, {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
     });
@@ -194,7 +216,7 @@ function buildRebasedEquitySeries(points, scale, valueGetter = (point) => point.
             const absBaseline = Math.abs(baseline) || 1;
             return parseFloat((((value - baseline) / absBaseline) * 100).toFixed(4));
         }
-        return parseFloat((value - baseline).toFixed(4));
+        return parseFloat(value.toFixed(4));
     });
 }
 
@@ -205,6 +227,64 @@ function getEquityChartColors() {
         gridColor: isDark ? "#334155" : "#e2e8f0",
         legendColor: isDark ? "#94a3b8" : "#475569",
     };
+}
+
+/**
+ * Create a standard equity line chart with consistent styling.
+ * @param {CanvasRenderingContext2D} ctx - Canvas 2D context
+ * @param {Object} config
+ * @param {string[]}  config.labels    - X-axis labels
+ * @param {Object[]}  config.datasets  - Chart.js dataset objects
+ * @param {boolean}   config.isPct     - Whether Y-axis shows percentages
+ * @param {Object}    [config.legend]  - Legend config override (default: hidden)
+ * @param {boolean}   [config.zoom]    - Enable zoom/pan plugin (default: true)
+ * @param {string}    [config.yTitle]  - Y-axis title text
+ * @param {Function}  [config.onHover] - Chart onHover callback
+ * @param {Function}  [config.tooltipLabel] - Tooltip label callback override
+ * @returns {Chart}
+ */
+function createEquityLineChart(ctx, { labels, datasets, isPct, legend, zoom = true, yTitle, onHover, tooltipLabel }) {
+    const { tickColor, gridColor } = getEquityChartColors();
+    const yTickCb = isPct ? v => `${Number(v).toFixed(2)}%` : v => fmt(v);
+    const defaultTooltipLabel = c => {
+        if (c.parsed.y == null) return null;
+        return ` ${c.dataset.label}: ${isPct ? `${Number(c.parsed.y).toFixed(2)}%` : fmt(c.parsed.y)}`;
+    };
+
+    const plugins = {
+        legend: legend || { display: false },
+        tooltip: { callbacks: { label: tooltipLabel || defaultTooltipLabel } },
+    };
+    if (zoom) {
+        plugins.zoom = {
+            zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
+            pan: { enabled: true, mode: "x" },
+        };
+    }
+
+    const yScale = {
+        ticks: { color: tickColor, callback: yTickCb },
+        grid: { color: gridColor },
+    };
+    if (yTitle) {
+        yScale.title = { display: true, text: yTitle, color: tickColor, font: { size: 11 } };
+    }
+
+    return new Chart(ctx, {
+        type: "line",
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            onHover,
+            plugins,
+            scales: {
+                x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
+                y: yScale,
+            },
+        },
+    });
 }
 
 // ── API Key injection ─────────────────────────────────────────────────────────
@@ -274,7 +354,7 @@ async function apiFetch(url, options = {}) {
     });
 
     document.body.addEventListener("htmx:wsError", function() {
-        statusEl.textContent = "Erro";
+        statusEl.textContent = "Error";
         statusEl.className = "badge badge-inactive";
     });
 })();
@@ -302,13 +382,24 @@ function exportChart(canvasId, filename = "chart.png") {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
 
-    // If we want to ensure the background is captured (for dark mode)
-    // we might need to draw to a temp canvas with background, but
-    // Chart.js usually doesn't fill the canvas background.
-    // However, for simplicity and "what you see is what you get":
+    // Create a temporary canvas
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+    const ctx = tempCanvas.getContext("2d");
+
+    // Draw background to avoid transparency on dark mode
+    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() ||
+                    (document.documentElement.getAttribute("data-theme") === "dark" ? "#1e293b" : "#ffffff");
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+    // Draw the chart over the background
+    ctx.drawImage(canvas, 0, 0);
+
     const link = document.createElement("a");
     link.download = filename;
-    link.href = canvas.toDataURL("image/png");
+    link.href = tempCanvas.toDataURL("image/png");
     link.click();
 }
 
@@ -355,7 +446,7 @@ async function setupNavDropdown({ wrapperId, toggleId, itemsId, stateId, loader 
 
 async function loadStrategiesDropdown(items, state) {
     try {
-        const strategies = await fetchJson("/api/strategies");
+        const strategies = await fetchJsonCached("/api/strategies");
         const sorted = [...strategies].sort((a, b) => {
             const an = (a.name || "").toLowerCase();
             const bn = (b.name || "").toLowerCase();
@@ -384,7 +475,7 @@ async function loadStrategiesDropdown(items, state) {
 
 async function loadPortfoliosDropdown(items, state) {
     try {
-        const portfolios = await fetchJson("/api/portfolios/nav");
+        const portfolios = await fetchJsonCached("/api/portfolios/nav");
         const sorted = [...portfolios].sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
 
         if (!sorted.length) {
@@ -407,7 +498,7 @@ async function loadPortfoliosDropdown(items, state) {
 
 async function loadAccountsDropdown(items, state) {
     try {
-        const accounts = await fetchJson("/api/accounts");
+        const accounts = await fetchJsonCached("/api/accounts");
         const sorted = [...accounts].sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
 
         if (!sorted.length) {
@@ -431,7 +522,7 @@ async function loadAccountsDropdown(items, state) {
 
 async function loadSymbolsDropdown(items, state) {
     try {
-        const symbols = await fetchJson("/api/symbols");
+        const symbols = await fetchJsonCached("/api/symbols");
         const sorted = [...symbols].sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
         if (!sorted.length) {
@@ -451,6 +542,15 @@ async function loadSymbolsDropdown(items, state) {
     } catch (e) {
         state.textContent = `Failed to load symbols: ${e.message}`;
     }
+}
+
+// ── Inline Error Display ────────────────────────────────────────────────────
+
+function showInlineError(containerId, message) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.style.display = "block";
+    el.innerHTML = `<p class="empty-state">${message}</p>`;
 }
 
 // ── Toast Notifications ──────────────────────────────────────────────────────
@@ -490,7 +590,100 @@ function showToast(title, message, type = "info", duration = 5000) {
     }
 }
 
+// ── Confirm Modal (replaces window.confirm) ──────────────────────────────────
+function showConfirmModal(title, body, opts = {}) {
+    return new Promise((resolve) => {
+        const {
+            confirmLabel = "Confirm",
+            confirmClass = "btn-danger",
+            cancelLabel  = "Cancel",
+        } = opts;
+
+        const overlay = document.createElement("div");
+        overlay.className = "confirm-modal-overlay";
+        overlay.setAttribute("role", "dialog");
+        overlay.setAttribute("aria-modal", "true");
+        overlay.setAttribute("aria-labelledby", "confirm-modal-title");
+
+        overlay.innerHTML = `
+            <div class="confirm-modal">
+                <div class="confirm-modal-title" id="confirm-modal-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                    ${title}
+                </div>
+                <div class="confirm-modal-body">${body}</div>
+                <div class="confirm-modal-actions">
+                    <button class="btn btn-ghost btn-sm" id="confirm-cancel-btn">${cancelLabel}</button>
+                    <button class="btn ${confirmClass} btn-sm" id="confirm-ok-btn">${confirmLabel}</button>
+                </div>
+            </div>`;
+
+        document.body.appendChild(overlay);
+
+        const cleanup = (result) => {
+            if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
+            resolve(result);
+        };
+
+        overlay.querySelector("#confirm-ok-btn").addEventListener("click", () => cleanup(true));
+        overlay.querySelector("#confirm-cancel-btn").addEventListener("click", () => cleanup(false));
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(false); });
+        document.addEventListener("keydown", function onKey(e) {
+            if (e.key === "Escape") { cleanup(false); document.removeEventListener("keydown", onKey); }
+        });
+        setTimeout(() => overlay.querySelector("#confirm-cancel-btn")?.focus(), 50);
+    });
+}
+
+// ── Mobile Navigation Drawer ─────────────────────────────────────────────────
+function setupMobileNav() {
+    if (document.getElementById("nav-drawer")) return;
+    const path = window.location.pathname;
+    const links = [
+        { href: "/",           label: "Overview" },
+        { href: "/real",       label: "Live Monitor" },
+        { href: "/advanced-analysis", label: "Advanced Analysis" },
+        { href: "/benchmarks", label: "Benchmarks" },
+        { href: "/settings",   label: "Settings" },
+    ];
+
+    const drawer = document.createElement("div");
+    drawer.id = "nav-drawer";
+    drawer.className = "nav-drawer";
+    drawer.setAttribute("role", "navigation");
+    drawer.setAttribute("aria-label", "Mobile navigation");
+    drawer.innerHTML = `
+        <div class="nav-drawer-header">
+            <a class="nav-brand" href="/">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+                TradingMonitor
+            </a>
+            <button class="nav-drawer-close" id="nav-drawer-close" aria-label="Close menu">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+        </div>
+        <div class="nav-drawer-section">Navigation</div>
+        ${links.map(l => `<a href="${l.href}" class="${path === l.href || (l.href !== "/" && path.startsWith(l.href)) ? "active" : ""}">${l.label}</a>`).join("")}
+    `;
+
+    const mobOverlay = document.createElement("div");
+    mobOverlay.id = "nav-mobile-overlay";
+    mobOverlay.className = "nav-mobile-overlay";
+
+    document.body.appendChild(mobOverlay);
+    document.body.appendChild(drawer);
+
+    const openDrawer  = () => { drawer.classList.add("open"); mobOverlay.classList.add("open"); document.body.style.overflow = "hidden"; };
+    const closeDrawer = () => { drawer.classList.remove("open"); mobOverlay.classList.remove("open"); document.body.style.overflow = ""; };
+
+    document.getElementById("nav-hamburger")?.addEventListener("click", openDrawer);
+    document.getElementById("nav-drawer-close").addEventListener("click", closeDrawer);
+    mobOverlay.addEventListener("click", closeDrawer);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && drawer.classList.contains("open")) closeDrawer(); });
+}
+
 // Listen to WebSocket events globally to show toasts
+
 window.addEventListener("ws-event", function(e) {
     const payload = e.detail;
     if (!payload || !payload.topic) return;

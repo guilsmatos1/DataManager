@@ -224,7 +224,9 @@ def get_portfolio_metrics_payload(db: Session, portfolio_id: int) -> dict[str, A
     strategy_ids = _get_portfolio_strategy_ids(portfolio)
     if not strategy_ids:
         raise ValueError("No strategies in this portfolio")
-    return calculate_portfolio_metrics(strategy_ids)
+    metrics = calculate_portfolio_metrics(strategy_ids)
+    metrics = _inject_return(metrics, portfolio.initial_balance)
+    return metrics
 
 
 def get_portfolio_equity_payload(
