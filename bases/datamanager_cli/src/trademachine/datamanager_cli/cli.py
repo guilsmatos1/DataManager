@@ -456,10 +456,10 @@ class DataManagerCLI(cmd.Cmd):
         Usage:
           delete <source> <asset(s)>             — deletes M1 data + asset record (disappears from all timeframes)
           delete <source> <asset(s)> M1          — deletes only M1 rows (keeps asset record)
-          delete <source> <asset(s)> <derived>   — NOT supported: derived timeframes (H1, M15, etc.) are
-                                                   continuous aggregate views shared across all assets.
-                                                   To remove an asset from all timeframes, omit the timeframe.
-          delete <source> <timeframe>            — deletes ALL assets from <source> (M1 data + records)
+          delete <source> <asset(s)> <derived>   — drops the entire continuous aggregate view for that
+                                                   derived timeframe (H1, M15, etc.). This removes
+                                                   the timeframe for ALL assets, not just the one requested.
+          delete <source> all                    — removes all assets from <source>
           delete fred <series_id>                — deletes a FRED economic series
           delete all                             — deletes ALL data from all sources
 
@@ -990,4 +990,13 @@ if __name__ == "__main__":
 def main() -> None:
     """Entry point for the datamanager CLI."""
     setup_logger(log_path="projects/datamanager/log.log")
-    DataManagerCLI().cmdloop()
+    import sys
+
+    cli = DataManagerCLI()
+    if len(sys.argv) > 1 and sys.argv[1] != "-i":
+        # Execute single command from arguments
+        command = " ".join(shlex.quote(arg) for arg in sys.argv[1:])
+        cli.onecmd(command)
+    else:
+        # Start interactive session
+        cli.cmdloop()

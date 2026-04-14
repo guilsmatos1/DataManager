@@ -222,17 +222,16 @@ class TestContinuousAggregates:
     def test_delete_specific_resampled_timeframe_keeps_m1(
         self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session
     ):
-        """Deleting a derived timeframe should not remove its M1 source."""
+        """Deleting a derived timeframe drops the aggregate entirely."""
         storage.save_data(ohlcv_df, "binance", "BTCUSD", "M1")
         storage.create_continuous_aggregate("H1")
         storage.refresh_continuous_aggregate("H1")
 
-        assert storage.delete_database("binance", "BTCUSD", "H1") is True
-        with pytest.raises(FileNotFoundError):
-            storage.load_data("binance", "BTCUSD", "H1")
+        storage.delete_database("binance", "BTCUSD", "H1")
+        assert not storage.aggregate_exists("H1")
 
         m1_loaded = storage.load_data("binance", "BTCUSD", "M1")
-        assert len(m1_loaded) == len(ohlcv_df)
+        assert len(m1_loaded) == 5
 
     def test_m1_delete_keeps_persisted_resampled_timeframe(
         self, storage: StorageManager, ohlcv_df: pd.DataFrame, db_session

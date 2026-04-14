@@ -243,6 +243,16 @@ class StorageManager:
                 text(f"CALL refresh_continuous_aggregate('{view_name}', NULL, NULL)")
             )
 
+    def drop_continuous_aggregate(self, timeframe: str) -> None:
+        """Drops a continuous aggregate view entirely (affects all assets)."""
+        tf = timeframe.upper()
+        if not self.aggregate_exists(tf):
+            return
+        view_name = f"ohlcv_{tf.lower()}"
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text(f"DROP MATERIALIZED VIEW IF EXISTS {view_name} CASCADE"))
+        logger.info(f"Continuous aggregate {view_name} dropped.")
+
     # ------------------------------------------------------------------
     # Core I/O (TimescaleDB)
     # ------------------------------------------------------------------
@@ -536,13 +546,9 @@ class StorageManager:
                 return result.rowcount > 0
 
             # Derived timeframes are continuous aggregate views shared across all assets.
-            # Per-asset deletion is not supported — deleting one asset's M1 data is the
-            # correct way to remove it from all derived aggregates.
-            raise ValueError(
-                f"{normalized_timeframe} is a derived timeframe (continuous aggregate) "
-                f"and cannot be deleted per asset. "
-                f"To remove {asset.upper()} from all timeframes, use: delete {source} {asset}"
-            )
+            # Dropping it will remove this timeframe for ALL assets.
+            self.drop_continuous_aggregate(normalized_timeframe)
+            return True
 
     def delete_all(self) -> bool:
         """Delete all sources, assets and data."""
