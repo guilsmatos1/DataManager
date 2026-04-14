@@ -187,6 +187,7 @@ class GeneticEngine:
         tournament_size: int = 3,
         elite_size: int = 5,
         enrich_details: bool = True,
+        random_seed: int = 0,
     ) -> list[dict]:
         """Runs the genetic algorithm and returns the top-N portfolios."""
         n = len(self.strategy_names)
@@ -194,12 +195,13 @@ class GeneticEngine:
         sort_metric_index = (
             METRIC_IDX_RET_DD if rank_by == "RetDD" else METRIC_IDX_NET_PROFIT
         )
-        rng = random.Random(0)
+        rng = random.Random(random_seed)
 
         logger.info(
             f"Genetic optimization: {n} strategies | "
             f"pop={population_size} | gen={generations} | "
-            f"cx={crossover_prob} | mut={mutation_prob} | rank_by={rank_by}"
+            f"cx={crossover_prob} | mut={mutation_prob} | rank_by={rank_by} | "
+            f"seed={random_seed}"
         )
 
         # --- Fitness function ---

@@ -105,6 +105,51 @@ def test_run_returns_at_most_top_n():
     assert len(results) <= 3
 
 
+def test_random_seed_controls_genetic_run_reproducibly():
+    """Same seed yields stable results while a different seed can change them."""
+    data = _make_uncorrelated_strategies(n=16, n_dates=20)
+    long_df = _make_long_df(data)
+
+    engine_a = GeneticEngine(long_df)
+    results_a = engine_a.run(
+        min_assets=5,
+        max_assets=6,
+        top_n=3,
+        max_corr=0.99,
+        population_size=20,
+        generations=0,
+        enrich_details=False,
+        random_seed=123,
+    )
+
+    engine_b = GeneticEngine(long_df)
+    results_b = engine_b.run(
+        min_assets=5,
+        max_assets=6,
+        top_n=3,
+        max_corr=0.99,
+        population_size=20,
+        generations=0,
+        enrich_details=False,
+        random_seed=123,
+    )
+
+    engine_c = GeneticEngine(long_df)
+    results_c = engine_c.run(
+        min_assets=5,
+        max_assets=6,
+        top_n=3,
+        max_corr=0.99,
+        population_size=20,
+        generations=0,
+        enrich_details=False,
+        random_seed=124,
+    )
+
+    assert results_a == results_b
+    assert results_a != results_c
+
+
 # ---------------------------------------------------------------------------
 # Constraint compliance
 # ---------------------------------------------------------------------------

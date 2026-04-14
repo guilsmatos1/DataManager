@@ -9,10 +9,13 @@ Tests for PortfolioCLI pipeline:
 
 import json
 import os
+import sys
+import types
 from unittest.mock import MagicMock, patch
 
 import polars as pl
 import pytest
+from trademachine.core.interactive import create_prompt_session
 from trademachine.portfolio_master_cli.cli import PortfolioCLI
 from trademachine.portfoliomaster.public import ValidationError
 
@@ -111,6 +114,61 @@ def test_list_loaded_strategies_runs_without_error(loaded_cli, capsys):
 def test_list_loaded_strategies_empty(capsys):
     cli = PortfolioCLI()
     cli.list_loaded_strategies()  # should not raise
+
+
+def test_create_prompt_session_configures_arrow_history(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    class FakePromptSession:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    class FakeFileHistory:
+        def __init__(self, path: str):
+            self.path = path
+
+    class FakeAutoSuggestFromHistory:
+        pass
+
+    prompt_toolkit_module = types.ModuleType("prompt_toolkit")
+    prompt_toolkit_module.PromptSession = FakePromptSession
+
+    auto_suggest_module = types.ModuleType("prompt_toolkit.auto_suggest")
+    auto_suggest_module.AutoSuggestFromHistory = FakeAutoSuggestFromHistory
+
+    history_module = types.ModuleType("prompt_toolkit.history")
+    history_module.FileHistory = FakeFileHistory
+
+    key_binding_module = types.ModuleType("prompt_toolkit.key_binding")
+
+    class FakeKeyBindings:
+        def __init__(self):
+            self.handlers: dict[str, object] = {}
+
+        def add(self, key: str):
+            def decorator(func):
+                self.handlers[key] = func
+                return func
+
+            return decorator
+
+    key_binding_module.KeyBindings = FakeKeyBindings
+
+    monkeypatch.setitem(sys.modules, "prompt_toolkit", prompt_toolkit_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.auto_suggest", auto_suggest_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.history", history_module)
+    monkeypatch.setitem(sys.modules, "prompt_toolkit.key_binding", key_binding_module)
+
+    history_path = str(tmp_path / ".portfoliomaster_history")
+    prompt_session = create_prompt_session(history_path)
+
+    assert prompt_session is not None
+    assert isinstance(captured["history"], FakeFileHistory)
+    assert captured["history"].path == history_path
+    assert isinstance(captured["auto_suggest"], FakeAutoSuggestFromHistory)
+
+    key_bindings = captured["key_bindings"]
+    assert set(key_bindings.handlers) >= {"up", "down"}
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +436,71 @@ def test_run_optimization_with_strategy_filter(loaded_cli):
     )
 
 
+def test_merge_global_portfolio_rank_deduplicates_and_respects_top_n(loaded_cli):
+    """Global GA rank keeps the best unique combos and trims to top_n."""
+    current_rank = [
+        {
+            "Combo": ("B", "A"),
+            "Net_Profit": 100.0,
+            "RetDD": 2.0,
+            "Maximum_Drawdown": 50.0,
+        }
+    ]
+    new_portfolios = [
+        {
+            "Combo": ("A", "B"),
+            "Net_Profit": 120.0,
+            "RetDD": 2.5,
+            "Maximum_Drawdown": 48.0,
+        },
+        {
+            "Combo": ("C", "D"),
+            "Net_Profit": 90.0,
+            "RetDD": 2.2,
+            "Maximum_Drawdown": 30.0,
+        },
+        {
+            "Combo": ("E", "F"),
+            "Net_Profit": 80.0,
+            "RetDD": 1.5,
+            "Maximum_Drawdown": 20.0,
+        },
+    ]
+
+    merged = loaded_cli._merge_global_portfolio_rank(
+        current_rank,
+        new_portfolios,
+        rank_by="RetDD",
+        top_n=2,
+    )
+
+    assert len(merged) == 2
+    assert merged[0]["Combo"] == ("A", "B")
+    assert merged[0]["RetDD"] == 2.5
+    assert merged[1]["Combo"] == ("C", "D")
+
+
+def test_run_optimization_uses_genetic_loops_when_requested(loaded_cli):
+    """genetic + ga_loop>1 routes to the dedicated loop orchestrator."""
+    with patch.object(
+        loaded_cli,
+        "_run_genetic_loops",
+        return_value=True,
+    ) as mock_run_genetic_loops:
+        found = loaded_cli.run_optimization(
+            min_assets=1,
+            max_assets=1,
+            top_n=2,
+            rank_by="RetDD",
+            max_correlation=1.0,
+            genetic=True,
+            ga_loop=3,
+        )
+
+    assert found is True
+    mock_run_genetic_loops.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # _save_output_dir
 # ---------------------------------------------------------------------------
@@ -482,16 +605,22 @@ def test_run_optimization_unexpected_error(loaded_cli, caplog):
     """run_optimization handles unexpected crashes gracefully."""
     import logging
 
-    caplog.set_level(logging.ERROR, logger="TradeMachine")
-    with patch(
-        "trademachine.portfolio_master_cli.cli.BruteForceEngine",
-        side_effect=Exception("BOOM"),
-    ):
-        loaded_cli.run_optimization(
-            min_assets=1,
-            max_assets=1,
-            top_n=1,
-            rank_by="RetDD",
-            max_correlation=1.0,
-        )
-        assert "Unexpected optimization failure" in caplog.text
+    tm_logger = logging.getLogger("TradeMachine")
+    original_propagate = tm_logger.propagate
+    tm_logger.propagate = True
+    try:
+        caplog.set_level(logging.ERROR, logger="TradeMachine")
+        with patch(
+            "trademachine.portfolio_master_cli.cli.BruteForceEngine",
+            side_effect=Exception("BOOM"),
+        ):
+            loaded_cli.run_optimization(
+                min_assets=1,
+                max_assets=1,
+                top_n=1,
+                rank_by="RetDD",
+                max_correlation=1.0,
+            )
+            assert "Unexpected optimization failure" in caplog.text
+    finally:
+        tm_logger.propagate = original_propagate

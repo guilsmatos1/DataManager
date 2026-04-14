@@ -7,6 +7,7 @@ PortfolioMaster usa uma CLI baseada em subcomandos para carregar relatórios MT5
 - `uv run portfoliomaster load reports/`
 - `uv run portfoliomaster optimize --load reports/ --min 3 --max 5 --top 10`
 - `uv run portfoliomaster optimize-genetic --load reports/ --min 10 --max 15 --top 10`
+- `optimize-genetic --ga-loop <N>`
 - `uv run portfoliomaster benchmark --load reports/ --min 3 --max 5`
 - `cache save <PATH>`
 - `cache load <PATH>`

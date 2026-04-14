@@ -99,6 +99,7 @@ def _run_optimization_command(
     ga_generations: int | None = None,
     ga_crossover: float | None = None,
     ga_mutation: float | None = None,
+    ga_loop: int = 1,
 ) -> None:
     """Shared CLI implementation for optimization commands."""
     config = state.config
@@ -179,6 +180,7 @@ def _run_optimization_command(
         else config.ga_generations,
         ga_crossover=ga_crossover if ga_crossover is not None else config.ga_crossover,
         ga_mutation=ga_mutation if ga_mutation is not None else config.ga_mutation,
+        ga_loop=ga_loop,
     )
     if not found:
         raise typer.Exit(1)
@@ -679,6 +681,9 @@ def optimize_genetic(
     ga_mutation: float | None = typer.Option(
         None, "--ga-mutation", help="GA mutation probability (default: 0.2)"
     ),
+    ga_loop: int = typer.Option(
+        1, "--ga-loop", min=1, help="Run the genetic algorithm in N loops"
+    ),
 ):
     """Run genetic-algorithm portfolio optimization."""
     _run_optimization_command(
@@ -709,4 +714,5 @@ def optimize_genetic(
         ga_generations=ga_generations,
         ga_crossover=ga_crossover,
         ga_mutation=ga_mutation,
+        ga_loop=ga_loop,
     )

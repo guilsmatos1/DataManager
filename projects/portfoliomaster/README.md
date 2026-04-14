@@ -151,6 +151,7 @@ Flags específicas mais usadas:
 
 | Flag | Descrição |
 |---|---|
+| `--ga-loop <N>` | Roda o algoritmo genético em `N` loops e mantém um rank global acumulado |
 | `--ga-population <N>` | Tamanho da população (padrão: 300) |
 | `--ga-generations <N>` | Número de gerações (padrão: 100) |
 | `--ga-crossover <F>` | Probabilidade de crossover (padrão: 0.7) |
@@ -163,6 +164,9 @@ Exemplos:
 ```bash
 # Genetic Algorithm com parâmetros padrão
 uv run portfoliomaster optimize-genetic --load tests/reports --min 10 --max 15 --corr 0.2 --print
+
+# Genetic Algorithm em múltiplos loops com rank global acumulado
+uv run portfoliomaster optimize-genetic --load tests/reports --min 10 --max 15 --corr 0.2 --ga-loop 5 --top 10
 
 # Genetic Algorithm com ajuste explícito da busca
 uv run portfoliomaster optimize-genetic --load tests/reports --min 10 --max 15 --corr 0.2 --ga-population 300 --ga-generations 100 --ga-crossover 0.7 --ga-mutation 0.2

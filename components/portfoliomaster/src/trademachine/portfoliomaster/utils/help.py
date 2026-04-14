@@ -32,6 +32,7 @@ def get_detailed_help() -> str:
 
   {Y}Run genetic optimization from disk{R}
     portfoliomaster optimize-genetic --load reports/ --min 10 --max 15 --top 10
+    optimize-genetic --ga-loop <N>
     optimize-genetic --ga-population <N>
     optimize-genetic --ga-generations <N>
     optimize-genetic --ga-crossover <F>

@@ -12,6 +12,7 @@ CURRENT_DOC_TOKENS = [
     "uv run portfoliomaster load",
     "uv run portfoliomaster benchmark",
     "uv run portfoliomaster optimize-genetic",
+    "--ga-loop",
     "cache save",
     "cache load",
     "cache merge",

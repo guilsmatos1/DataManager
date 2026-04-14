@@ -7,6 +7,7 @@ Portfolio optimization orchestration for PortfolioCLI.
 import json
 import logging
 import os
+from datetime import datetime as dt
 from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
@@ -170,6 +171,7 @@ class OptimizerMixin:
                     self.default_config.get("ga_mutation", 0.2),
                 ),
                 enrich_details=False,
+                random_seed=kwargs.get("ga_random_seed", 0),
             )
             return engine
 
@@ -216,7 +218,7 @@ class OptimizerMixin:
         self.last_optimization_results = engine.best_portfolios
 
         if kwargs.get("show_terminal"):
-            engine.print_results(columns=kwargs.get("csv_columns") or None)
+            engine.print_results(kwargs.get("csv_columns") or None)
 
         if kwargs.get("save_trades_prefix"):
             self._save_best_portfolio_trades(  # type: ignore[attr-defined]
@@ -260,6 +262,160 @@ class OptimizerMixin:
 
         if kwargs.get("output_dir") is not None:
             self._save_output_dir(engine, kwargs)
+
+    @staticmethod
+    def _rank_metric_value(portfolio: dict, rank_by: str) -> float:
+        """Returns the primary ranking metric value for a portfolio."""
+        if rank_by == "NetProfit":
+            return float(portfolio.get("Net_Profit", 0.0))
+        return float(portfolio.get("RetDD", 0.0))
+
+    def _portfolio_sort_key(self, portfolio: dict, rank_by: str) -> tuple:
+        """Returns an ascending sort key where lower tuples represent better results."""
+        combo = tuple(sorted(str(name) for name in portfolio.get("Combo", ())))
+        return (
+            -self._rank_metric_value(portfolio, rank_by),
+            -float(portfolio.get("Net_Profit", 0.0)),
+            float(portfolio.get("Maximum_Drawdown", 0.0)),
+            combo,
+        )
+
+    def _merge_global_portfolio_rank(
+        self,
+        current_rank: list[dict],
+        new_portfolios: list[dict],
+        *,
+        rank_by: str,
+        top_n: int,
+    ) -> list[dict]:
+        """Merges portfolio ranks across loops, deduplicating by strategy combo."""
+        merged: dict[tuple[str, ...], dict] = {}
+
+        for portfolio in current_rank + new_portfolios:
+            combo_key = tuple(sorted(str(name) for name in portfolio["Combo"]))
+            candidate = dict(portfolio)
+            candidate["Combo"] = combo_key
+            existing = merged.get(combo_key)
+            if existing is None or self._portfolio_sort_key(
+                candidate, rank_by
+            ) < self._portfolio_sort_key(existing, rank_by):
+                merged[combo_key] = candidate
+
+        ordered = sorted(
+            merged.values(),
+            key=lambda portfolio: self._portfolio_sort_key(portfolio, rank_by),
+        )
+        return ordered[:top_n]
+
+    def _run_genetic_loops(self, **kwargs) -> bool:
+        """Runs the genetic algorithm multiple times and keeps a global rank."""
+        requested_loops = kwargs.get("ga_loop") or 1
+        root_output_dir = kwargs.get("output_dir")
+        if not root_output_dir:
+            timestamp = dt.now().strftime("%Y-%m-%d_%H-%M")
+            root_output_dir = f"run_{timestamp}"
+        os.makedirs(root_output_dir, exist_ok=True)
+
+        all_trades_long = self._prepare_optimization_trades(kwargs)
+        if all_trades_long.is_empty():
+            logger.info("Stopping genetic loops: no trades remain.")
+            return False
+
+        base_seed = int(kwargs.get("ga_random_seed", 0))
+        global_rank: list[dict] = []
+        loop_summary: list[dict] = []
+        last_successful_engine: GeneticEngine | None = None
+
+        for loop_idx in range(1, requested_loops + 1):
+            loop_seed = base_seed + loop_idx - 1
+            loop_label = f"loop_{loop_idx:02d}"
+            loop_kwargs = dict(kwargs)
+            loop_kwargs["output_dir"] = os.path.join(root_output_dir, loop_label)
+            loop_kwargs["ga_random_seed"] = loop_seed
+            loop_kwargs["montecarlo"] = None
+            loop_kwargs["plot_chart"] = False
+            if kwargs.get("save_trades_prefix"):
+                loop_kwargs["save_trades_prefix"] = self._suffix_output_path(  # type: ignore[attr-defined]
+                    kwargs["save_trades_prefix"], loop_label
+                )
+
+            logger.info(
+                f"Genetic loop {loop_idx}/{requested_loops} | "
+                f"{len(self.loaded_expert_names)} strategies available | seed={loop_seed}"
+            )
+
+            engine = cast(
+                GeneticEngine,
+                self._execute_optimization_engine(all_trades_long, loop_kwargs),
+            )
+            found_portfolios = len(engine.best_portfolios)
+            if not engine.best_portfolios:
+                logger.info(
+                    f"Genetic loop {loop_idx}/{requested_loops} found no valid portfolios."
+                )
+                loop_summary.append(
+                    {
+                        "loop": loop_idx,
+                        "seed": loop_seed,
+                        "output_dir": os.path.abspath(loop_kwargs["output_dir"]),
+                        "found_portfolios": 0,
+                        "loop_best_combo": [],
+                        "loop_best_metric": None,
+                        "global_rank_size": len(global_rank),
+                    }
+                )
+                continue
+
+            last_successful_engine = engine
+            self._handle_optimization_results(engine, loop_kwargs)
+            global_rank = self._merge_global_portfolio_rank(
+                global_rank,
+                engine.best_portfolios,
+                rank_by=kwargs["rank_by"],
+                top_n=kwargs["top_n"],
+            )
+            loop_best = engine.best_portfolios[0]
+            loop_summary.append(
+                {
+                    "loop": loop_idx,
+                    "seed": loop_seed,
+                    "output_dir": os.path.abspath(loop_kwargs["output_dir"]),
+                    "found_portfolios": found_portfolios,
+                    "loop_best_combo": list(loop_best["Combo"]),
+                    "loop_best_metric": round(
+                        self._rank_metric_value(loop_best, kwargs["rank_by"]), 4
+                    ),
+                    "global_rank_size": len(global_rank),
+                }
+            )
+
+        summary_payload = {
+            "generated_at": dt.now().isoformat(timespec="seconds"),
+            "requested_loops": requested_loops,
+            "completed_loops": sum(
+                1 for loop in loop_summary if loop["found_portfolios"] > 0
+            ),
+            "rank_by": kwargs["rank_by"],
+            "top_n": kwargs["top_n"],
+            "seed_base": base_seed,
+            "loops": loop_summary,
+        }
+        summary_path = os.path.join(root_output_dir, "multi_ga_summary.json")
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(summary_payload, f, indent=2, ensure_ascii=False)
+        logger.info(f"[output] multi_ga_summary.json → {os.path.abspath(summary_path)}")
+
+        if not global_rank or last_successful_engine is None:
+            logger.info(f"Output directory: {os.path.abspath(root_output_dir)}")
+            return False
+
+        last_successful_engine.best_portfolios = global_rank
+        final_kwargs = dict(kwargs)
+        final_kwargs["output_dir"] = root_output_dir
+        self._handle_optimization_results(last_successful_engine, final_kwargs)
+        self.last_optimization_results = global_rank
+        logger.info(f"Output directory: {os.path.abspath(root_output_dir)}")
+        return True
 
     @staticmethod
     def _needs_detailed_metrics(kwargs: dict) -> bool:
@@ -460,6 +616,10 @@ class OptimizerMixin:
             greedy_loops = kwargs.get("greedy_loops") or 1
             if kwargs.get("greedy") and greedy_loops > 1:
                 return self._run_greedy_loops(**kwargs)
+
+            ga_loop = kwargs.get("ga_loop") or 1
+            if kwargs.get("genetic") and ga_loop > 1:
+                return self._run_genetic_loops(**kwargs)
 
             all_trades_long = self._prepare_optimization_trades(kwargs)
             engine = self._execute_optimization_engine(all_trades_long, kwargs)
