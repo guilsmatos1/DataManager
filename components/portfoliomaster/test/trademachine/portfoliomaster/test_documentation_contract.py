@@ -11,6 +11,7 @@ DOC_PATHS = (GEMINI_PATH, CLAUDE_PATH, AGENTS_PATH)
 CURRENT_DOC_TOKENS = [
     "uv run portfoliomaster load",
     "uv run portfoliomaster benchmark",
+    "uv run portfoliomaster optimize-genetic",
     "cache save",
     "cache load",
     "cache merge",

@@ -5,9 +5,11 @@ def test_detailed_help_includes_current_cli_contract():
     help_text = get_detailed_help()
 
     assert "portfoliomaster optimize --load reports/" in help_text
+    assert "portfoliomaster optimize-genetic --load reports/" in help_text
     assert "optimize --exclude-strats <L>" in help_text
+    assert "optimize-genetic --ga-population <N>" in help_text
     assert "cache merge <A> <B> <C>" in help_text
-    assert "--report file.csv" in help_text
+    assert "optimize --report file.csv" in help_text
     assert "optimize --prune-cache" in help_text
 
 

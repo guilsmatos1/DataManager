@@ -23,12 +23,19 @@ def get_detailed_help() -> str:
   {Y}Load reports{R}
     portfoliomaster load reports/
 
-  {Y}Run optimization from disk in one step{R}
+  {Y}Run brute-force optimization from disk{R}
     portfoliomaster optimize --load reports/ --min 3 --max 5 --top 10
     optimize --exclude-strats <L>
     optimize --prune-cache
     optimize --greedy-loops <N>
-    --report file.csv
+    optimize --report file.csv
+
+  {Y}Run genetic optimization from disk{R}
+    portfoliomaster optimize-genetic --load reports/ --min 10 --max 15 --top 10
+    optimize-genetic --ga-population <N>
+    optimize-genetic --ga-generations <N>
+    optimize-genetic --ga-crossover <F>
+    optimize-genetic --ga-mutation <F>
 
   {Y}Benchmark the current search space{R}
     portfoliomaster benchmark --load reports/ --min 3 --max 5

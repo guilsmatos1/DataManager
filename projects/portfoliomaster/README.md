@@ -73,9 +73,9 @@ No shell interativo, os dados persistem em memória entre comandos. Isso é úti
 ### Fluxo típico
 
 ```bash
-uv run portfoliomaster --load tests/reports --list
-uv run portfoliomaster --load tests/reports --optimize --min 5 --max 5 --corr 0.3 --print
-uv run portfoliomaster --load tests/reports --optimize --min 5 --max 5 --montecarlo 2000 --output ./results
+uv run portfoliomaster load tests/reports --list
+uv run portfoliomaster optimize --load tests/reports --min 5 --max 5 --corr 0.3 --print
+uv run portfoliomaster optimize --load tests/reports --min 5 --max 5 --montecarlo 2000 --output ./results
 uv run portfoliomaster adherence --mt5-dir tests/reports --sqx-dir tests/reports-sqx
 ```
 
@@ -91,9 +91,9 @@ Carrega relatórios HTML de uma pasta. Se `cache.parquet` existir e for compatí
 
 Lista as estratégias carregadas com métricas básicas.
 
-### `--optimize`
+### `optimize`
 
-Executa a otimização do portfólio.
+Executa a otimização brute force do portfólio. Quando combinado com `--greedy`, usa crescimento incremental a partir do melhor seed, mas continua dentro da família de busca do comando `optimize`.
 
 Flags mais usadas:
 
@@ -106,11 +106,6 @@ Flags mais usadas:
 | `--rank <RetDD/NetProfit>` | Métrica de ranking |
 | `--workers <N>` | Processo paralelo (`0` = automático, `1` = single process) |
 | `--greedy` | Crescimento incremental a partir do melhor seed |
-| `--genetic` | Usa o motor de otimização por algoritmo genético (ideal para >30 estratégias) |
-| `--ga-population <N>` | (GA) Tamanho da população (padrão: 300) |
-| `--ga-generations <N>` | (GA) Número de gerações (padrão: 100) |
-| `--ga-crossover <F>` | (GA) Probabilidade de crossover (padrão: 0.7) |
-| `--ga-mutation <F>` | (GA) Probabilidade de mutação (padrão: 0.2) |
 | `--quiet` | Suprime mensagens INFO no console (mostra apenas avisos e erros) |
 | `--strats A,B,C` | Filtra estratégias por nome |
 | `--date-initial YYYY-MM-DD` | Início do recorte temporal |
@@ -123,29 +118,54 @@ Flags mais usadas:
 | `--output <dir>` | Salva os artefatos em uma pasta estruturada |
 | `--montecarlo [N]` | Roda simulação Monte Carlo no melhor portfólio |
 
-### Exemplos
+Exemplos:
 
 ```bash
 # Brute-force padrão
-uv run portfoliomaster --load tests/reports --optimize --min 3 --max 5 --corr 0.3 --print
+uv run portfoliomaster optimize --load tests/reports --min 3 --max 5 --corr 0.3 --print
 
 # Greedy
-uv run portfoliomaster --load tests/reports --optimize --greedy --min 5 --corr 0.3 --print
+uv run portfoliomaster optimize --load tests/reports --greedy --min 5 --corr 0.3 --print
 
 # Genetic Algorithm (ideal para grande número de estratégias)
-uv run portfoliomaster --load tests/reports --optimize --genetic --min 10 --max 15 --corr 0.2 --print
+uv run portfoliomaster optimize-genetic --load tests/reports --min 10 --max 15 --corr 0.2 --print --ga-population 300 --ga-generations 100
 
 # Suprimir mensagens INFO (exibir apenas resultados e erros)
-uv run portfoliomaster --load tests/reports --optimize --min 5 --quiet --print
+uv run portfoliomaster optimize --load tests/reports --min 5 --quiet --print
 
 # Salvar resultados em CSV
-uv run portfoliomaster --optimize --min 3 --max 5 --save results.csv
+uv run portfoliomaster optimize --min 3 --max 5 --save results.csv
 
 # Exportar histórico de trades do melhor portfólio
-uv run portfoliomaster --optimize --min 5 --save-trades trades.parquet
+uv run portfoliomaster optimize --min 5 --save-trades trades.parquet
 
 # Importar e visualizar um JSON de portfólio salvo
-uv run portfoliomaster --import-p my_portfolio.json --report
+uv run portfoliomaster optimize --import-p my_portfolio.json --report
+```
+
+### `optimize-genetic`
+
+Executa a otimização via algoritmo genético. Esse comando existe separado para deixar explícito quando estamos saindo da busca exaustiva e entrando em um motor heurístico/estocástico com parâmetros próprios.
+
+Flags específicas mais usadas:
+
+| Flag | Descrição |
+|---|---|
+| `--ga-population <N>` | Tamanho da população (padrão: 300) |
+| `--ga-generations <N>` | Número de gerações (padrão: 100) |
+| `--ga-crossover <F>` | Probabilidade de crossover (padrão: 0.7) |
+| `--ga-mutation <F>` | Probabilidade de mutação (padrão: 0.2) |
+
+Também aceita as mesmas flags gerais de `optimize` para carga, filtro, ranking, correlação, exportação e Monte Carlo.
+
+Exemplos:
+
+```bash
+# Genetic Algorithm com parâmetros padrão
+uv run portfoliomaster optimize-genetic --load tests/reports --min 10 --max 15 --corr 0.2 --print
+
+# Genetic Algorithm com ajuste explícito da busca
+uv run portfoliomaster optimize-genetic --load tests/reports --min 10 --max 15 --corr 0.2 --ga-population 300 --ga-generations 100 --ga-crossover 0.7 --ga-mutation 0.2
 ```
 
 ---
@@ -239,7 +259,7 @@ Testa exaustivamente toda combinação possível de estratégias dentro dos limi
 
 Começa com a melhor estratégia individual e iterativamente adiciona a próxima melhor estratégia não-correlacionada até atingir o tamanho do portfólio. É uma abordagem heurística rápida, ideal para quando se precisa de um portfólio "bom o suficiente" a partir de um conjunto grande. Pode levar a uma solução localmente ótima, não o ótimo global.
 
-### Algoritmo Genético (`--genetic`)
+### Algoritmo Genético (`optimize-genetic`)
 
 Usa princípios de computação evolutiva (seleção, crossover, mutação) para explorar o espaço de busca. Ideal para encontrar soluções de alta qualidade em vastos espaços de busca onde brute-force é impossível. Recomendado para 30+ estratégias. É um processo estocástico — duas execuções idênticas podem produzir resultados ligeiramente diferentes, mas ainda de alta qualidade.
 
@@ -435,7 +455,7 @@ O mypy está configurado com `check_untyped_defs`, `warn_return_any` e `no_impli
 
 - **Parsing HTML:** Relatórios MT5 são frágeis; atualizações no MT5 podem requerer ajustes no parser em `utils/mt5_parser.py`.
 - **Multiprocessing:** Habilitado em execuções de otimização via CLI; o comportamento depende da plataforma e da contagem de estratégias.
-- **Limites de memória:** Brute-force pode ficar sem memória para grandes conjuntos de ativos (>25-30). Use `--greedy` ou `--genetic` para esses casos.
+- **Limites de memória:** Brute-force pode ficar sem memória para grandes conjuntos de ativos (>25-30). Use `--greedy` ou `optimize-genetic` para esses casos.
 
 ### Pontos de evolução naturais
 

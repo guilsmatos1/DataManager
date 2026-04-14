@@ -70,6 +70,120 @@ def _load_reports_from_directory(
     state.cli_app.load_reports(**kwargs)
 
 
+def _run_optimization_command(
+    *,
+    load: str | None,
+    load_workers: int | None,
+    list_strats: bool,
+    strats: str | None,
+    exclude_strats: str | None,
+    min_assets: int | None,
+    max_assets: int | None,
+    top: int | None,
+    corr: float | None,
+    corr_period: str | None,
+    rank: str | None,
+    workers: int | None,
+    save_trades: str | None,
+    print_results: bool | None,
+    output: str | None,
+    import_p: str | None,
+    greedy: bool,
+    date_initial: str | None,
+    date_final: str | None,
+    min_metric: float,
+    montecarlo: int | None,
+    prune_cache: bool,
+    genetic: bool,
+    ga_population: int | None = None,
+    ga_generations: int | None = None,
+    ga_crossover: float | None = None,
+    ga_mutation: float | None = None,
+) -> None:
+    """Shared CLI implementation for optimization commands."""
+    config = state.config
+    cli_app = state.cli_app
+
+    resolved_min_assets = min_assets if min_assets is not None else config.min_assets
+    resolved_max_assets = max_assets if max_assets is not None else config.max_assets
+    resolved_top = top if top is not None else config.top_n
+    resolved_corr = corr if corr is not None else config.max_corr
+    resolved_corr_period = (
+        corr_period if corr_period is not None else config.corr_period
+    )
+    resolved_rank = rank if rank is not None else config.rank_by
+    resolved_workers = workers if workers is not None else config.num_workers
+    resolved_print_results = (
+        print_results if print_results is not None else config.print_results
+    )
+
+    validate_cli_args(
+        {
+            "min": resolved_min_assets,
+            "max": resolved_max_assets,
+            "corr": resolved_corr,
+            "greedy": greedy,
+            "montecarlo": montecarlo,
+            "optimize": True,
+        }
+    )
+
+    if strats and exclude_strats:
+        _exit_with_error("--strats and --exclude-strats cannot be used together.")
+
+    if load:
+        _load_reports_from_directory(load, workers=load_workers)
+    elif not cli_app.loaded_expert_names:
+        cli_app.load_reports()
+
+    if import_p:
+        cli_app.import_saved_portfolio(import_p, plot_after_load=True)
+        return
+
+    if list_strats:
+        cli_app.list_loaded_strategies()
+
+    strategy_filter = (
+        _split_csv_values(strats) if strats and strats.lower() != "all" else None
+    )
+    strategy_exclusions = _split_csv_values(exclude_strats)
+
+    found = cli_app.run_optimization(
+        min_assets=resolved_min_assets,
+        max_assets=resolved_max_assets,
+        top_n=resolved_top,
+        include_strats=strategy_filter,
+        exclude_strats=strategy_exclusions,
+        save_trades_prefix=save_trades,
+        show_terminal=resolved_print_results,
+        rank_by=resolved_rank,
+        max_correlation=resolved_corr,
+        corr_period=resolved_corr_period,
+        output_dir=output,
+        csv_columns=config.csv_columns,
+        num_workers=resolved_workers,
+        greedy=greedy,
+        date_initial=date_initial,
+        date_final=date_final,
+        min_metric=min_metric,
+        corr_filter_batch_size=config.corr_filter_batch_size,
+        matrix_algebra_batch_size=config.matrix_algebra_batch_size,
+        montecarlo=montecarlo,
+        remove_top1_from_cache=prune_cache,
+        genetic=genetic,
+        ga_population=ga_population
+        if ga_population is not None
+        else config.ga_population,
+        ga_generations=ga_generations
+        if ga_generations is not None
+        else config.ga_generations,
+        ga_crossover=ga_crossover if ga_crossover is not None else config.ga_crossover,
+        ga_mutation=ga_mutation if ga_mutation is not None else config.ga_mutation,
+    )
+    if not found:
+        raise typer.Exit(1)
+
+
 def validate_cli_args(args):
     """Logic constraints validation (compatible with Namespace or Typer options)."""
 
@@ -489,8 +603,69 @@ def optimize(
     prune_cache: bool = typer.Option(
         False, "--prune-cache", help="Remove the top portfolio from cache after success"
     ),
-    genetic: bool = typer.Option(
-        False, "--genetic", help="Use genetic algorithm instead of brute force"
+):
+    """Run brute-force portfolio optimization."""
+    _run_optimization_command(
+        load=load,
+        load_workers=load_workers,
+        list_strats=list_strats,
+        strats=strats,
+        exclude_strats=exclude_strats,
+        min_assets=min_assets,
+        max_assets=max_assets,
+        top=top,
+        corr=corr,
+        corr_period=corr_period,
+        rank=rank,
+        workers=workers,
+        save_trades=save_trades,
+        print_results=print_results,
+        output=output,
+        import_p=import_p,
+        greedy=greedy,
+        date_initial=date_initial,
+        date_final=date_final,
+        min_metric=min_metric,
+        montecarlo=montecarlo,
+        prune_cache=prune_cache,
+        genetic=False,
+    )
+
+
+@app.command("optimize-genetic")
+def optimize_genetic(
+    load: str | None = typer.Option(None, help="HTML reports folder path"),
+    load_workers: int | None = typer.Option(
+        None, "--load-workers", help="Number of parsing workers"
+    ),
+    list_strats: bool = typer.Option(False, "--list", help="List strategies in memory"),
+    strats: str | None = typer.Option(None, help="Filter strategies (comma-separated)"),
+    exclude_strats: str | None = typer.Option(
+        None, "--exclude-strats", help="Exclude strategies (comma-separated)"
+    ),
+    min_assets: int = typer.Option(None, "--min", help="Min assets in portfolio"),
+    max_assets: int = typer.Option(None, "--max", help="Max assets in portfolio"),
+    top: int = typer.Option(None, help="Number of top portfolios to keep"),
+    corr: float = typer.Option(None, help="Max pairwise correlation"),
+    corr_period: str | None = typer.Option(
+        None, help="Correlation period (H, D, W, M)"
+    ),
+    rank: str | None = typer.Option(None, help="Metric to rank by (RetDD, NetProfit)"),
+    workers: int = typer.Option(None, help="Number of parallel workers"),
+    save_trades: str | None = typer.Option(None, help="Export trades file path"),
+    print_results: bool = typer.Option(None, "--print", help="Print results table"),
+    output: str | None = typer.Option(None, help="Output directory"),
+    import_p: str | None = typer.Option(None, help="Import saved portfolio JSON"),
+    date_initial: str | None = typer.Option(None, help="Start date (YYYY-MM-DD)"),
+    date_final: str | None = typer.Option(None, help="End date (YYYY-MM-DD)"),
+    min_metric: float = typer.Option(
+        0.0, "--filter", help="Min value for ranking metric"
+    ),
+    montecarlo: int | None = typer.Option(
+        None, help="Run Monte Carlo simulation (N iterations)"
+    ),
+    prune_cache: bool = typer.Option(
+        False, "--prune-cache", help="Remove the top portfolio from cache after success"
     ),
     ga_population: int | None = typer.Option(
         None, "--ga-population", help="GA population size (default: 300)"
@@ -505,84 +680,33 @@ def optimize(
         None, "--ga-mutation", help="GA mutation probability (default: 0.2)"
     ),
 ):
-    """Run portfolio optimization."""
-    config = state.config
-    cli_app = state.cli_app
-
-    # Use defaults from config if not provided
-    min_assets = min_assets if min_assets is not None else config.min_assets
-    max_assets = max_assets if max_assets is not None else config.max_assets
-    top = top if top is not None else config.top_n
-    corr = corr if corr is not None else config.max_corr
-    corr_period = corr_period if corr_period is not None else config.corr_period
-    rank = rank if rank is not None else config.rank_by
-    workers = workers if workers is not None else config.num_workers
-    print_results = print_results if print_results is not None else config.print_results
-
-    # Validation
-    validate_cli_args(
-        {
-            "min": min_assets,
-            "max": max_assets,
-            "corr": corr,
-            "greedy": greedy,
-            "montecarlo": montecarlo,
-            "optimize": True,
-        }
-    )
-
-    if strats and exclude_strats:
-        _exit_with_error("--strats and --exclude-strats cannot be used together.")
-
-    # Load strategies
-    if load:
-        _load_reports_from_directory(load, workers=load_workers)
-    elif not cli_app.loaded_expert_names:
-        cli_app.load_reports()
-
-    if import_p:
-        cli_app.import_saved_portfolio(import_p, plot_after_load=True)
-        return
-
-    if list_strats:
-        cli_app.list_loaded_strategies()
-
-    strategy_filter = (
-        _split_csv_values(strats) if strats and strats.lower() != "all" else None
-    )
-    strategy_exclusions = _split_csv_values(exclude_strats)
-
-    found = cli_app.run_optimization(
+    """Run genetic-algorithm portfolio optimization."""
+    _run_optimization_command(
+        load=load,
+        load_workers=load_workers,
+        list_strats=list_strats,
+        strats=strats,
+        exclude_strats=exclude_strats,
         min_assets=min_assets,
         max_assets=max_assets,
-        top_n=top,
-        include_strats=strategy_filter,
-        exclude_strats=strategy_exclusions,
-        save_trades_prefix=save_trades,
-        show_terminal=print_results,
-        rank_by=rank,
-        max_correlation=corr,
+        top=top,
+        corr=corr,
         corr_period=corr_period,
-        output_dir=output,
-        csv_columns=config.csv_columns,
-        num_workers=workers,
-        greedy=greedy,
+        rank=rank,
+        workers=workers,
+        save_trades=save_trades,
+        print_results=print_results,
+        output=output,
+        import_p=import_p,
+        greedy=False,
         date_initial=date_initial,
         date_final=date_final,
         min_metric=min_metric,
-        corr_filter_batch_size=config.corr_filter_batch_size,
-        matrix_algebra_batch_size=config.matrix_algebra_batch_size,
         montecarlo=montecarlo,
-        remove_top1_from_cache=prune_cache,
-        genetic=genetic,
-        ga_population=ga_population
-        if ga_population is not None
-        else config.ga_population,
-        ga_generations=ga_generations
-        if ga_generations is not None
-        else config.ga_generations,
-        ga_crossover=ga_crossover if ga_crossover is not None else config.ga_crossover,
-        ga_mutation=ga_mutation if ga_mutation is not None else config.ga_mutation,
+        prune_cache=prune_cache,
+        genetic=True,
+        ga_population=ga_population,
+        ga_generations=ga_generations,
+        ga_crossover=ga_crossover,
+        ga_mutation=ga_mutation,
     )
-    if not found:
-        raise typer.Exit(1)

@@ -218,6 +218,170 @@ def test_pairing_accepts_report_option():
     )
 
 
+def test_optimize_command_runs_brute_force_engine():
+    mock_cli = MagicMock()
+    previous_cli = state.cli_app
+    previous_min_assets = state.config.min_assets
+    previous_max_assets = state.config.max_assets
+    previous_top_n = state.config.top_n
+    previous_max_corr = state.config.max_corr
+    previous_corr_period = state.config.corr_period
+    previous_rank_by = state.config.rank_by
+    previous_num_workers = state.config.num_workers
+    previous_print_results = state.config.print_results
+    previous_csv_columns = state.config.csv_columns
+    previous_corr_filter_batch_size = state.config.corr_filter_batch_size
+    previous_matrix_algebra_batch_size = state.config.matrix_algebra_batch_size
+    previous_ga_population = state.config.ga_population
+    previous_ga_generations = state.config.ga_generations
+    previous_ga_crossover = state.config.ga_crossover
+    previous_ga_mutation = state.config.ga_mutation
+    try:
+        state.cli_app = mock_cli
+        state.config.min_assets = 1
+        state.config.max_assets = 2
+        state.config.top_n = 3
+        state.config.max_corr = 0.5
+        state.config.corr_period = "D"
+        state.config.rank_by = "RetDD"
+        state.config.num_workers = 0
+        state.config.print_results = False
+        state.config.csv_columns = []
+        state.config.corr_filter_batch_size = 100
+        state.config.matrix_algebra_batch_size = 10
+        state.config.ga_population = 300
+        state.config.ga_generations = 100
+        state.config.ga_crossover = 0.7
+        state.config.ga_mutation = 0.2
+        mock_cli.loaded_expert_names = ["A"]
+        mock_cli.run_optimization.return_value = True
+        with (
+            patch(
+                "trademachine.portfolio_master_cli.typer_app.configure_console_streams"
+            ),
+            patch("trademachine.portfolio_master_cli.typer_app.setup_logger"),
+        ):
+            result = runner.invoke(app, ["optimize", "--min", "1", "--max", "2"])
+    finally:
+        state.cli_app = previous_cli
+        state.config.min_assets = previous_min_assets
+        state.config.max_assets = previous_max_assets
+        state.config.top_n = previous_top_n
+        state.config.max_corr = previous_max_corr
+        state.config.corr_period = previous_corr_period
+        state.config.rank_by = previous_rank_by
+        state.config.num_workers = previous_num_workers
+        state.config.print_results = previous_print_results
+        state.config.csv_columns = previous_csv_columns
+        state.config.corr_filter_batch_size = previous_corr_filter_batch_size
+        state.config.matrix_algebra_batch_size = previous_matrix_algebra_batch_size
+        state.config.ga_population = previous_ga_population
+        state.config.ga_generations = previous_ga_generations
+        state.config.ga_crossover = previous_ga_crossover
+        state.config.ga_mutation = previous_ga_mutation
+
+    assert result.exit_code == 0
+    assert mock_cli.run_optimization.call_args.kwargs["genetic"] is False
+    assert mock_cli.run_optimization.call_args.kwargs["greedy"] is False
+
+
+def test_optimize_genetic_command_runs_genetic_engine():
+    mock_cli = MagicMock()
+    previous_cli = state.cli_app
+    previous_min_assets = state.config.min_assets
+    previous_max_assets = state.config.max_assets
+    previous_top_n = state.config.top_n
+    previous_max_corr = state.config.max_corr
+    previous_corr_period = state.config.corr_period
+    previous_rank_by = state.config.rank_by
+    previous_num_workers = state.config.num_workers
+    previous_print_results = state.config.print_results
+    previous_csv_columns = state.config.csv_columns
+    previous_corr_filter_batch_size = state.config.corr_filter_batch_size
+    previous_matrix_algebra_batch_size = state.config.matrix_algebra_batch_size
+    previous_ga_population = state.config.ga_population
+    previous_ga_generations = state.config.ga_generations
+    previous_ga_crossover = state.config.ga_crossover
+    previous_ga_mutation = state.config.ga_mutation
+    try:
+        state.cli_app = mock_cli
+        state.config.min_assets = 1
+        state.config.max_assets = 2
+        state.config.top_n = 3
+        state.config.max_corr = 0.5
+        state.config.corr_period = "D"
+        state.config.rank_by = "RetDD"
+        state.config.num_workers = 0
+        state.config.print_results = False
+        state.config.csv_columns = []
+        state.config.corr_filter_batch_size = 100
+        state.config.matrix_algebra_batch_size = 10
+        state.config.ga_population = 300
+        state.config.ga_generations = 100
+        state.config.ga_crossover = 0.7
+        state.config.ga_mutation = 0.2
+        mock_cli.loaded_expert_names = ["A"]
+        mock_cli.run_optimization.return_value = True
+        with (
+            patch(
+                "trademachine.portfolio_master_cli.typer_app.configure_console_streams"
+            ),
+            patch("trademachine.portfolio_master_cli.typer_app.setup_logger"),
+        ):
+            result = runner.invoke(
+                app,
+                [
+                    "optimize-genetic",
+                    "--min",
+                    "1",
+                    "--max",
+                    "2",
+                    "--ga-population",
+                    "123",
+                ],
+            )
+    finally:
+        state.cli_app = previous_cli
+        state.config.min_assets = previous_min_assets
+        state.config.max_assets = previous_max_assets
+        state.config.top_n = previous_top_n
+        state.config.max_corr = previous_max_corr
+        state.config.corr_period = previous_corr_period
+        state.config.rank_by = previous_rank_by
+        state.config.num_workers = previous_num_workers
+        state.config.print_results = previous_print_results
+        state.config.csv_columns = previous_csv_columns
+        state.config.corr_filter_batch_size = previous_corr_filter_batch_size
+        state.config.matrix_algebra_batch_size = previous_matrix_algebra_batch_size
+        state.config.ga_population = previous_ga_population
+        state.config.ga_generations = previous_ga_generations
+        state.config.ga_crossover = previous_ga_crossover
+        state.config.ga_mutation = previous_ga_mutation
+
+    assert result.exit_code == 0
+    assert mock_cli.run_optimization.call_args.kwargs["genetic"] is True
+    assert mock_cli.run_optimization.call_args.kwargs["ga_population"] == 123
+
+
+def test_optimize_command_rejects_removed_genetic_flag():
+    mock_cli = MagicMock()
+    previous_cli = state.cli_app
+    try:
+        state.cli_app = mock_cli
+        with (
+            patch(
+                "trademachine.portfolio_master_cli.typer_app.configure_console_streams"
+            ),
+            patch("trademachine.portfolio_master_cli.typer_app.setup_logger"),
+        ):
+            result = runner.invoke(app, ["optimize", "--genetic"])
+    finally:
+        state.cli_app = previous_cli
+
+    assert result.exit_code != 0
+    assert "--genetic" in result.output
+
+
 def test_pairing_rejects_non_csv_report():
     mock_cli = MagicMock()
     previous_cli = state.cli_app
