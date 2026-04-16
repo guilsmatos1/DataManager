@@ -8,6 +8,7 @@ from trademachine.tradingmonitor_ingestion.ingestion.schemas import (
 )
 from trademachine.tradingmonitor_ingestion.ingestion.tcp_server import (
     _build_runtime_schema_from_payload,
+    _process_message,
     process_account,
     process_deal,
 )
@@ -129,3 +130,88 @@ def test_process_deal_is_idempotent_across_timestamp_changes(db_session):
     rows = db_session.execute(select(PersistedDeal)).scalars().all()
     assert len(rows) == 1
     assert rows[0].ticket == 123456
+
+
+def test_process_message_dispatches_deal_handler(monkeypatch):
+    db = MagicMock()
+    seen_strategies: set[str] = set()
+    payload = {
+        "time": 1704067200,
+        "ticket": 123456,
+        "magic": 123,
+        "symbol": "EURUSD",
+        "type": "buy",
+        "volume": 0.1,
+        "price": 1.10,
+        "profit": 10.0,
+        "commission": -1.0,
+        "swap": 0.0,
+    }
+
+    process_deal_mock = MagicMock()
+    runtime_mock = MagicMock()
+    monkeypatch.setattr(
+        "trademachine.tradingmonitor_ingestion.ingestion.processors.process_deal",
+        process_deal_mock,
+    )
+    monkeypatch.setattr(
+        "trademachine.tradingmonitor_ingestion.ingestion.processors.maybe_process_runtime_context",
+        runtime_mock,
+    )
+
+    account_id = _process_message(db, "DEAL", payload, "acc-1", seen_strategies)
+
+    assert account_id == "acc-1"
+    assert seen_strategies == {"123"}
+    process_deal_mock.assert_called_once()
+    runtime_mock.assert_called_once()
+
+
+def test_process_message_dispatches_account_handler(monkeypatch):
+    db = MagicMock()
+    seen_strategies = {"123", "456"}
+    payload = {
+        "login": 999,
+        "broker": "IC Markets",
+        "balance": 10000.0,
+        "free_margin": 9500.0,
+        "deposits": 10000.0,
+        "withdrawals": 0.0,
+    }
+
+    process_account_mock = MagicMock()
+    link_mock = MagicMock()
+    runtime_mock = MagicMock()
+    monkeypatch.setattr(
+        "trademachine.tradingmonitor_ingestion.ingestion.processors.process_account",
+        process_account_mock,
+    )
+    monkeypatch.setattr(
+        "trademachine.tradingmonitor_ingestion.ingestion.processors.link_strategies_to_account",
+        link_mock,
+    )
+    monkeypatch.setattr(
+        "trademachine.tradingmonitor_ingestion.ingestion.processors.maybe_process_runtime_context",
+        runtime_mock,
+    )
+
+    account_id = _process_message(db, "ACCOUNT", payload, None, seen_strategies)
+
+    assert account_id == "999"
+    process_account_mock.assert_called_once()
+    link_mock.assert_called_once_with(db, seen_strategies, "999")
+    runtime_mock.assert_called_once()
+
+
+def test_process_message_returns_existing_account_for_unknown_topic(monkeypatch):
+    db = MagicMock()
+    warning_mock = MagicMock()
+    monkeypatch.setattr(
+        "trademachine.tradingmonitor_ingestion.ingestion.tcp_server.logger.warning",
+        warning_mock,
+    )
+
+    account_id = _process_message(db, "UNKNOWN", {"foo": "bar"}, "acc-1", set())
+
+    assert account_id == "acc-1"
+    warning_mock.assert_called_once()

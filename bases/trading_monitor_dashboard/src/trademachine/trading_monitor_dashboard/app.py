@@ -8,8 +8,8 @@ from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -82,9 +82,45 @@ def create_app(
     app.include_router(router)
 
     _ctx = {
-        "api_key": settings.api_key,
         "js_v": _file_hash(BASE_DIR / "static" / "dashboard.js"),
     }
+
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        if request.url.path.startswith("/api/") or request.url.path.startswith(
+            "/downloads/"
+        ):
+            return await call_next(request)
+        if request.url.path.startswith("/static/") or request.url.path.startswith(
+            "/login"
+        ):
+            return await call_next(request)
+        if request.cookies.get("tm_session_key") != settings.api_key:
+            return RedirectResponse(
+                url=f"/login?next={request.url.path}", status_code=303
+            )
+        return await call_next(request)
+
+    @app.get("/login")
+    async def login_get(request: Request, next: str = "/"):
+        return templates.TemplateResponse(
+            "login.html", {"request": request, "next": next, "error": None}
+        )
+
+    @app.post("/login")
+    async def login_post(
+        request: Request, api_key: str = Form(...), next: str = Form("/")
+    ):
+        if api_key != settings.api_key:
+            return templates.TemplateResponse(
+                "login.html",
+                {"request": request, "next": next, "error": "Invalid API Key"},
+            )
+        response = RedirectResponse(url=next, status_code=303)
+        response.set_cookie(
+            "tm_session_key", value=api_key, httponly=True, secure=False, samesite="lax"
+        )
+        return response
 
     @app.get("/")
     async def index(request: Request):
@@ -125,6 +161,12 @@ def create_app(
     async def advanced_analysis_page(request: Request):
         return templates.TemplateResponse(
             "advanced_analysis.html", {"request": request, **_ctx}
+        )
+
+    @app.get("/correlation")
+    async def standalone_correlation_page(request: Request):
+        return templates.TemplateResponse(
+            "correlation_standalone.html", {"request": request, **_ctx}
         )
 
     @app.get("/real")

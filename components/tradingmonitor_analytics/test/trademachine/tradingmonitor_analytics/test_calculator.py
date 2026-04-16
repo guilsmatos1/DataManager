@@ -134,7 +134,7 @@ class TestCoreMetrics:
         result = calculate_metrics_from_df(deals, pd.DataFrame())
         assert result["Gross Profit"] == pytest.approx(300.0)
 
-    def test_gross_loss_only_negative_trades_as_positive(self):
+    def test_gross_loss_stored_as_negative(self):
         deals = _make_deals(
             [
                 {"type": "BUY", "profit": 100.0},
@@ -142,7 +142,7 @@ class TestCoreMetrics:
             ]
         )
         result = calculate_metrics_from_df(deals, pd.DataFrame())
-        assert result["Gross Loss"] == pytest.approx(75.0)  # stored as positive
+        assert result["Gross Loss"] == pytest.approx(-75.0)
 
 
 # ── Win rate ──────────────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ def _is_secret_configured(value: str | None) -> bool:
     if value is None:
         return False
     normalized = value.strip()
-    return bool(normalized and normalized != "YOUR_API_KEY_HERE")
+    return bool(normalized and normalized.upper() != "YOUR_API_KEY_HERE")
 
 
 def _get_setting_value(db: Session | None, key: str) -> str | None:

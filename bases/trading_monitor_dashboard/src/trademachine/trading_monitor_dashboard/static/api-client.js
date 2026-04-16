@@ -2,6 +2,7 @@
 
 let _portfolio = null;
 let _portfolioTotalTrades = null;
+let _portfolioNetProfit = null;
 
 // ── Overview page (index.html) ───────────────────────────────────────────────
 
@@ -14,6 +15,12 @@ async function loadSummary(silent = false) {
         document.getElementById("count-strategies").textContent = d.strategies_count ?? "—";
         document.getElementById("count-portfolios").textContent = d.portfolios_count ?? "—";
         document.getElementById("count-accounts").textContent   = d.accounts_count   ?? "—";
+
+        // Show zero-state onboarding when there are no strategies
+        const zeroState = document.getElementById("zero-state");
+        if (zeroState) {
+            zeroState.style.display = (d.strategies_count === 0) ? "" : "none";
+        }
 
         if (!silent) {
             renderPie("symbol",   "pie-symbol",   d.by_symbol);
@@ -35,7 +42,7 @@ async function loadSummary(silent = false) {
 async function loadStrategies(silent = false) {
     if (!silent) {
         const el = document.getElementById("table-all-strategies");
-        if (el) el.innerHTML = '<div class="skel skel-row"></div><div class="skel skel-row"></div>';
+        if (el) el.innerHTML = skelRows(2);
     }
     try {
         const res = await fetch("/api/strategies");
@@ -78,7 +85,7 @@ async function loadPortfolios() {
 async function loadSymbols(silent = false) {
     if (!silent) {
         const el = document.getElementById("symbols-table-container");
-        if (el) el.innerHTML = '<div class="skel skel-row"></div>';
+        if (el) el.innerHTML = skelRows(1);
     }
     try {
         _allSymbols = await fetchJson("/api/symbols");
@@ -112,16 +119,16 @@ async function loadFloatingPnL() {
             const cls = fp >= 0 ? "profit-positive" : "profit-negative";
             return `<tr>
                 <td class="mono">${s.strategy_id}</td>
-                <td>${s.strategy_name || "—"}</td>
+                <td>${esc(s.strategy_name) || "—"}</td>
                 <td style="font-variant-numeric:tabular-nums">${s.balance != null ? fmt(s.balance) : "—"}</td>
                 <td style="font-variant-numeric:tabular-nums">${s.equity != null ? fmt(s.equity) : "—"}</td>
                 <td class="${cls}" style="font-variant-numeric:tabular-nums">${fmt(fp)}</td>
             </tr>`;
         }).join("");
-        container.innerHTML = `<table class="data-table">
+        container.innerHTML = `<div class="table-responsive"><table class="data-table">
             <thead><tr><th>ID</th><th>Strategy</th><th>Balance</th><th>Equity</th><th>Floating P&amp;L</th></tr></thead>
             <tbody>${rows}</tbody>
-        </table>`;
+        </table></div>`;
     } catch(e) {
         document.getElementById("floating-container").innerHTML =
             `<p class="text-muted" style="padding:0.5rem">No data available.</p>`;
@@ -172,17 +179,27 @@ async function createOrUpdatePortfolio() {
 }
 
 async function deleteStrategy(id, name) {
-    if (!confirm(`Delete strategy "${name}" (${id})?\n\nThis will permanently remove all associated deals and equity data.`)) return;
+    const confirmed = await showConfirmModal(
+        "Delete Strategy",
+        `Delete strategy <strong>${name}</strong> (${id})?<br><br>This will permanently remove all associated deals and equity data.`,
+        { confirmLabel: "Delete", confirmClass: "btn-danger" }
+    );
+    if (!confirmed) return;
     const res = await fetch(`/api/strategies/${id}`, { method: "DELETE" });
     if (res.ok) { loadSummary(); loadStrategies(); }
-    else alert("Failed to delete strategy.");
+    else showToast("Error", "Failed to delete strategy.", "error");
 }
 
 async function deletePortfolio(id, name) {
-    if (!confirm(`Delete portfolio "${name}"?\n\nThis will NOT delete the strategies inside it.`)) return;
+    const confirmed = await showConfirmModal(
+        "Delete Portfolio",
+        `Delete portfolio <strong>${name}</strong>?<br><br>This will <em>not</em> delete the strategies inside it.`,
+        { confirmLabel: "Delete", confirmClass: "btn-danger" }
+    );
+    if (!confirmed) return;
     const res = await fetch(`/api/portfolios/${id}`, { method: "DELETE" });
     if (res.ok) { loadPortfolios(); loadSummary(); }
-    else alert("Failed to delete portfolio.");
+    else showToast("Error", "Failed to delete portfolio.", "error");
 }
 
 async function patchStrategy(id, data) {
@@ -242,11 +259,16 @@ async function saveSymbol() {
 }
 
 async function deleteSymbol(id, name) {
-    if (!confirm(`Delete symbol "${name}"?`)) return;
+    const confirmed = await showConfirmModal(
+        "Delete Symbol",
+        `Delete symbol <strong>${name}</strong>?`,
+        { confirmLabel: "Delete", confirmClass: "btn-danger" }
+    );
+    if (!confirmed) return;
     try {
         await fetchJson(`/api/symbols/${id}`, { method: "DELETE" });
         await loadSymbols(true);
-    } catch(e) { alert("Failed to delete symbol."); }
+    } catch(e) { showToast("Error", "Failed to delete symbol.", "error"); }
 }
 
 // ── Portfolio page ────────────────────────────────────────────────────────────
@@ -257,7 +279,7 @@ async function loadPortfolio() {
     _portfolio = await res.json();
 
     document.getElementById("portfolio-title").innerHTML =
-        `${_portfolio.name || "Portfolio"} <span class="mono" style="font-size:0.75em;color:var(--text-muted)">#${_portfolio.id}</span>`;
+        `${esc(_portfolio.name) || "Portfolio"} <span class="mono" style="font-size:0.75em;color:var(--text-muted)">#${_portfolio.id}</span>`;
 
     const badge = document.getElementById("portfolio-status-badge");
     badge.textContent = _portfolio.live ? "Live" : "Incubation";
@@ -275,8 +297,12 @@ async function loadPortfolio() {
         .map(([label, value]) => `
             <div class="info-item">
                 <span class="info-label">${label}</span>
-                <span class="info-value">${value}</span>
+                <span class="info-value">${esc(value)}</span>
             </div>`).join("");
+
+    if (typeof updateAdvancedAnalysisLink === "function") {
+        updateAdvancedAnalysisLink();
+    }
 }
 
 async function loadMetrics() {
@@ -286,11 +312,15 @@ async function loadMetrics() {
         const container = document.getElementById("metrics-container");
         if (data.error) {
             _portfolioTotalTrades = null;
+            _portfolioNetProfit = null;
             container.innerHTML = `<p class="empty-state">${data.error}</p>`;
             return;
         }
         _portfolioTotalTrades = Number.isFinite(Number(data["Total Trades"]))
             ? Number(data["Total Trades"])
+            : null;
+        _portfolioNetProfit = Number.isFinite(Number(data.Profit))
+            ? Number(data.Profit)
             : null;
         renderMetricsGrid(container, data, {
             hiddenKeys: ["gross profit", "gross loss"],
@@ -303,6 +333,7 @@ async function loadMetrics() {
         markUpdated("metrics");
     } catch(e) {
         _portfolioTotalTrades = null;
+        _portfolioNetProfit = null;
         document.getElementById("metrics-container").innerHTML = '<p class="error">Error loading metrics.</p>';
     }
 }
@@ -389,8 +420,13 @@ async function savePortfolio() {
 }
 
 async function confirmDelete() {
-    if (!confirm(`Delete portfolio "${_portfolio?.name}"? This action cannot be undone.`)) return;
+    const confirmed = await showConfirmModal(
+        "Delete Portfolio",
+        `Delete portfolio <strong>${_portfolio?.name}</strong>? This action cannot be undone.`,
+        { confirmLabel: "Delete", confirmClass: "btn-danger" }
+    );
+    if (!confirmed) return;
     const res = await fetch(`/api/portfolios/${PORTFOLIO_ID}`, { method: "DELETE" });
     if (res.ok) window.location = "/";
-    else alert("Failed to delete portfolio.");
+    else showToast("Error", "Failed to delete portfolio.", "error");
 }

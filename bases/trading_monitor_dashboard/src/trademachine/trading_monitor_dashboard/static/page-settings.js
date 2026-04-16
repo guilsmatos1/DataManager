@@ -40,8 +40,23 @@
             });
             if (response.ok) {
                 const data = await response.json();
-                document.getElementById('bot_token').value = '';
-                document.getElementById('chat_id').value = '';
+                const botTokenInput = document.getElementById('bot_token');
+                const chatIdInput = document.getElementById('chat_id');
+                const botTokenHint = document.getElementById('bot_token_hint');
+                const chatIdHint = document.getElementById('chat_id_hint');
+
+                botTokenInput.value = data.bot_token || '';
+                chatIdInput.value = data.chat_id || '';
+                botTokenInput.placeholder = 'e.g.: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz';
+                chatIdInput.placeholder = 'e.g.: -100123456789';
+
+                botTokenHint.textContent = data.bot_token_configured
+                    ? 'Saved token loaded from settings.'
+                    : 'No token saved yet.';
+                chatIdHint.textContent = data.chat_id_configured
+                    ? 'Saved chat ID loaded from settings.'
+                    : 'No chat ID saved yet.';
+
                 document.getElementById('notify_closed_trades').checked = Boolean(data.notify_closed_trades);
                 document.getElementById('notify_system_errors').checked = Boolean(data.notify_system_errors);
                 document.getElementById('var_95_threshold').value = data.var_95_threshold || '';
@@ -147,7 +162,9 @@
             if (res.ok) {
                 const data = await res.json();
                 document.getElementById('dm_url').value = data.url || '';
-                document.getElementById('dm_api_key').value = '';
+                const keyInput = document.getElementById('dm_api_key');
+                keyInput.value = data.api_key || '';
+                keyInput.placeholder = 'Enter API key';
                 document.getElementById('dm_timeout').value = data.timeout || 30;
             }
         } catch (e) { console.error('Error loading DM settings:', e); }
@@ -423,7 +440,7 @@
                 <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:0.4rem;padding:0.6rem 0.75rem;font-size:0.8rem">
                     <div style="display:flex;gap:0.75rem;margin-bottom:0.25rem">
                         <span class="badge badge-neutral">${e.topic || "—"}</span>
-                        <span style="color:var(--text-muted)">${e.timestamp ? new Date(e.timestamp).toLocaleString("en-US") : "—"}</span>
+                        <span style="color:var(--text-muted)">${formatDateTime(e.timestamp)}</span>
                     </div>
                     <div style="color:#f97316;margin-bottom:0.2rem">${e.error_message || ""}</div>
                     <details><summary style="color:var(--text-muted);cursor:pointer">Raw message</summary>
@@ -436,7 +453,12 @@
     }
 
     async function clearDeadLetters() {
-        if (!confirm("Clear all ingestion errors?")) return;
+        const confirmed = await showConfirmModal(
+            "Clear Ingestion Errors",
+            "This will permanently remove all recorded ingestion errors. Are you sure?",
+            { confirmLabel: "Clear All", confirmClass: "btn-danger" }
+        );
+        if (!confirmed) return;
         await fetch("/api/ingestion-errors", { method: "DELETE", headers: { "X-API-Key": API_KEY } });
         loadDeadLetters();
     }

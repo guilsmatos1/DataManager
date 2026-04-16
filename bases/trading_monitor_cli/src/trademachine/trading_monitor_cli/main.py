@@ -6,6 +6,7 @@ from trademachine.core.logger import setup_logger
 from trademachine.tradingmonitor_ingestion.public import HEARTBEAT_FILE
 from trademachine.tradingmonitor_storage.public import (
     AccountRepository,
+    DatabaseInitializationError,
     DatabaseUnavailableError,
     PortfolioRepository,
     StrategyRepository,
@@ -52,6 +53,9 @@ def setup_db():
     typer.echo("Initializing database...")
     try:
         init_db()
+    except DatabaseInitializationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     except DatabaseUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc

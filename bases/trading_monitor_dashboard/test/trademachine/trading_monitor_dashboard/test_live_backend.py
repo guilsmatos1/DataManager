@@ -110,7 +110,7 @@ def test_get_real_overview_uses_dashboard_overview_service(mock_db):
 def test_get_real_daily_uses_dashboard_overview_service(mock_db):
     with patch(
         "trademachine.trading_monitor_dashboard.routes.get_real_daily_payload",
-        return_value=[{"date": "2026-01-01", "net_profit": 12.5}],
+        return_value=[{"date": "2026-01-01", "net_profit": 12.5, "trades_count": None}],
     ) as mock_daily:
         response = client.get(
             "/api/real/daily",
@@ -118,7 +118,8 @@ def test_get_real_daily_uses_dashboard_overview_service(mock_db):
         )
 
     assert response.status_code == 200
-    assert response.json() == [{"date": "2026-01-01", "net_profit": 12.5}]
+    assert response.json()[0]["date"] == "2026-01-01"
+    assert response.json()[0]["net_profit"] == 12.5
     mock_daily.assert_called_once_with(mock_db)
 
 
@@ -130,7 +131,11 @@ def test_get_real_recent_deals_uses_dashboard_overview_service(mock_db):
                 "ticket": 7,
                 "strategy_id": "s1",
                 "strategy_name": "Alpha",
+                "type": "buy",
                 "net_profit": 15.0,
+                "profit": 15.0,
+                "commission": 0.0,
+                "swap": 0.0,
             }
         ],
     ) as mock_recent:
@@ -203,6 +208,20 @@ def test_get_strategy_trade_stats_uses_dashboard_history_service(mock_db):
 
     assert response.status_code == 200
     mock_get.assert_called_once_with(mock_db, "s1", None)
+
+
+def test_get_strategy_trade_stats_passes_side_filter(mock_db):
+    with patch(
+        "trademachine.trading_monitor_dashboard.routes.get_strategy_trade_stats_payload",
+        return_value={"by_hour": [], "by_dow": []},
+    ) as mock_get:
+        response = client.get(
+            "/api/strategies/s1/trade-stats?side=buy",
+            headers={"X-API-Key": "test-api-key-pytest"},
+        )
+
+    assert response.status_code == 200
+    mock_get.assert_called_once_with(mock_db, "s1", "buy")
 
 
 def test_get_strategy_daily_uses_dashboard_history_service(mock_db):
@@ -286,7 +305,7 @@ def test_get_backtest_deals_uses_dashboard_history_service(mock_db):
         },
     ) as mock_get:
         response = client.get(
-            "/api/backtests/9/deals?page=1&page_size=50&side=short",
+            "/api/backtests/9/deals?page=1&page_size=50&side=sell",
             headers={"X-API-Key": "test-api-key-pytest"},
         )
 
@@ -296,8 +315,21 @@ def test_get_backtest_deals_uses_dashboard_history_service(mock_db):
         9,
         page=1,
         page_size=50,
-        side="short",
+        side="sell",
     )
+
+
+def test_get_backtest_deals_rejects_invalid_side(mock_db):
+    with patch(
+        "trademachine.trading_monitor_dashboard.routes.get_backtest_deals_payload",
+    ) as mock_get:
+        response = client.get(
+            "/api/backtests/9/deals?page=1&page_size=50&side=short",
+            headers={"X-API-Key": "test-api-key-pytest"},
+        )
+
+    assert response.status_code == 422
+    mock_get.assert_not_called()
 
 
 def test_datamanager_settings_test_uses_integration_service(mock_db):
@@ -313,6 +345,26 @@ def test_datamanager_settings_test_uses_integration_service(mock_db):
     assert response.status_code == 200
     assert response.json() == {"ok": True, "databases_count": 3}
     mock_test.assert_called_once_with(mock_db)
+
+
+def test_datamanager_settings_endpoint_returns_api_key(mock_db):
+    with patch(
+        "trademachine.trading_monitor_dashboard.routes.load_datamanager_settings",
+        return_value=routes.DataManagerSettings(
+            url="http://localhost:8686",
+            api_key="dm-secret-key",
+            api_key_configured=True,
+            timeout=30.0,
+        ),
+    ) as mock_load:
+        response = client.get(
+            "/api/settings/datamanager",
+            headers={"X-API-Key": "test-api-key-pytest"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["api_key"] == "dm-secret-key"
+    mock_load.assert_called_once_with(mock_db)
 
 
 def test_list_benchmarks_uses_service_payloads(mock_db):
@@ -358,6 +410,54 @@ def test_strategy_metrics_endpoint_uses_dashboard_metrics_service(mock_db):
     assert response.status_code == 200
     assert response.json()["Profit"] == 12.5
     mock_metrics.assert_called_once_with(mock_db, "strat1", None)
+
+
+def test_strategy_metrics_endpoint_passes_side_filter(mock_db):
+    with patch(
+        "trademachine.trading_monitor_dashboard.routes.get_strategy_metrics_payload",
+        return_value={"Profit": 12.5},
+    ) as mock_metrics:
+        response = client.get(
+            "/api/strategies/strat1/metrics?side=sell",
+            headers={"X-API-Key": "test-api-key-pytest"},
+        )
+
+    assert response.status_code == 200
+    mock_metrics.assert_called_once_with(mock_db, "strat1", "sell")
+
+
+def test_portfolio_metrics_endpoint_returns_422_for_validation_errors(mock_db):
+    with patch(
+        "trademachine.trading_monitor_dashboard.routes.get_portfolio_metrics_payload",
+        side_effect=routes.DashboardMetricsValidationError(
+            "No strategies in this portfolio"
+        ),
+    ) as mock_metrics:
+        response = client.get(
+            "/api/portfolios/7/metrics",
+            headers={"X-API-Key": "test-api-key-pytest"},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "No strategies in this portfolio"
+    mock_metrics.assert_called_once_with(mock_db, 7)
+
+
+def test_portfolio_metrics_endpoint_returns_500_for_unexpected_value_error(mock_db):
+    with patch(
+        "trademachine.trading_monitor_dashboard.routes.get_portfolio_metrics_payload",
+        side_effect=ValueError("cannot reindex on an axis with duplicate labels"),
+    ) as mock_metrics:
+        response = client.get(
+            "/api/portfolios/7/metrics",
+            headers={"X-API-Key": "test-api-key-pytest"},
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == (
+        "An internal error occurred during metrics calculation"
+    )
+    mock_metrics.assert_called_once_with(mock_db, 7)
 
 
 def test_portfolio_equity_breakdown_endpoint_uses_dashboard_metrics_service(mock_db):

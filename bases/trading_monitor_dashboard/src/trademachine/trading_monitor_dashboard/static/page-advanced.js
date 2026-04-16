@@ -7,6 +7,12 @@ let _analysisEquityScale = localStorage.getItem("tm-advanced-equity-scale") || "
 let _analysisEquityPoints = [];
 let _analysisComparisonPoints = [];
 let _analysisBenchmark = null;
+let _advMonthlyChart = null;
+let _advAnnualChart = null;
+let _advDistHourChart = null;
+let _advDistDowChart = null;
+let _advUnderwaterChart = null;
+let _advOverlayChart = null;
 
 function setAdvancedSide(side) {
     _advancedSide = side;
@@ -22,6 +28,7 @@ function setAnalysisEquityScale(scale) {
     );
     if (_analysisEquityPoints.length || _analysisComparisonPoints.length) {
         renderAnalysisChart(_analysisEquityPoints, _analysisComparisonPoints, _analysisBenchmark);
+        renderAnalysisUnderwaterChart(_analysisEquityPoints);
     }
 }
 
@@ -81,22 +88,24 @@ function resetAnalysisOutput() {
     _analysisEquityPoints = [];
     _analysisComparisonPoints = [];
     _analysisBenchmark = null;
-    if (equityChart) {
-        equityChart.destroy();
-        equityChart = null;
-    }
-    if (positiveContribChart) {
-        positiveContribChart.destroy();
-        positiveContribChart = null;
-    }
-    if (negativeContribChart) {
-        negativeContribChart.destroy();
-        negativeContribChart = null;
-    }
+    equityChart = destroyChart(equityChart);
+    positiveContribChart = destroyChart(positiveContribChart);
+    negativeContribChart = destroyChart(negativeContribChart);
+    _advMonthlyChart = destroyChart(_advMonthlyChart);
+    _advAnnualChart = destroyChart(_advAnnualChart);
+    _advDistHourChart = destroyChart(_advDistHourChart);
+    _advDistDowChart = destroyChart(_advDistDowChart);
+    _advUnderwaterChart = destroyChart(_advUnderwaterChart);
+    _advOverlayChart = destroyChart(_advOverlayChart);
     document.getElementById("equity-section").style.display = "none";
+    document.getElementById("underwater-section").style.display = "none";
     document.getElementById("metrics-section").style.display = "none";
     document.getElementById("positive-contrib-section").style.display = "none";
     document.getElementById("negative-contrib-section").style.display = "none";
+    document.getElementById("overlay-section").style.display = "none";
+    document.getElementById("monthly-section").style.display = "none";
+    document.getElementById("distribution-section").style.display = "none";
+    document.getElementById("correlation-link").style.display = "none";
     document.querySelector("#equity-section .chart-wrapper").innerHTML = '<canvas id="equity-chart"></canvas>';
     document.getElementById("analysis-metrics").innerHTML = "";
     document.getElementById("analysis-range").textContent = "";
@@ -220,14 +229,8 @@ function renderContributionCharts(contributions) {
     const negWrap = document.querySelector("#negative-contrib-section .chart-wrapper");
 
     if (!contributions || !contributions.length) {
-        if (positiveContribChart) {
-            positiveContribChart.destroy();
-            positiveContribChart = null;
-        }
-        if (negativeContribChart) {
-            negativeContribChart.destroy();
-            negativeContribChart = null;
-        }
+        positiveContribChart = destroyChart(positiveContribChart);
+        negativeContribChart = destroyChart(negativeContribChart);
         posSection.style.display = "none";
         negSection.style.display = "none";
         return;
@@ -247,10 +250,7 @@ function renderContributionCharts(contributions) {
             const pct = totalPos > 0 ? ((c.profit / totalPos) * 100).toFixed(1) : "0.0";
             return `${c.name} (${pct}%)`;
         });
-        if (positiveContribChart) {
-            positiveContribChart.destroy();
-            positiveContribChart = null;
-        }
+        positiveContribChart = destroyChart(positiveContribChart);
         posWrap.innerHTML = '<canvas id="positive-contrib-chart"></canvas>';
         const ctx = document.getElementById("positive-contrib-chart").getContext("2d");
 
@@ -282,10 +282,7 @@ function renderContributionCharts(contributions) {
             },
         });
     } else {
-        if (positiveContribChart) {
-            positiveContribChart.destroy();
-            positiveContribChart = null;
-        }
+        positiveContribChart = destroyChart(positiveContribChart);
         posWrap.innerHTML = '<p class="empty-state" style="padding:2rem 0">No positive contribution in this range.</p>';
         posSection.style.display = "none";
     }
@@ -298,10 +295,7 @@ function renderContributionCharts(contributions) {
             const pct = totalNeg > 0 ? ((Math.abs(c.profit) / totalNeg) * 100).toFixed(1) : "0.0";
             return `${c.name} (${pct}%)`;
         });
-        if (negativeContribChart) {
-            negativeContribChart.destroy();
-            negativeContribChart = null;
-        }
+        negativeContribChart = destroyChart(negativeContribChart);
         negWrap.innerHTML = '<canvas id="negative-contrib-chart"></canvas>';
         const ctx = document.getElementById("negative-contrib-chart").getContext("2d");
 
@@ -333,10 +327,7 @@ function renderContributionCharts(contributions) {
             },
         });
     } else {
-        if (negativeContribChart) {
-            negativeContribChart.destroy();
-            negativeContribChart = null;
-        }
+        negativeContribChart = destroyChart(negativeContribChart);
         negWrap.innerHTML = '<p class="empty-state" style="padding:2rem 0">No negative contribution in this range.</p>';
         negSection.style.display = "none";
     }
@@ -354,7 +345,8 @@ function renderAnalysisMetrics(metrics) {
 
     renderMetricsGrid(container, metrics, {
         advancedKeys: [],
-        integerKeys: ["total trades"],
+        integerKeys: ["total trades", "consecutive wins", "consecutive losses", "long trades", "short trades"],
+        hiddenKeys: ["return on capital (%)"],
     });
     section.style.display = "block";
 }
@@ -375,7 +367,7 @@ function buildAnalysisSeries(points, getter) {
         if (_analysisEquityScale === "pct") {
             return parseFloat((((numericValue / baseline) - 1) * 100).toFixed(4));
         }
-        return parseFloat(numericValue.toFixed(4));
+        return parseFloat((numericValue - baseline).toFixed(4));
     });
 }
 
@@ -396,13 +388,17 @@ function renderAnalysisChart(equityPoints, comparisonPoints, benchmark) {
     const labelsSource = hasComparison ? comparisonPoints : equityPoints;
     const labels = buildEquityChartLabels(labelsSource);
 
+    const seriesData = hasComparison
+        ? buildAnalysisSeries(comparisonPoints, (point) => point.portfolio)
+        : buildAnalysisSeries(equityPoints, (point) => point.equity);
+    const lastValue = seriesData.filter(v => v != null).pop() ?? 0;
+    const palette = getProfitPalette(lastValue);
+
     const datasets = [{
         label: "Portfolio / Strategies",
-        data: hasComparison
-            ? buildAnalysisSeries(comparisonPoints, (point) => point.portfolio)
-            : buildAnalysisSeries(equityPoints, (point) => point.equity),
-        borderColor: "#10b981",
-        backgroundColor: "rgba(16,185,129,0.06)",
+        data: seriesData,
+        borderColor: palette.borderColor,
+        backgroundColor: palette.backgroundColor,
         fill: true,
         tension: 0.3,
         pointRadius: 0,
@@ -423,7 +419,7 @@ function renderAnalysisChart(equityPoints, comparisonPoints, benchmark) {
         });
     }
 
-    if (equityChart) equityChart.destroy();
+    destroyChart(equityChart);
     equityChart = createEquityLineChart(ctx, {
         labels,
         datasets,
@@ -438,6 +434,173 @@ function renderAnalysisChart(equityPoints, comparisonPoints, benchmark) {
         },
     });
     document.getElementById("equity-section").style.display = "block";
+}
+
+function renderAnalysisUnderwaterChart(equityPoints) {
+    const section = document.getElementById("underwater-section");
+    const canvasId = "analysis-underwater-chart";
+    const wrapper = document.querySelector("#underwater-section .chart-wrapper");
+
+    if (!equityPoints || !equityPoints.length) {
+        _advUnderwaterChart = destroyChart(_advUnderwaterChart);
+        section.style.display = "none";
+        return;
+    }
+
+    wrapper.innerHTML = `<canvas id="${canvasId}"></canvas>`;
+    const canvas = document.getElementById(canvasId);
+    const isPct = _analysisEquityScale === "pct";
+    const seriesValues = buildRebasedEquitySeries(
+        equityPoints, _analysisEquityScale, (p) => p.equity
+    );
+
+    let peak = -Infinity;
+    const ddValues = seriesValues.map(v => {
+        if (v > peak) peak = v;
+        return parseFloat((v - peak).toFixed(4));
+    });
+
+    const labels = buildEquityChartLabels(equityPoints);
+    const { tickColor, gridColor } = getEquityChartColors();
+    const ddTickCb = isPct ? v => `${v.toFixed(1)}%` : v => fmt(v);
+    const ddTooltipCb = isPct
+        ? c => ` DD: ${c.parsed.y.toFixed(2)}%`
+        : c => ` DD: ${fmt(c.parsed.y)}`;
+
+    destroyChart(_advUnderwaterChart);
+    _advUnderwaterChart = new Chart(canvas.getContext("2d"), {
+        type: "line",
+        data: {
+            labels,
+            datasets: [{
+                label: isPct ? "Drawdown %" : "Drawdown $",
+                data: ddValues,
+                borderColor: CHART_COLORS.underwaterBorder,
+                backgroundColor: CHART_COLORS.underwaterFill,
+                fill: true,
+                tension: 0.2,
+                pointRadius: 0,
+                borderWidth: 1.5,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ddTooltipCb } },
+            },
+            scales: {
+                x: { ticks: { maxTicksLimit: 12, color: tickColor }, grid: { color: gridColor } },
+                y: {
+                    ticks: { color: tickColor, callback: ddTickCb },
+                    grid: { color: gridColor },
+                    max: 0,
+                },
+            },
+        },
+    });
+    section.style.display = "block";
+}
+
+function renderStrategyOverlay(perStrategyEquity) {
+    const section = document.getElementById("overlay-section");
+
+    if (!perStrategyEquity || perStrategyEquity.length < 2) {
+        _advOverlayChart = destroyChart(_advOverlayChart);
+        section.style.display = "none";
+        return;
+    }
+
+    const wrapper = document.querySelector("#overlay-section .chart-wrapper");
+    wrapper.innerHTML = '<canvas id="overlay-chart"></canvas>';
+    const canvas = document.getElementById("overlay-chart");
+    const { tickColor, gridColor } = getEquityChartColors();
+    const isPct = _analysisEquityScale === "pct";
+
+    const longestSeries = perStrategyEquity.reduce(
+        (longest, s) => s.points.length > longest.points.length ? s : longest,
+        perStrategyEquity[0]
+    );
+    const labels = buildEquityChartLabels(longestSeries.points);
+
+    const datasets = perStrategyEquity.map((s, i) => {
+        const color = CONTRIB_COLORS[i % CONTRIB_COLORS.length];
+        const values = buildRebasedEquitySeries(s.points, "pct", p => p.equity);
+        return {
+            label: s.name,
+            data: values,
+            borderColor: color,
+            backgroundColor: "transparent",
+            fill: false,
+            tension: 0.3,
+            pointRadius: 0,
+            borderWidth: 2,
+        };
+    });
+
+    destroyChart(_advOverlayChart);
+    _advOverlayChart = createEquityLineChart(canvas.getContext("2d"), {
+        labels,
+        datasets,
+        isPct: true,
+        zoom: false,
+        legend: { display: true, labels: { color: tickColor, boxWidth: 12, padding: 10 } },
+        yTitle: "Return %",
+        tooltipLabel: (c) => {
+            if (c.parsed.y == null) return null;
+            return ` ${c.dataset.label}: ${Number(c.parsed.y).toFixed(2)}%`;
+        },
+    });
+    section.style.display = "block";
+}
+
+function updateCorrelationLink(strategyIds) {
+    const link = document.getElementById("correlation-link");
+    if (strategyIds.length < 2) {
+        link.style.display = "none";
+        return;
+    }
+    const params = new URLSearchParams();
+    strategyIds.forEach(id => params.append("strategy_ids", id));
+    link.href = `/correlation?${params.toString()}`;
+    link.style.display = "";
+}
+
+function renderAdvancedPnlAndDistribution(dailyPnl, tradeStats) {
+    const monthlySection = document.getElementById("monthly-section");
+    const distSection = document.getElementById("distribution-section");
+
+    if (dailyPnl.length) {
+        const { labels, values } = aggregateMonthlyPnl(dailyPnl);
+        _advMonthlyChart = renderPnlBarChart(
+            "monthly-pnl-chart", "monthly-pnl-wrapper",
+            monthLabelsForDisplay(labels), values, _advMonthlyChart
+        );
+        const annual = aggregateAnnualPnl(labels, values);
+        _advAnnualChart = renderPnlBarChart(
+            "annual-pnl-chart", "annual-pnl-wrapper",
+            annual.labels, annual.values, _advAnnualChart
+        );
+        monthlySection.style.display = "block";
+    }
+
+    if (tradeStats.by_hour) {
+        _advDistHourChart = renderDistBarChart(
+            "dist-hour-chart", "dist-hour-wrapper",
+            tradeStats.by_hour.map(r => r.hour + ":00"),
+            tradeStats.by_hour.map(r => r.net_profit),
+            _advDistHourChart
+        );
+        _advDistDowChart = renderDistBarChart(
+            "dist-dow-chart", "dist-dow-wrapper",
+            tradeStats.by_dow.map(r => r.label),
+            tradeStats.by_dow.map(r => r.net_profit),
+            _advDistDowChart
+        );
+        distSection.style.display = "block";
+    }
 }
 
 async function runAdvancedAnalysis() {
@@ -480,8 +643,12 @@ async function runAdvancedAnalysis() {
             _analysisBenchmark
         );
 
+        renderAnalysisUnderwaterChart(_analysisEquityPoints);
         renderAnalysisMetrics(data.metrics || {});
         renderContributionCharts(data.strategy_contributions || []);
+        renderStrategyOverlay(data.per_strategy_equity || []);
+        renderAdvancedPnlAndDistribution(data.daily_pnl || [], data.trade_stats || {});
+        updateCorrelationLink(strategyIds);
 
         const rangeText = dateFrom || dateTo
             ? `${dateFrom || "beginning"} → ${dateTo || "now"}`

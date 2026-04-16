@@ -5,8 +5,11 @@ import pytest
 import trademachine.tradingmonitor_storage.db.database as database_module
 import typer
 from sqlalchemy.exc import OperationalError
-from trademachine.trading_monitor_cli.main import start_ingestion
-from trademachine.tradingmonitor_storage.db.database import DatabaseUnavailableError
+from trademachine.trading_monitor_cli.main import setup_db, start_ingestion
+from trademachine.tradingmonitor_storage.db.database import (
+    DatabaseInitializationError,
+    DatabaseUnavailableError,
+)
 
 
 def test_ensure_database_connection_raises_actionable_error():
@@ -67,3 +70,16 @@ def test_start_ingestion_exits_cleanly_when_database_is_unavailable(capsys):
     captured = capsys.readouterr()
     assert exc_info.value.exit_code == 1
     assert "database offline" in captured.err
+
+
+def test_setup_db_exits_cleanly_when_hypertable_creation_fails(capsys):
+    with patch(
+        "trademachine.trading_monitor_cli.main.init_db",
+        side_effect=DatabaseInitializationError("hypertable setup failed"),
+    ):
+        with pytest.raises(typer.Exit) as exc_info:
+            setup_db()
+
+    captured = capsys.readouterr()
+    assert exc_info.value.exit_code == 1
+    assert "hypertable setup failed" in captured.err

@@ -1,14 +1,11 @@
 import csv
-import hashlib
 import io
 import logging
 import math
+from collections.abc import Generator
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-import numpy as np
-import pandas as pd
-from bs4 import BeautifulSoup
 from fastapi import (
     APIRouter,
     Depends,
@@ -16,16 +13,15 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     Security,
     UploadFile,
 )
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
-from sqlalchemy import cast, func, or_, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy.types import Date
 from trademachine.mt5.parser import (
-    _EN_TO_PT_COLUMNS,
     MT5ReportParser,
 )
 from trademachine.tradingmonitor_analytics.public import (
@@ -35,6 +31,7 @@ from trademachine.tradingmonitor_analytics.public import (
     DashboardAnalysisValidationError,
     DashboardHistoryNotFoundError,
     DashboardMetricsNotFoundError,
+    DashboardMetricsValidationError,
     DashboardStrategiesNotFoundError,
     create_benchmark_record,
     delete_benchmark_record,
@@ -45,10 +42,15 @@ from trademachine.tradingmonitor_analytics.public import (
     get_backtest_metrics_payload,
     get_backtest_payload,
     get_backtest_trade_stats_payload,
+    get_floating_pnl_payload,
+    get_portfolio_contributions_payload,
+    get_portfolio_daily_payload,
+    get_portfolio_deals_payload,
     get_portfolio_equity_breakdown_payload,
     get_portfolio_equity_payload,
     get_portfolio_metrics_payload,
     get_portfolio_strategies_payload,
+    get_portfolio_trade_stats_payload,
     get_real_daily_payload,
     get_real_overview_payload,
     get_real_recent_deals_payload,
@@ -58,28 +60,27 @@ from trademachine.tradingmonitor_analytics.public import (
     get_strategy_metrics_payload,
     get_strategy_trade_stats_payload,
     get_summary_payload,
+    list_accounts_payload,
     list_benchmark_payloads,
     list_portfolios_payload,
     list_remote_databases,
     list_strategies_payload,
     list_strategy_backtests_payload,
-    load_benchmark_curve,
+    list_symbols_payload,
     set_default_benchmark_record,
     sync_benchmark_record,
     update_benchmark_record,
-)
-from trademachine.tradingmonitor_analytics.public import (
-    compute_max_drawdown as _compute_max_drawdown,
 )
 from trademachine.tradingmonitor_ingestion.public import (
     invalidate_cache,
     send_kill_command,
     test_datamanager_connection,
 )
-from trademachine.tradingmonitor_storage.public import (
+from trademachine.tradingmonitor_storage.public import (  # noqa: F401
     Account,
     AccountResponse,
     AccountUpdate,
+    AdvancedAnalysisResponse,
     Backtest,
     BacktestDeal,
     BacktestEquity,
@@ -89,19 +90,30 @@ from trademachine.tradingmonitor_storage.public import (
     BenchmarkRemoteDatabaseResponse,
     BenchmarkResponse,
     BenchmarkUpdate,
+    ConcurrencyResponse,
+    ContributionsResponse,
+    CorrelationResponse,
+    DailyProfitRow,
     DataManagerSettings,
     Deal,
-    DealType,
-    EquityCurve,
+    DynamicCorrelationResponse,
+    EquityBreakdownResponse,
     EquityPointResponse,
+    EquityTimestampPoint,
+    FloatingPnlResponse,
+    HealthResponse,
     IngestionError,
+    IngestionErrorResponse,
+    IngestionStatusResponse,
+    MetricsResponse,
     PaginatedBacktestDeals,
     PaginatedDeals,
     Portfolio,
     PortfolioCreate,
     PortfolioResponse,
     PortfolioUpdate,
-    Setting,
+    RealOverviewResponse,
+    RecentDeal,
     Strategy,
     StrategyResponse,
     StrategyUpdate,
@@ -112,9 +124,11 @@ from trademachine.tradingmonitor_storage.public import (
     SymbolUpdate,
     TelegramSettings,
     get_db,
+    get_telegram_settings_payload,
     notifier,
     settings,
     to_iso,
+    update_telegram_settings_payload,
 )
 from trademachine.tradingmonitor_storage.public import (
     get_datamanager_settings as load_datamanager_settings,
@@ -130,12 +144,15 @@ REAL_OVERVIEW_MAX_POINTS_PER_STRATEGY = 2_000
 # ── Authentication ────────────────────────────────────────────────────────────
 
 API_KEY_NAME = "X-API-Key"
-api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 
-def get_api_key(api_key: str = Security(api_key_header)):
+def get_api_key(request: Request, api_key: str | None = Security(api_key_header)):
     if api_key != settings.api_key:
-        raise HTTPException(status_code=403, detail="Invalid or missing API Key")
+        cookie_key = request.cookies.get("tm_session_key")
+        if cookie_key != settings.api_key:
+            raise HTTPException(status_code=403, detail="Invalid or missing API Key")
+        return cookie_key
     return api_key
 
 
@@ -150,8 +167,29 @@ def _sanitize_metrics(metrics: dict) -> dict:
     return result
 
 
+def _metrics_endpoint(payload_fn, entity_label: str):
+    """Run a metrics payload function with standardized error handling."""
+    try:
+        return _sanitize_metrics(payload_fn())
+    except DashboardMetricsNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except DashboardMetricsValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as exc:
+        logger.exception("Metrics calculation failed for %s", entity_label)
+        raise HTTPException(
+            status_code=500,
+            detail="An internal error occurred during metrics calculation",
+        ) from exc
+
+
 def _get_portfolio_or_404(db: Session, portfolio_id: int) -> Portfolio:
-    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
+    portfolio = (
+        db.query(Portfolio)
+        .options(joinedload(Portfolio.strategies))
+        .filter(Portfolio.id == portfolio_id)
+        .first()
+    )
     if portfolio is None:
         raise HTTPException(status_code=404, detail="Portfolio not found")
     return portfolio
@@ -173,63 +211,6 @@ def _get_portfolio_strategy_ids(
     return strategy_ids
 
 
-def _compute_var(equity_series: list[float], percentile: float = 95) -> float | None:
-    """Compute Value at Risk (VaR) from equity series using daily returns."""
-    if len(equity_series) < 5:
-        return None
-
-    # Calculate daily returns (approximate if equity_series is daily)
-    returns = np.diff(equity_series) / equity_series[:-1]
-    returns = returns[~np.isnan(returns) & ~np.isinf(returns)]
-
-    if len(returns) < 5:
-        return None
-
-    # VaR is the negative of the specified percentile of the returns
-    var = -np.percentile(returns, 100 - percentile)
-    return float(var)
-
-
-def _normalize_series_to_base(series: pd.Series, base_value: float) -> pd.Series:
-    if series.empty:
-        return series
-    first_value = float(series.iloc[0] or 0.0)
-    if first_value == 0:
-        return series
-    return (series.astype(float) / first_value) * base_value
-
-
-def _series_return_pct(series: pd.Series) -> float | None:
-    if series.empty:
-        return None
-    first_value = float(series.iloc[0] or 0.0)
-    last_value = float(series.iloc[-1] or 0.0)
-    if first_value == 0:
-        return None
-    return ((last_value / first_value) - 1.0) * 100
-
-
-def _series_max_drawdown_pct(series: pd.Series) -> float | None:
-    if series.empty:
-        return None
-    values = [float(v) for v in series.tolist()]
-    max_dd = _compute_max_drawdown(values)
-    return None if max_dd is None else max_dd * 100
-
-
-def _series_correlation(series_a: pd.Series, series_b: pd.Series) -> float | None:
-    if series_a.empty or series_b.empty:
-        return None
-    joined = pd.concat([series_a, series_b], axis=1, join="inner").dropna()
-    if len(joined) < 3:
-        return None
-    returns = joined.pct_change().dropna()
-    if len(returns) < 2:
-        return None
-    corr = returns.iloc[:, 0].corr(returns.iloc[:, 1])
-    return None if pd.isna(corr) else float(corr)
-
-
 router = APIRouter(prefix="/api", dependencies=[Depends(get_api_key)])
 
 
@@ -238,21 +219,7 @@ def get_summary(db: Session = Depends(get_db)):
     return get_summary_payload(db)
 
 
-def _setting_bool(db: Session, key: str, default: bool = False) -> bool:
-    setting = db.query(Setting).filter(Setting.key == key).first()
-    if not setting or setting.value is None:
-        return default
-    return str(setting.value).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _setting_str(db: Session, key: str, default: str) -> str:
-    setting = db.query(Setting).filter(Setting.key == key).first()
-    if not setting or setting.value is None or not str(setting.value).strip():
-        return default
-    return str(setting.value).strip().lower()
-
-
-@router.get("/real")
+@router.get("/real", response_model=RealOverviewResponse)
 def get_real_overview(
     max_points_per_strategy: int = Query(
         default=REAL_OVERVIEW_MAX_POINTS_PER_STRATEGY, ge=100, le=10_000
@@ -265,14 +232,14 @@ def get_real_overview(
     )
 
 
-@router.get("/real/daily")
+@router.get("/real/daily", response_model=list[DailyProfitRow])
 def get_real_daily(
     db: Session = Depends(get_db),
 ):
     return get_real_daily_payload(db)
 
 
-@router.get("/real/recent-deals")
+@router.get("/real/recent-deals", response_model=list[RecentDeal])
 def get_real_recent_deals(
     limit: int = Query(default=20, ge=1, le=250),
     db: Session = Depends(get_db),
@@ -282,24 +249,7 @@ def get_real_recent_deals(
 
 @router.get("/accounts", response_model=list[AccountResponse])
 def list_accounts(db: Session = Depends(get_db)):
-    accounts = db.query(Account).all()
-    net_profits: dict[str | None, float] = dict(
-        db.query(
-            Strategy.account_id, func.sum(Deal.profit + Deal.commission + Deal.swap)
-        )
-        .join(Deal, Deal.strategy_id == Strategy.id)
-        .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
-        .filter(Strategy.account_id.isnot(None))
-        .group_by(Strategy.account_id)
-        .all()
-    )
-    result = []
-    for a in accounts:
-        r = AccountResponse.model_validate(a)
-        raw = net_profits.get(a.id)
-        r.net_profit = float(raw) if raw is not None else None
-        result.append(r)
-    return result
+    return list_accounts_payload(db)
 
 
 @router.delete("/accounts/{account_id}", status_code=204)
@@ -380,58 +330,28 @@ def delete_strategy(strategy_id: str, db: Session = Depends(get_db)):
     s = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Strategy not found")
-    # strategy_id is part of composite PKs in child tables, so ORM cascade would try
-    # to NULL the FK before deletion — violating the PK constraint. Delete explicitly.
-    db.execute(text("DELETE FROM deals WHERE strategy_id = :sid"), {"sid": strategy_id})
-    db.execute(
-        text("DELETE FROM equity_curve WHERE strategy_id = :sid"), {"sid": strategy_id}
-    )
-    db.execute(
-        text("""
-        DELETE FROM backtest_deals WHERE backtest_id IN (
-            SELECT id FROM backtests WHERE strategy_id = :sid
-        )
-    """),
-        {"sid": strategy_id},
-    )
-    db.execute(
-        text("""
-        DELETE FROM backtest_equity WHERE backtest_id IN (
-            SELECT id FROM backtests WHERE strategy_id = :sid
-        )
-    """),
-        {"sid": strategy_id},
-    )
-    db.execute(
-        text("DELETE FROM backtests WHERE strategy_id = :sid"), {"sid": strategy_id}
-    )
-    db.execute(
-        text("DELETE FROM portfolio_strategy WHERE strategy_id = :sid"),
-        {"sid": strategy_id},
-    )
+    s.portfolios.clear()
     db.delete(s)
     db.commit()
     invalidate_cache(strategy_id=strategy_id)
 
 
-@router.get("/strategies/{strategy_id}/metrics")
+@router.get("/strategies/{strategy_id}/metrics", response_model=MetricsResponse)
 def get_strategy_metrics(
     strategy_id: str,
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    try:
-        return _sanitize_metrics(get_strategy_metrics_payload(db, strategy_id, side))
-    except DashboardMetricsNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Metrics calculation failed: {e}")
+    return _metrics_endpoint(
+        lambda: get_strategy_metrics_payload(db, strategy_id, side),
+        f"strategy {strategy_id}",
+    )
 
 
 @router.get("/strategies/{strategy_id}/trade-stats")
 def get_strategy_trade_stats(
     strategy_id: str,
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     try:
@@ -440,10 +360,10 @@ def get_strategy_trade_stats(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.get("/strategies/{strategy_id}/daily")
+@router.get("/strategies/{strategy_id}/daily", response_model=list[DailyProfitRow])
 def get_strategy_daily(
     strategy_id: str,
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     try:
@@ -457,7 +377,7 @@ def get_strategy_daily(
 )
 def get_strategy_equity(
     strategy_id: str,
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     try:
@@ -472,7 +392,7 @@ def get_strategy_deals(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
     q: str | None = Query(default=None),
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     try:
@@ -563,35 +483,40 @@ def get_portfolio_strategies(portfolio_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.get("/portfolios/{portfolio_id}/daily")
-def get_portfolio_daily(portfolio_id: int, db: Session = Depends(get_db)):
+@router.get("/portfolios/{portfolio_id}/deals", response_model=PaginatedDeals)
+def get_portfolio_deals(
+    portfolio_id: int,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=500),
+    q: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
     p = _get_portfolio_or_404(db, portfolio_id)
     strategy_ids = _get_portfolio_strategy_ids(p)
     if not strategy_ids:
-        return []
-    rows = (
-        db.query(
-            cast(Deal.timestamp, Date).label("date"),
-            func.sum(Deal.profit + Deal.commission + Deal.swap).label("net_profit"),
-            func.count(Deal.id).label("trades_count"),
-        )
-        .filter(Deal.strategy_id.in_(strategy_ids))
-        .filter(Deal.type != "BALANCE")
-        .group_by(cast(Deal.timestamp, Date))
-        .order_by(cast(Deal.timestamp, Date))
-        .all()
+        return PaginatedDeals(items=[], total=0, page=page, page_size=page_size)
+    return get_portfolio_deals_payload(
+        db, strategy_ids, page=page, page_size=page_size, q=q
     )
-    return [
-        {
-            "date": str(r.date),
-            "net_profit": float(r.net_profit),
-            "trades_count": int(r.trades_count),
-        }
-        for r in rows
-    ]
 
 
-@router.get("/portfolios/{portfolio_id}/equity")
+@router.get("/portfolios/{portfolio_id}/daily", response_model=list[DailyProfitRow])
+def get_portfolio_daily(portfolio_id: int, db: Session = Depends(get_db)):
+    p = _get_portfolio_or_404(db, portfolio_id)
+    strategy_ids = _get_portfolio_strategy_ids(p)
+    return get_portfolio_daily_payload(db, strategy_ids)
+
+
+@router.get("/portfolios/{portfolio_id}/trade-stats")
+def get_portfolio_trade_stats(portfolio_id: int, db: Session = Depends(get_db)):
+    p = _get_portfolio_or_404(db, portfolio_id)
+    strategy_ids = _get_portfolio_strategy_ids(p)
+    return get_portfolio_trade_stats_payload(db, strategy_ids)
+
+
+@router.get(
+    "/portfolios/{portfolio_id}/equity", response_model=list[EquityTimestampPoint]
+)
 def get_portfolio_equity(portfolio_id: int, db: Session = Depends(get_db)):
     try:
         payload = get_portfolio_equity_payload(db, portfolio_id)
@@ -612,7 +537,9 @@ def _ensure_utc(dt: datetime | None) -> datetime | None:
     return dt
 
 
-@router.get("/portfolios/{portfolio_id}/correlation")
+@router.get(
+    "/portfolios/{portfolio_id}/correlation", response_model=CorrelationResponse
+)
 def get_portfolio_correlation(
     portfolio_id: int,
     period: str = "daily",
@@ -632,7 +559,10 @@ def get_portfolio_correlation(
     return calculate_correlation_matrix(strategy_ids, period, since=_ensure_utc(since))
 
 
-@router.get("/portfolios/{portfolio_id}/correlation/dynamic")
+@router.get(
+    "/portfolios/{portfolio_id}/correlation/dynamic",
+    response_model=DynamicCorrelationResponse,
+)
 def get_portfolio_dynamic_correlation(
     portfolio_id: int,
     window_days: int = Query(default=30, ge=3, le=365),
@@ -651,7 +581,9 @@ def get_portfolio_dynamic_correlation(
     return calculate_dynamic_correlation(strategy_ids, window_days)
 
 
-@router.get("/portfolios/{portfolio_id}/concurrency")
+@router.get(
+    "/portfolios/{portfolio_id}/concurrency", response_model=ConcurrencyResponse
+)
 def get_portfolio_concurrency(
     portfolio_id: int,
     since: datetime | None = None,
@@ -670,19 +602,18 @@ def get_portfolio_concurrency(
     return calculate_concurrency(strategy_ids, since=_ensure_utc(since))
 
 
-@router.get("/portfolios/{portfolio_id}/metrics")
+@router.get("/portfolios/{portfolio_id}/metrics", response_model=MetricsResponse)
 def get_portfolio_metrics(portfolio_id: int, db: Session = Depends(get_db)):
-    try:
-        return _sanitize_metrics(get_portfolio_metrics_payload(db, portfolio_id))
-    except DashboardMetricsNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Metrics calculation failed: {e}")
+    return _metrics_endpoint(
+        lambda: get_portfolio_metrics_payload(db, portfolio_id),
+        f"portfolio {portfolio_id}",
+    )
 
 
-@router.get("/portfolios/{portfolio_id}/strategy-contributions")
+@router.get(
+    "/portfolios/{portfolio_id}/strategy-contributions",
+    response_model=ContributionsResponse,
+)
 def get_portfolio_strategy_contributions(
     portfolio_id: int,
     date_from: str | None = Query(default=None),
@@ -694,199 +625,17 @@ def get_portfolio_strategy_contributions(
     if not strategies:
         raise HTTPException(status_code=422, detail="No strategies in this portfolio")
 
-    from trademachine.tradingmonitor_analytics.metrics.repository import (
-        get_strategy_deals,
-    )
-
     dt_from = (
         datetime.fromisoformat(date_from).replace(tzinfo=UTC) if date_from else None
     )
     dt_to = datetime.fromisoformat(date_to).replace(tzinfo=UTC) if date_to else None
 
-    per_strategy: dict[str, float] = {}
-    for s in strategies:
-        label = s.name or s.id
-        deals_df = get_strategy_deals(s.id, since=dt_from)
-        if not deals_df.empty:
-            if dt_to is not None:
-                deals_df = deals_df[deals_df.index <= dt_to]
-        if deals_df.empty or "profit" not in deals_df.columns:
-            per_strategy[label] = 0.0
-        else:
-            per_strategy[label] = float(deals_df["profit"].sum())
-
-    positive = {k: v for k, v in per_strategy.items() if v > 0}
-    negative = {k: v for k, v in per_strategy.items() if v < 0}
-
-    total_pos = sum(positive.values()) if positive else 0.0
-    total_neg = sum(abs(v) for v in negative.values()) if negative else 0.0
-
-    pos_pct = (
-        {k: round(v / total_pos * 100, 2) for k, v in positive.items()}
-        if total_pos > 0
-        else {}
-    )
-    neg_pct = (
-        {k: round(abs(v) / total_neg * 100, 2) for k, v in negative.items()}
-        if total_neg > 0
-        else {}
+    return get_portfolio_contributions_payload(
+        db, strategies, date_from=dt_from, date_to=dt_to
     )
 
-    return {"positive": pos_pct, "negative": neg_pct}
 
-
-def _build_comparison_curve(
-    db: Session,
-    chart_series: pd.Series,
-    selected_benchmark,
-    dt_from: datetime | None,
-    dt_to: datetime | None,
-    metrics: dict[str, object],
-) -> list[dict[str, object]]:
-    if not selected_benchmark:
-        return [
-            {
-                "timestamp": to_iso(ts),
-                "portfolio": float(v),
-                "benchmark": None,
-            }
-            for ts, v in chart_series.items()
-        ]
-
-    benchmark_df = load_benchmark_curve(
-        db,
-        selected_benchmark.id,
-        date_from=dt_from,
-        date_to=dt_to,
-    )
-    if benchmark_df.empty:
-        metrics["Benchmark Status"] = "Selected benchmark has no synced local prices."
-        return [
-            {
-                "timestamp": to_iso(ts),
-                "portfolio": float(v),
-                "benchmark": None,
-            }
-            for ts, v in chart_series.items()
-        ]
-
-    first_equity = float(chart_series.iloc[0])
-    scaled_benchmark = _normalize_series_to_base(
-        benchmark_df["close"].astype(float),
-        first_equity,
-    )
-    joined = (
-        pd.concat(
-            [
-                chart_series.rename("portfolio"),
-                scaled_benchmark.rename("benchmark"),
-            ],
-            axis=1,
-            join="outer",
-        )
-        .sort_index()
-        .ffill()
-        .dropna(how="all")
-    )
-
-    benchmark_return = _series_return_pct(benchmark_df["close"].astype(float))
-    benchmark_drawdown = _series_max_drawdown_pct(benchmark_df["close"].astype(float))
-    portfolio_return = _series_return_pct(chart_series)
-    correlation = _series_correlation(chart_series, benchmark_df["close"].astype(float))
-
-    metrics["Benchmark Return"] = benchmark_return
-    metrics["Benchmark Drawdown"] = benchmark_drawdown
-    metrics["Portfolio Return (%)"] = portfolio_return
-    metrics["Excess Return vs Benchmark (%)"] = (
-        portfolio_return - benchmark_return
-        if portfolio_return is not None and benchmark_return is not None
-        else None
-    )
-    metrics["Correlation vs Benchmark"] = correlation
-
-    return [
-        {
-            "timestamp": to_iso(ts),
-            "portfolio": float(row["portfolio"])
-            if not pd.isna(row["portfolio"])
-            else None,
-            "benchmark": float(row["benchmark"])
-            if not pd.isna(row["benchmark"])
-            else None,
-        }
-        for ts, row in joined.iterrows()
-    ]
-
-
-def _collect_deal_and_equity_frames(
-    db: Session,
-    history_type: str,
-    selected_strategies,
-    dt_from: datetime | None,
-    dt_to: datetime | None,
-) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
-    from trademachine.tradingmonitor_analytics.metrics.repository import (
-        get_backtest_deals,
-        get_backtest_equity,
-        get_strategy_deals,
-        get_strategy_equity_curve,
-    )
-
-    deal_frames: list[pd.DataFrame] = []
-    equity_frames: list[pd.DataFrame] = []
-
-    if history_type == "backtest":
-        backtests = (
-            db.query(Backtest)
-            .filter(Backtest.strategy_id.in_([s.id for s in selected_strategies]))
-            .filter(or_(Backtest.status == "complete", Backtest.status.is_(None)))
-            .all()
-        )
-        if not backtests:
-            raise HTTPException(
-                status_code=422,
-                detail="No backtest history found for selected strategies.",
-            )
-
-        for bt in backtests:
-            deals_df = get_backtest_deals(bt.id)
-            if not deals_df.empty:
-                if dt_from is not None:
-                    deals_df = deals_df[deals_df.index >= dt_from]
-                if dt_to is not None:
-                    deals_df = deals_df[deals_df.index <= dt_to]
-                if not deals_df.empty:
-                    deal_frames.append(deals_df)
-
-            equity_df = get_backtest_equity(bt.id)
-            if not equity_df.empty:
-                if dt_from is not None:
-                    equity_df = equity_df[equity_df.index >= dt_from]
-                if dt_to is not None:
-                    equity_df = equity_df[equity_df.index <= dt_to]
-                if not equity_df.empty:
-                    equity_frames.append(equity_df)
-    else:
-        for strategy in selected_strategies:
-            deals_df = get_strategy_deals(strategy.id, since=dt_from)
-            if not deals_df.empty and dt_to is not None:
-                deals_df = deals_df[deals_df.index <= dt_to]
-            if not deals_df.empty:
-                deal_frames.append(deals_df)
-
-            equity_df = get_strategy_equity_curve(strategy.id)
-            if not equity_df.empty:
-                if dt_from is not None:
-                    equity_df = equity_df[equity_df.index >= dt_from]
-                if dt_to is not None:
-                    equity_df = equity_df[equity_df.index <= dt_to]
-                if not equity_df.empty:
-                    equity_frames.append(equity_df)
-
-    return deal_frames, equity_frames
-
-
-@router.get("/advanced-analysis")
+@router.get("/advanced-analysis", response_model=AdvancedAnalysisResponse)
 def get_advanced_analysis(
     strategy_ids: list[str] = Query(default=[]),
     history_type: str = Query(default="real"),
@@ -894,7 +643,7 @@ def get_advanced_analysis(
     date_to: str | None = Query(default=None),
     initial_balance: float | None = Query(default=None),
     benchmark_id: int | None = Query(default=None),
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     try:
@@ -916,23 +665,24 @@ def get_advanced_analysis(
         raise HTTPException(status_code=422, detail=str(e)) from e
 
 
-# ── Backtest endpoints ────────────────────────────────────────────────────────
-
-
-def _inject_bt_net_profit(bt: Backtest, db: Session) -> BacktestResponse:
-    r = BacktestResponse.model_validate(bt)
-    net = (
-        db.query(
-            func.sum(BacktestDeal.profit + BacktestDeal.commission + BacktestDeal.swap)
-        )
-        .filter(
-            BacktestDeal.backtest_id == bt.id,
-            BacktestDeal.type.in_([DealType.BUY, DealType.SELL]),
-        )
-        .scalar()
+@router.get("/correlation", response_model=CorrelationResponse)
+def get_standalone_correlation(
+    strategy_ids: list[str] = Query(default=[]),
+    period: str = Query(default="daily"),
+    since: datetime | None = Query(default=None),
+):
+    if len(strategy_ids) < 2:
+        raise HTTPException(status_code=422, detail="Need at least 2 strategies.")
+    from trademachine.tradingmonitor_analytics.metrics.calculator import (
+        calculate_correlation_matrix,
     )
-    r.net_profit = round(float(net), 2) if net is not None else None
-    return r
+
+    return calculate_correlation_matrix(
+        strategy_ids, period, since=_ensure_utc(since) if since else None
+    )
+
+
+# ── Backtest endpoints ────────────────────────────────────────────────────────
 
 
 @router.post("/strategies/{strategy_id}/kill")
@@ -985,15 +735,13 @@ def delete_backtest(backtest_id: int, db: Session = Depends(get_db)):
 @router.get("/backtests/{backtest_id}/metrics")
 def get_backtest_metrics(
     backtest_id: int,
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    try:
-        return _sanitize_metrics(get_backtest_metrics_payload(db, backtest_id, side))
-    except DashboardMetricsNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Metrics calculation failed: {e}")
+    return _metrics_endpoint(
+        lambda: get_backtest_metrics_payload(db, backtest_id, side),
+        f"backtest {backtest_id}",
+    )
 
 
 @router.get(
@@ -1001,7 +749,7 @@ def get_backtest_metrics(
 )
 def get_backtest_equity_endpoint(
     backtest_id: int,
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     try:
@@ -1015,7 +763,7 @@ def get_backtest_deals_endpoint(
     backtest_id: int,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     try:
@@ -1035,64 +783,21 @@ def export_backtest_deals(backtest_id: int, db: Session = Depends(get_db)):
     bt = db.query(Backtest).filter(Backtest.id == backtest_id).first()
     if not bt:
         raise HTTPException(status_code=404, detail="Backtest not found")
-
-    def _csv_generator():
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(
-            [
-                "timestamp",
-                "ticket",
-                "backtest_id",
-                "symbol",
-                "type",
-                "volume",
-                "price",
-                "profit",
-                "commission",
-                "swap",
-            ]
-        )
-        yield output.getvalue()
-        output.truncate(0)
-        output.seek(0)
-
-        query = (
-            db.query(BacktestDeal)
-            .filter(BacktestDeal.backtest_id == backtest_id)
-            .order_by(BacktestDeal.timestamp)
-        )
-        for d in query.yield_per(1000):
-            writer.writerow(
-                [
-                    to_iso(d.timestamp) or "",
-                    d.ticket,
-                    d.backtest_id,
-                    d.symbol or "",
-                    d.type.value if d.type else "",
-                    d.volume,
-                    d.price,
-                    d.profit,
-                    d.commission,
-                    d.swap,
-                ]
-            )
-            yield output.getvalue()
-            output.truncate(0)
-            output.seek(0)
-
+    query = (
+        db.query(BacktestDeal)
+        .filter(BacktestDeal.backtest_id == backtest_id)
+        .order_by(BacktestDeal.timestamp)
+    )
     filename = f"backtest_{backtest_id}_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
-    return StreamingResponse(
-        _csv_generator(),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    return _csv_response(
+        _stream_csv(_BACKTEST_DEAL_FIELDS, query, "backtest_id"), filename
     )
 
 
 @router.get("/backtests/{backtest_id}/daily")
 def get_backtest_daily(
     backtest_id: int,
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     try:
@@ -1104,7 +809,7 @@ def get_backtest_daily(
 @router.get("/backtests/{backtest_id}/trade-stats")
 def get_backtest_trade_stats(
     backtest_id: int,
-    side: str | None = Query(default=None),
+    side: Literal["buy", "sell"] | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     try:
@@ -1118,67 +823,19 @@ def get_backtest_trade_stats(
 
 @router.get("/settings/telegram", response_model=TelegramSettings)
 def get_telegram_settings(db: Session = Depends(get_db)):
-    bot_token = db.query(Setting).filter(Setting.key == "telegram_bot_token").first()
-    chat_id = db.query(Setting).filter(Setting.key == "telegram_chat_id").first()
-    notify_closed_trades = _setting_bool(
-        db, "telegram_notify_closed_trades", default=False
-    )
-    notify_system_errors = _setting_bool(
-        db, "telegram_notify_system_errors", default=False
-    )
-    var_95_threshold = db.query(Setting).filter(Setting.key == "var_95_limit").first()
-    default_ib = (
-        db.query(Setting).filter(Setting.key == "default_initial_balance").first()
-    )
-    real_page_mode = _setting_str(db, "real_page_mode", default="real")
-    if real_page_mode not in {"real", "demo"}:
-        real_page_mode = "real"
-    return TelegramSettings(
-        bot_token=None,
-        chat_id=None,
-        bot_token_configured=bool(
-            settings.telegram_token or (bot_token and bot_token.value)
-        ),
-        chat_id_configured=bool(
-            settings.telegram_chat_id or (chat_id and chat_id.value)
-        ),
-        notify_closed_trades=notify_closed_trades,
-        notify_system_errors=notify_system_errors,
-        var_95_threshold=float(var_95_threshold.value) if var_95_threshold else None,
-        default_initial_balance=float(default_ib.value)
-        if default_ib and default_ib.value
-        else 100_000.0,
-        real_page_mode=real_page_mode,
-    )
+    return get_telegram_settings_payload(db)
 
 
 @router.post("/settings/telegram", status_code=204)
 def update_telegram_settings(payload: TelegramSettings, db: Session = Depends(get_db)):
-    def _set(key, val):
-        s = db.query(Setting).filter(Setting.key == key).first()
-        if not s:
-            s = Setting(key=key, value=str(val) if val is not None else "")
-            db.add(s)
-        else:
-            s.value = str(val) if val is not None else ""
-
-    if payload.bot_token and payload.bot_token.strip():
-        _set("telegram_bot_token", payload.bot_token)
-    if payload.chat_id and payload.chat_id.strip():
-        _set("telegram_chat_id", payload.chat_id)
-    _set("telegram_notify_closed_trades", payload.notify_closed_trades)
-    _set("telegram_notify_system_errors", payload.notify_system_errors)
-    _set("var_95_limit", payload.var_95_threshold)
-    _set("default_initial_balance", payload.default_initial_balance)
-    _set("real_page_mode", payload.real_page_mode)
-    db.commit()
+    update_telegram_settings_payload(db, payload)
 
 
 @router.post("/settings/telegram/test")
 def test_telegram_settings(db: Session = Depends(get_db)):
-    runtime_config = notifier._get_runtime_config()
-    bot_token = str(runtime_config.get("token") or "").strip()
-    chat_id = str(runtime_config.get("chat_id") or "").strip()
+    tg_settings = get_telegram_settings_payload(db)
+    bot_token = (tg_settings.bot_token or "").strip()
+    chat_id = (tg_settings.chat_id or "").strip()
 
     if not bot_token:
         raise HTTPException(status_code=400, detail="Bot Token não configurado")
@@ -1201,10 +858,16 @@ def test_telegram_settings(db: Session = Depends(get_db)):
                 status_code=502, detail=f"Erro do Telegram: {resp.text}"
             )
         return {"ok": True}
-    except httpx.Timeout:  # type: ignore[misc]
+    except HTTPException:
+        raise
+    except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Timeout ao enviar mensagem")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.exception("Unexpected error sending test Telegram message")
+        raise HTTPException(
+            status_code=500,
+            detail="An internal error occurred while communicating with Telegram",
+        ) from exc
 
 
 # ── DataManager Settings ──────────────────────────────────────────────────────
@@ -1215,7 +878,7 @@ def get_datamanager_settings(db: Session = Depends(get_db)):
     resolved = load_datamanager_settings(db)
     return DataManagerSettings(
         url=resolved.url,
-        api_key="",
+        api_key=resolved.api_key,
         api_key_configured=resolved.api_key_configured,
         timeout=resolved.timeout,
     )
@@ -1232,14 +895,18 @@ def update_datamanager_settings(
 def test_datamanager_settings(db: Session = Depends(get_db)):
     try:
         return test_datamanager_connection(db)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as exc:
+        logger.exception("Unexpected error testing DataManager connection")
+        raise HTTPException(
+            status_code=502,
+            detail="An internal error occurred while testing connection",
+        ) from exc
 
 
 # ── Ingestion Errors (Dead Letters) ──────────────────────────────────────────
 
 
-@router.get("/ingestion-errors")
+@router.get("/ingestion-errors", response_model=list[IngestionErrorResponse])
 def list_ingestion_errors(
     limit: int = Query(default=50, ge=1, le=200), db: Session = Depends(get_db)
 ):
@@ -1270,7 +937,10 @@ def clear_ingestion_errors(db: Session = Depends(get_db)):
 # ── Portfolio Equity Breakdown ────────────────────────────────────────────────
 
 
-@router.get("/portfolios/{portfolio_id}/equity/breakdown")
+@router.get(
+    "/portfolios/{portfolio_id}/equity/breakdown",
+    response_model=EquityBreakdownResponse,
+)
 def get_portfolio_equity_breakdown(portfolio_id: int, db: Session = Depends(get_db)):
     try:
         payload = get_portfolio_equity_breakdown_payload(db, portfolio_id)
@@ -1376,7 +1046,10 @@ def sync_benchmark(benchmark_id: int, db: Session = Depends(get_db)):
     except BenchmarkNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Unexpected error syncing benchmark %s", benchmark_id)
+        raise HTTPException(
+            status_code=500, detail="An internal error occurred while syncing benchmark"
+        ) from exc
 
 
 @router.delete("/benchmarks/{benchmark_id}", status_code=204)
@@ -1395,30 +1068,7 @@ def delete_benchmark(benchmark_id: int, db: Session = Depends(get_db)):
 
 @router.get("/symbols", response_model=list[SymbolResponse])
 def list_symbols(db: Session = Depends(get_db)):
-    # Subquery to count strategies by symbol FK
-    strat_counts = (
-        db.query(Strategy.symbol_id, func.count(Strategy.id).label("count"))
-        .group_by(Strategy.symbol_id)
-        .subquery()
-    )
-
-    # Join Symbol with the strategy counts subquery
-    symbols_data = (
-        db.query(
-            Symbol, func.coalesce(strat_counts.c.count, 0).label("strategies_count")
-        )
-        .outerjoin(strat_counts, Symbol.id == strat_counts.c.symbol_id)
-        .order_by(Symbol.market, Symbol.name)
-        .all()
-    )
-
-    # Transform to response schema
-    result = []
-    for sym, count in symbols_data:
-        resp = SymbolResponse.model_validate(sym)
-        resp.strategies_count = count
-        result.append(resp)
-    return result
+    return list_symbols_payload(db)
 
 
 @router.post("/symbols", response_model=SymbolResponse, status_code=201)
@@ -1486,58 +1136,19 @@ def delete_symbol(symbol_id: int, db: Session = Depends(get_db)):
 # ── Floating P&L ──────────────────────────────────────────────────────────────
 
 
-@router.get("/floating-pnl")
+@router.get("/floating-pnl", response_model=FloatingPnlResponse)
 def get_floating_pnl(db: Session = Depends(get_db)):
-    """Return per-strategy latest equity/balance and their floating P&L."""
-    # Subquery: latest timestamp per strategy
-    latest_ts = (
-        db.query(
-            EquityCurve.strategy_id, func.max(EquityCurve.timestamp).label("max_ts")
-        )
-        .group_by(EquityCurve.strategy_id)
-        .subquery()
-    )
-    rows = (
-        db.query(
-            EquityCurve.strategy_id,
-            EquityCurve.balance,
-            EquityCurve.equity,
-            Strategy.name,
-        )
-        .join(
-            latest_ts,
-            (EquityCurve.strategy_id == latest_ts.c.strategy_id)
-            & (EquityCurve.timestamp == latest_ts.c.max_ts),
-        )
-        .join(Strategy, Strategy.id == EquityCurve.strategy_id)
-        .all()
-    )
-    result = []
-    total_floating = 0.0
-    for row in rows:
-        floating = float(row.equity) - float(row.balance)
-        total_floating += floating
-        result.append(
-            {
-                "strategy_id": row.strategy_id,
-                "strategy_name": row.name,
-                "balance": float(row.balance),
-                "equity": float(row.equity),
-                "floating_pnl": floating,
-            }
-        )
-    result.sort(key=lambda x: abs(x["floating_pnl"]), reverse=True)
-    return {"total_floating_pnl": total_floating, "positions": result}
+    return get_floating_pnl_payload(db)
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthResponse)
 def health_check(db: Session = Depends(get_db)):
     db_ok = False
     try:
         db.execute(text("SELECT 1"))
         db_ok = True
     except Exception:
-        pass
+        logger.warning("Database health check failed", exc_info=True)
 
     from trademachine.tradingmonitor_ingestion.public import (
         get_ingestion_status,
@@ -1563,13 +1174,16 @@ def _heartbeat_age(heartbeat_ts: str | None) -> float | None:
             hb_dt = hb_dt.replace(tzinfo=UTC)
         return round((datetime.now(UTC) - hb_dt).total_seconds(), 1)
     except Exception:
+        logger.warning(
+            "Failed to parse ingestion heartbeat_ts: %s", heartbeat_ts, exc_info=True
+        )
         return None
 
 
 # ── Ingestion status (item 7) ─────────────────────────────────────────────────
 
 
-@router.get("/ingestion/status")
+@router.get("/ingestion/status", response_model=IngestionStatusResponse)
 def ingestion_status():
     from trademachine.tradingmonitor_ingestion.public import (
         get_ingestion_status,
@@ -1580,24 +1194,11 @@ def ingestion_status():
 
 # ── CSV export (item 13) ──────────────────────────────────────────────────────
 
-_DEAL_FIELDS = [
-    "timestamp",
-    "ticket",
-    "strategy_id",
-    "symbol",
-    "type",
-    "volume",
-    "price",
-    "profit",
-    "commission",
-    "swap",
-]
 
-
-def _deals_generator(query):
+def _stream_csv(fields: list[str], query, id_field: str) -> Generator:
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(_DEAL_FIELDS)
+    writer.writerow(fields)
     yield output.getvalue()
     output.truncate(0)
     output.seek(0)
@@ -1607,7 +1208,7 @@ def _deals_generator(query):
             [
                 to_iso(d.timestamp) or "",
                 d.ticket,
-                d.strategy_id,
+                getattr(d, id_field),
                 d.symbol or "",
                 d.type.value if d.type else "",
                 d.volume,
@@ -1622,6 +1223,41 @@ def _deals_generator(query):
         output.seek(0)
 
 
+def _csv_response(generator: Generator, filename: str) -> StreamingResponse:
+    return StreamingResponse(
+        generator,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+_DEAL_FIELDS = [
+    "timestamp",
+    "ticket",
+    "strategy_id",
+    "symbol",
+    "type",
+    "volume",
+    "price",
+    "profit",
+    "commission",
+    "swap",
+]
+
+_BACKTEST_DEAL_FIELDS = [
+    "timestamp",
+    "ticket",
+    "backtest_id",
+    "symbol",
+    "type",
+    "volume",
+    "price",
+    "profit",
+    "commission",
+    "swap",
+]
+
+
 @router.get("/strategies/{strategy_id}/deals/export")
 def export_strategy_deals(strategy_id: str, db: Session = Depends(get_db)):
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
@@ -1631,14 +1267,10 @@ def export_strategy_deals(strategy_id: str, db: Session = Depends(get_db)):
         db.query(Deal).filter(Deal.strategy_id == strategy_id).order_by(Deal.timestamp)
     )
     filename = f"deals_{strategy_id}_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
-    return StreamingResponse(
-        _deals_generator(query),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return _csv_response(_stream_csv(_DEAL_FIELDS, query, "strategy_id"), filename)
 
 
-@router.get("/portfolios/{portfolio_id}/export")
+@router.get("/portfolios/{portfolio_id}/deals/export")
 def export_portfolio_deals(portfolio_id: int, db: Session = Depends(get_db)):
     p = _get_portfolio_or_404(db, portfolio_id)
     strategy_ids = _get_portfolio_strategy_ids(
@@ -1653,287 +1285,10 @@ def export_portfolio_deals(portfolio_id: int, db: Session = Depends(get_db)):
         .order_by(Deal.timestamp)
     )
     filename = f"portfolio_{portfolio_id}_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
-    return StreamingResponse(
-        _deals_generator(query),
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return _csv_response(_stream_csv(_DEAL_FIELDS, query, "strategy_id"), filename)
 
 
 # ── MT5 Backtest HTML Upload ───────────────────────────────────────────────────
-
-
-def _soup_from_bytes(content: bytes) -> BeautifulSoup:
-    for encoding in ("utf-16", "utf-8", "latin-1"):
-        try:
-            return BeautifulSoup(content.decode(encoding), "lxml")
-        except (UnicodeDecodeError, UnicodeError):
-            continue
-    raise ValueError(
-        "Não foi possível decodificar o arquivo HTML (tentativas: utf-16, utf-8, latin-1)"
-    )
-
-
-def _parse_mt5_date(date_str: str | None) -> datetime | None:
-    """Parse 'YYYY.MM.DD' string to UTC datetime."""
-    if not date_str:
-        return None
-    try:
-        return datetime.strptime(date_str, "%Y.%m.%d").replace(tzinfo=UTC)
-    except ValueError:
-        return None
-
-
-def _parse_mt5_timestamp(ts_str: str) -> datetime | None:
-    """Parse 'YYYY.MM.DD HH:MM:SS' to UTC datetime."""
-    for fmt in ("%Y.%m.%d %H:%M:%S", "%Y.%m.%d %H:%M"):
-        try:
-            return datetime.strptime(ts_str.strip(), fmt).replace(tzinfo=UTC)
-        except ValueError:
-            continue
-    return None
-
-
-def _first_col(df: pd.DataFrame, *names: str) -> str | None:
-    for name in names:
-        if name in df.columns:
-            return name
-    return None
-
-
-def _to_float(val: str, default: float = 0.0) -> float:
-    try:
-        return float(str(val).replace(" ", "").replace(",", "."))
-    except (ValueError, TypeError):
-        return default
-
-
-def _to_int(val: str, default: int = 0) -> int:
-    try:
-        return int(str(val).strip())
-    except (ValueError, TypeError):
-        return default
-
-
-_DEAL_TYPE_MAP = {
-    "buy": DealType.BUY,
-    "sell": DealType.SELL,
-    "balance": DealType.BALANCE,
-}
-
-
-def _parse_deal_type(raw: str) -> DealType | None:
-    return _DEAL_TYPE_MAP.get(raw.strip().lower())
-
-
-async def _process_single_html_upload(
-    upload_file: UploadFile,
-    magic_number_override: str | None,
-    db: Session,
-    parser: MT5ReportParser,
-) -> dict:
-    result: dict = {
-        "filename": upload_file.filename,
-        "status": "ok",
-        "backtest_id": None,
-        "deals_imported": 0,
-        "error": None,
-    }
-    try:
-        content = await upload_file.read()
-        soup = _soup_from_bytes(content)
-        metadata = parser.extract_metadata(soup)
-
-        magic_number = magic_number_override or metadata.get("Magic_Number")
-        if not magic_number:
-            raise ValueError("Magic Number não encontrado no relatório")
-
-        strategy = db.query(Strategy).filter(Strategy.id == magic_number).first()
-        if not strategy:
-            raise ValueError(
-                f"Estratégia com Magic Number {magic_number} não cadastrada"
-            )
-
-        report_name = metadata.get("Expert_Advisor")
-        if report_name:
-            strategy.name = report_name
-        if not strategy.timeframe:
-            report_tf = metadata.get("Timeframe")
-            if report_tf:
-                strategy.timeframe = report_tf
-        db.flush()
-
-        client_run_id = int(hashlib.md5(content).hexdigest()[:15], 16)  # noqa: S324
-
-        existing = (
-            db.query(Backtest)
-            .filter(
-                Backtest.strategy_id == magic_number,
-                Backtest.client_run_id == client_run_id,
-            )
-            .first()
-        )
-        if existing:
-            db.commit()
-            result["status"] = "skipped"
-            result["backtest_id"] = existing.id
-            result["error"] = "Relatório já importado anteriormente"
-            return result
-
-        deals_df = parser.extract_table_by_header(soup, "Transações")
-        if deals_df.empty:
-            deals_df = parser.extract_table_by_header(soup, "Deals")
-            if not deals_df.empty:
-                deals_df = deals_df.rename(columns=_EN_TO_PT_COLUMNS)
-        if deals_df.empty:
-            raise ValueError("Tabela de transações não encontrada no relatório")
-
-        deals_df = parser._clean_deals_df(deals_df)
-
-        col_ts = _first_col(deals_df, "Horário", "Time")
-        col_ticket = _first_col(deals_df, "Posição", "Position", "Ticket", "#")
-        col_symbol = _first_col(deals_df, "Símbolo", "Symbol")
-        col_tipo = _first_col(deals_df, "Tipo", "Type")
-        col_vol = _first_col(deals_df, "Volume")
-        col_price = _first_col(deals_df, "Preço", "Price")
-        col_comm = _first_col(deals_df, "Comissão", "Commission")
-        col_swap = _first_col(deals_df, "Swap")
-        col_profit = _first_col(deals_df, "Lucro", "Profit")
-        col_balance = _first_col(deals_df, "Saldo", "Balance")
-
-        if not col_ts or not col_tipo:
-            raise ValueError("Colunas obrigatórias (Horário, Tipo) não encontradas")
-
-        initial_balance: float | None = None
-        if col_balance is not None:
-            balance_rows = deals_df[
-                deals_df[col_tipo].str.strip().str.lower() == "balance"
-            ]
-            if not balance_rows.empty:
-                initial_balance = _to_float(balance_rows.iloc[0][col_balance])
-
-        start_dt = _parse_mt5_date(metadata.get("Periodo_Inicial"))
-        end_dt = _parse_mt5_date(metadata.get("Periodo_Final"))
-        symbol = metadata.get("Ativo")
-        symbol_id = None
-        if symbol:
-            symbol_row = db.query(Symbol).filter(Symbol.name == symbol).first()
-            if symbol_row is None:
-                symbol_row = Symbol(name=symbol)
-                db.add(symbol_row)
-                db.flush()
-            symbol_id = symbol_row.id
-
-        backtest = Backtest(
-            strategy_id=magic_number,
-            client_run_id=client_run_id,
-            name=metadata.get("Expert_Advisor") or upload_file.filename,
-            symbol=symbol,
-            symbol_id=symbol_id,
-            start_date=start_dt,
-            end_date=end_dt,
-            initial_balance=initial_balance,
-            status="complete",
-        )
-        db.add(backtest)
-        db.flush()
-
-        deals_imported = _import_deals_from_dataframe(
-            db,
-            backtest.id,
-            deals_df,
-            symbol,
-            col_ts,
-            col_ticket,
-            col_symbol,
-            col_tipo,
-            col_vol,
-            col_price,
-            col_comm,
-            col_swap,
-            col_profit,
-            col_balance,
-        )
-
-        db.commit()
-        result["backtest_id"] = backtest.id
-        result["deals_imported"] = deals_imported
-
-    except Exception as exc:
-        db.rollback()
-        logger.exception("Erro ao processar upload: %s", upload_file.filename)
-        result["status"] = "error"
-        result["error"] = str(exc)
-
-    return result
-
-
-def _import_deals_from_dataframe(
-    db: Session,
-    backtest_id: int,
-    deals_df: pd.DataFrame,
-    symbol: str | None,
-    col_ts: str | None,
-    col_ticket: str | None,
-    col_symbol: str | None,
-    col_tipo: str | None,
-    col_vol: str | None,
-    col_price: str | None,
-    col_comm: str | None,
-    col_swap: str | None,
-    col_profit: str | None,
-    col_balance: str | None,
-) -> int:
-    deals_imported = 0
-    for _, row in deals_df.iterrows():
-        ts_raw = row[col_ts] if col_ts else ""
-        ts = _parse_mt5_timestamp(str(ts_raw))
-        if ts is None:
-            continue
-
-        tipo_raw = str(row[col_tipo]) if col_tipo else ""
-        deal_type = _parse_deal_type(tipo_raw)
-        if deal_type is None:
-            continue
-
-        ticket = _to_int(row[col_ticket]) if col_ticket else 0
-        row_symbol = (
-            str(row[col_symbol]).strip()
-            if col_symbol and row[col_symbol]
-            else (symbol or "")
-        )
-        volume = _to_float(row[col_vol]) if col_vol else 0.0
-        price = _to_float(row[col_price]) if col_price else 0.0
-        commission = _to_float(row[col_comm]) if col_comm else 0.0
-        swap = _to_float(row[col_swap]) if col_swap else 0.0
-        profit = _to_float(row[col_profit]) if col_profit else 0.0
-        balance = _to_float(row[col_balance]) if col_balance else 0.0
-
-        db.add(
-            BacktestDeal(
-                backtest_id=backtest_id,
-                timestamp=ts,
-                ticket=ticket,
-                symbol=row_symbol,
-                type=deal_type,
-                volume=volume,
-                price=price,
-                profit=profit,
-                commission=commission,
-                swap=swap,
-            )
-        )
-        if col_balance:
-            db.add(
-                BacktestEquity(
-                    backtest_id=backtest_id,
-                    timestamp=ts,
-                    balance=balance,
-                    equity=balance,
-                )
-            )
-        deals_imported += 1
-    return deals_imported
 
 
 @router.post("/backtests/upload-html")
@@ -1942,18 +1297,16 @@ async def upload_backtest_html(
     magic_number_override: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
-    """
-    Upload one or more MT5 HTML backtest reports.
+    """Upload one or more MT5 HTML backtest reports."""
+    from trademachine.trading_monitor_dashboard.backtest_import_service import (
+        process_html_upload,
+    )
 
-    Returns a per-file result list with status, backtest_id, and any errors.
-    """
     parser = MT5ReportParser()
     results = []
-
     for upload_file in files:
-        result = await _process_single_html_upload(
+        result = await process_html_upload(
             upload_file, magic_number_override, db, parser
         )
         results.append(result)
-
     return results

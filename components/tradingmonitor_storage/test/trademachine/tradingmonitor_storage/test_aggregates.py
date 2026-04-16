@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from trademachine.tradingmonitor_storage.db.aggregates import (
@@ -89,3 +90,45 @@ def test_intraday_aggregate_helper_prefers_hourly_relation(db_session):
         day_start_utc=datetime(2026, 1, 1, 3),
         now_utc=datetime(2026, 1, 1, 5, 30),
     ) == {"s1": 7.5, "s2": 7.0}
+
+
+def test_daily_profit_rows_can_group_using_local_timezone(db_session):
+    db_session.add(Strategy(id="s1", name="Alpha"))
+    db_session.add_all(
+        [
+            Deal(
+                timestamp=datetime(2026, 4, 9, 20, 30, tzinfo=UTC),
+                ticket=1,
+                strategy_id="s1",
+                symbol="EURUSD",
+                type=DealType.BUY,
+                volume=0.1,
+                price=1.1,
+                profit=40.0,
+                commission=-2.0,
+                swap=0.0,
+            ),
+            Deal(
+                timestamp=datetime(2026, 4, 9, 21, 30, tzinfo=UTC),
+                ticket=2,
+                strategy_id="s1",
+                symbol="EURUSD",
+                type=DealType.SELL,
+                volume=0.1,
+                price=1.2,
+                profit=20.0,
+                commission=-2.0,
+                swap=0.0,
+            ),
+        ]
+    )
+    db_session.flush()
+
+    assert get_strategy_daily_profit_rows(
+        db_session,
+        ["s1"],
+        timezone=ZoneInfo("Europe/Athens"),
+    ) == [
+        {"date": "2026-04-09", "net_profit": 38.0},
+        {"date": "2026-04-10", "net_profit": 18.0},
+    ]

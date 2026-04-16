@@ -106,8 +106,9 @@
                 <div id="new-strategy-list" class="strategy-checklist" style="padding:0; max-height:400px; overflow-y:auto; border:1px solid var(--border-color); border-radius:4px;"><div class="loading" style="padding:0.5rem">Loading…</div></div>
             </div>
         </div>
-        <div style="margin-top:1rem">
+        <div style="margin-top:1rem; display:flex; align-items:center; gap:0.75rem">
             <button id="analysis-update-btn" class="btn btn-primary btn-sm" onclick="runAdvancedAnalysis()">Update</button>
+            <a id="correlation-link" class="btn btn-ghost btn-sm" style="display:none" target="_blank">Correlation</a>
             <span id="analysis-status" class="analysis-status"></span>
         </div>
         <div id="analysis-error" class="analysis-error" hidden>
@@ -128,6 +129,17 @@
         </div>
         <div class="chart-wrapper">
             <canvas id="equity-chart"></canvas>
+        </div>
+    </section>
+
+    <!-- Underwater (Drawdown) Chart -->
+    <section class="card full-width" id="underwater-section" style="display:none">
+        <div class="section-header">
+            <h2>Drawdown Underwater</h2>
+            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('analysis-underwater-chart', 'advanced_drawdown.png')" title="Export image">⭳ Export</button>
+        </div>
+        <div class="chart-wrapper" style="height:150px">
+            <canvas id="analysis-underwater-chart"></canvas>
         </div>
     </section>
 
@@ -153,6 +165,59 @@
         </div>
         <div class="chart-wrapper" style="max-height:360px; display:flex; justify-content:center;">
             <canvas id="negative-contrib-chart"></canvas>
+        </div>
+    </section>
+
+    <!-- Strategy Equity Overlay -->
+    <section class="card full-width" id="overlay-section" style="display:none">
+        <div class="section-header">
+            <h2>Strategy Equity Overlay</h2>
+            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('overlay-chart', 'strategy_overlay.png')" title="Export image">⭳ Export</button>
+        </div>
+        <div class="chart-wrapper">
+            <canvas id="overlay-chart"></canvas>
+        </div>
+    </section>
+
+    <!-- P&L Analysis -->
+    <section class="card full-width" id="monthly-section" style="display:none">
+        <div class="section-header">
+            <h2>P&amp;L Analysis</h2>
+            <div style="margin-left:auto; display:flex; gap:0.4rem">
+                <button class="btn-chart-action" onclick="exportChart('monthly-pnl-chart', 'pnl_analysis_month.png')" title="Export P&amp;L by Month">⭳ Export Month</button>
+                <button class="btn-chart-action" onclick="exportChart('annual-pnl-chart', 'pnl_analysis_year.png')" title="Export P&amp;L by Year">⭳ Export Year</button>
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
+            <div>
+                <p class="chart-subtitle">By Month</p>
+                <div id="monthly-pnl-wrapper" class="chart-wrapper-sm"><canvas id="monthly-pnl-chart"></canvas></div>
+            </div>
+            <div>
+                <p class="chart-subtitle">By Year</p>
+                <div id="annual-pnl-wrapper" class="chart-wrapper-sm"><canvas id="annual-pnl-chart"></canvas></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Trade Distribution -->
+    <section class="card full-width" id="distribution-section" style="display:none">
+        <div class="section-header">
+            <h2>Trade Distribution</h2>
+            <div style="margin-left:auto; display:flex; gap:0.4rem">
+                <button class="btn-chart-action" onclick="exportChart('dist-hour-chart', 'distribution_hour.png')" title="Export Distribution by Hour">⭳ Export Hour</button>
+                <button class="btn-chart-action" onclick="exportChart('dist-dow-chart', 'distribution_dow.png')" title="Export Distribution by Day">⭳ Export Day</button>
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
+            <div>
+                <p class="chart-subtitle">By Hour of Day</p>
+                <div id="dist-hour-wrapper" class="chart-wrapper" style="height:200px"><canvas id="dist-hour-chart"></canvas></div>
+            </div>
+            <div>
+                <p class="chart-subtitle">By Day of Week</p>
+                <div id="dist-dow-wrapper" class="chart-wrapper" style="height:200px"><canvas id="dist-dow-chart"></canvas></div>
+            </div>
         </div>
     </section>
 </div>

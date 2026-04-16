@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -20,6 +21,7 @@ from trademachine.tradingmonitor_analytics.metrics.repository import (
     get_strategy_deals,
     get_strategy_equity_curve,
 )
+from trademachine.tradingmonitor_analytics.metrics.utils import net_pnl
 from trademachine.tradingmonitor_analytics.services.dashboard_shared import (
     closed_trades_for_side as _closed_trades_for_side,
 )
@@ -44,6 +46,8 @@ from trademachine.tradingmonitor_storage.public import (
     Strategy,
     to_iso,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardAnalysisNotFoundError(LookupError):
@@ -241,6 +245,75 @@ def _build_comparison_curve(
     ]
 
 
+def _apply_time_filter(
+    df: pd.DataFrame, dt_from: datetime | None, dt_to: datetime | None
+) -> pd.DataFrame:
+    """Trim a DatetimeIndex DataFrame to [dt_from, dt_to]."""
+    if df.empty:
+        return df
+    if dt_from is not None:
+        df = df[df.index >= dt_from]
+    if dt_to is not None:
+        df = df[df.index <= dt_to]
+    return df
+
+
+def _load_backtest_frames(
+    db: Session,
+    selected_strategies: list[Strategy],
+    dt_from: datetime | None,
+    dt_to: datetime | None,
+) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
+    backtests = (
+        db.query(Backtest)
+        .filter(Backtest.strategy_id.in_([s.id for s in selected_strategies]))
+        .filter(or_(Backtest.status == "complete", Backtest.status.is_(None)))
+        .all()
+    )
+    if not backtests:
+        raise DashboardAnalysisValidationError(
+            "No backtest history found for selected strategies."
+        )
+
+    deal_frames: list[pd.DataFrame] = []
+    equity_frames: list[pd.DataFrame] = []
+    for backtest in backtests:
+        deals_df = get_backtest_deals(backtest.id)
+        if not deals_df.empty:
+            deals_df["strategy_id"] = backtest.strategy_id
+        deals_df = _apply_time_filter(deals_df, dt_from, dt_to)
+        if not deals_df.empty:
+            deal_frames.append(deals_df)
+
+        equity_df = _apply_time_filter(get_backtest_equity(backtest.id), dt_from, dt_to)
+        if not equity_df.empty:
+            equity_frames.append(equity_df)
+
+    return deal_frames, equity_frames
+
+
+def _load_live_frames(
+    selected_strategies: list[Strategy],
+    dt_from: datetime | None,
+    dt_to: datetime | None,
+) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
+    deal_frames: list[pd.DataFrame] = []
+    equity_frames: list[pd.DataFrame] = []
+    for strategy in selected_strategies:
+        deals_df = get_strategy_deals(strategy.id, since=dt_from)
+        deals_df = _apply_time_filter(deals_df, None, dt_to)
+        if not deals_df.empty:
+            deal_frames.append(deals_df)
+
+        equity_df = _apply_time_filter(
+            get_strategy_equity_curve(strategy.id), dt_from, dt_to
+        )
+        if not equity_df.empty:
+            equity_frames.append(equity_df)
+
+    return deal_frames, equity_frames
+
+
 def _collect_deal_and_equity_frames(
     db: Session,
     history_type: str,
@@ -248,62 +321,9 @@ def _collect_deal_and_equity_frames(
     dt_from: datetime | None,
     dt_to: datetime | None,
 ) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
-    deal_frames: list[pd.DataFrame] = []
-    equity_frames: list[pd.DataFrame] = []
-
     if history_type == "backtest":
-        backtests = (
-            db.query(Backtest)
-            .filter(
-                Backtest.strategy_id.in_(
-                    [strategy.id for strategy in selected_strategies]
-                )
-            )
-            .filter(or_(Backtest.status == "complete", Backtest.status.is_(None)))
-            .all()
-        )
-        if not backtests:
-            raise DashboardAnalysisValidationError(
-                "No backtest history found for selected strategies."
-            )
-
-        for backtest in backtests:
-            deals_df = get_backtest_deals(backtest.id)
-            if not deals_df.empty:
-                deals_df["strategy_id"] = backtest.strategy_id
-                if dt_from is not None:
-                    deals_df = deals_df[deals_df.index >= dt_from]
-                if dt_to is not None:
-                    deals_df = deals_df[deals_df.index <= dt_to]
-                if not deals_df.empty:
-                    deal_frames.append(deals_df)
-
-            equity_df = get_backtest_equity(backtest.id)
-            if not equity_df.empty:
-                if dt_from is not None:
-                    equity_df = equity_df[equity_df.index >= dt_from]
-                if dt_to is not None:
-                    equity_df = equity_df[equity_df.index <= dt_to]
-                if not equity_df.empty:
-                    equity_frames.append(equity_df)
-    else:
-        for strategy in selected_strategies:
-            deals_df = get_strategy_deals(strategy.id, since=dt_from)
-            if not deals_df.empty and dt_to is not None:
-                deals_df = deals_df[deals_df.index <= dt_to]
-            if not deals_df.empty:
-                deal_frames.append(deals_df)
-
-            equity_df = get_strategy_equity_curve(strategy.id)
-            if not equity_df.empty:
-                if dt_from is not None:
-                    equity_df = equity_df[equity_df.index >= dt_from]
-                if dt_to is not None:
-                    equity_df = equity_df[equity_df.index <= dt_to]
-                if not equity_df.empty:
-                    equity_frames.append(equity_df)
-
-    return deal_frames, equity_frames
+        return _load_backtest_frames(db, selected_strategies, dt_from, dt_to)
+    return _load_live_frames(selected_strategies, dt_from, dt_to)
 
 
 def _get_backtest_net_profit_map(
@@ -398,24 +418,31 @@ def list_portfolios_payload(
         response = PortfolioResponse.from_orm_portfolio(portfolio)
 
         if strategy_ids:
-            response.backtest_net_profit = _calculate_backtest_portfolio_net_profit(
-                db, strategy_ids
-            )
-            if demo_strategy_ids:
-                response.demo_net_profit = _extract_profit(
-                    calculate_portfolio_metrics(demo_strategy_ids)
+            try:
+                response.backtest_net_profit = _calculate_backtest_portfolio_net_profit(
+                    db, strategy_ids
                 )
-            if real_strategy_ids:
-                response.real_net_profit = _extract_profit(
-                    calculate_portfolio_metrics(real_strategy_ids)
-                )
+                if demo_strategy_ids:
+                    response.demo_net_profit = _extract_profit(
+                        calculate_portfolio_metrics(demo_strategy_ids)
+                    )
+                if real_strategy_ids:
+                    response.real_net_profit = _extract_profit(
+                        calculate_portfolio_metrics(real_strategy_ids)
+                    )
 
-            if mode == "demo":
-                response.net_profit = response.demo_net_profit
-            elif mode == "real":
-                response.net_profit = response.real_net_profit
-            else:
-                response.net_profit = response.backtest_net_profit
+                if mode == "demo":
+                    response.net_profit = response.demo_net_profit
+                elif mode == "real":
+                    response.net_profit = response.real_net_profit
+                else:
+                    response.net_profit = response.backtest_net_profit
+            except (ValueError, KeyError, TypeError, ZeroDivisionError) as exc:
+                logger.exception(
+                    "Failed to calculate portfolio payload metrics for portfolio %s",
+                    portfolio.id,
+                )
+                response.metrics_error = str(exc)
 
         results.append(response)
 
@@ -495,15 +522,85 @@ def _compute_combined_equity(
     combined_deals = pd.concat(deal_frames).sort_index()
     if side in {"buy", "sell"}:
         combined_deals = _closed_trades_for_side(combined_deals, side)
-        return combined_deals, _synthetic_equity(
-            combined_deals, balance_baseline=initial_balance
+    return combined_deals, _synthetic_equity(
+        combined_deals, balance_baseline=initial_balance
+    )
+
+
+def _build_per_strategy_equity(
+    deal_frames: list[pd.DataFrame],
+    strategy_name_map: dict[str, str],
+    side: str | None,
+) -> list[dict[str, object]]:
+    result: list[dict[str, object]] = []
+    for df in deal_frames:
+        if df.empty or "strategy_id" not in df.columns:
+            continue
+        sid = str(df["strategy_id"].iloc[0])
+        filtered = df
+        if side in {"buy", "sell"}:
+            filtered = _closed_trades_for_side(df, side)
+        if filtered.empty:
+            continue
+        equity_df = _synthetic_equity(filtered)
+        points = [
+            {"timestamp": to_iso(ts), "equity": float(v)}
+            for ts, v in equity_df["equity"].items()
+        ]
+        result.append(
+            {
+                "strategy_id": sid,
+                "name": strategy_name_map.get(sid, sid),
+                "points": points,
+            }
         )
-    combined_equity = _combine_equity_frames(equity_frames)
-    if combined_equity.empty:
-        combined_equity = _synthetic_equity(
-            combined_deals, balance_baseline=initial_balance
-        )
-    return combined_deals, combined_equity
+    return result
+
+
+def _build_daily_pnl(combined_deals: pd.DataFrame) -> list[dict[str, object]]:
+    if combined_deals.empty:
+        return []
+    net = net_pnl(combined_deals)
+    daily = net.groupby(combined_deals.index.date).sum()
+    return [
+        {"date": str(d), "net_profit": round(float(v), 2)}
+        for d, v in sorted(daily.items())
+    ]
+
+
+def _build_trade_stats(
+    combined_deals: pd.DataFrame,
+) -> dict[str, list[dict[str, object]]]:
+    dow_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    by_hour = [{"hour": h, "count": 0, "net_profit": 0.0} for h in range(24)]
+    by_dow = [
+        {"dow": i + 1, "label": dow_labels[i], "count": 0, "net_profit": 0.0}
+        for i in range(7)
+    ]
+    if combined_deals.empty:
+        return {"by_hour": by_hour, "by_dow": by_dow}
+
+    net = net_pnl(combined_deals)
+    hours = combined_deals.index.hour
+    for hour in range(24):
+        mask = hours == hour
+        by_hour[hour] = {
+            "hour": hour,
+            "count": int(mask.sum()),
+            "net_profit": round(float(net[mask].sum()), 2),
+        }
+
+    weekdays = combined_deals.index.weekday  # Monday=0
+    for wd in range(7):
+        mask = weekdays == wd
+        by_dow[wd] = {
+            "dow": wd + 1,
+            "label": dow_labels[wd],
+            "count": int(mask.sum()),
+            "net_profit": round(float(net[mask].sum()), 2),
+        }
+
+    return {"by_hour": by_hour, "by_dow": by_dow}
 
 
 def _build_strategy_contributions(
@@ -598,6 +695,11 @@ def get_advanced_analysis_payload(
         )
 
     strategy_name_map = {s.id: s.name or s.id for s in selected_strategies}
+    daily_pnl = _build_daily_pnl(combined_deals)
+    trade_stats = _build_trade_stats(combined_deals)
+    per_strategy_equity = _build_per_strategy_equity(
+        deal_frames, strategy_name_map, side
+    )
     return {
         "metrics": metrics,
         "equity_curve": equity_curve,
@@ -610,6 +712,9 @@ def get_advanced_analysis_payload(
         "strategy_contributions": _build_strategy_contributions(
             combined_deals, strategy_name_map
         ),
+        "daily_pnl": daily_pnl,
+        "trade_stats": trade_stats,
+        "per_strategy_equity": per_strategy_equity,
     }
 
 

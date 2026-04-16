@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
-
-from sqlalchemy import Integer, case, cast, extract, func, or_
+from sqlalchemy import Integer, case, cast, extract, func
 from sqlalchemy.orm import Session
-from sqlalchemy.types import String
+from sqlalchemy.types import Date
 from trademachine.tradingmonitor_storage.api_schemas import (
     BacktestDealResponse,
     DealResponse,
@@ -17,6 +15,7 @@ from trademachine.tradingmonitor_storage.public import (
     Deal,
     DealType,
     Strategy,
+    apply_deal_search_filter,
     get_strategy_daily_profit_rows,
 )
 
@@ -26,15 +25,10 @@ class DashboardHistoryNotFoundError(LookupError):
 
 
 def _side_types_for_pnl(side: str | None) -> list[DealType]:
-    """Return deal types that carry P&L for the given side.
-
-    Long trades are closed by SELL deals (where the profit is recorded).
-    Short trades are closed by BUY deals (where the profit is recorded).
-    """
     if side == "buy":
-        return [DealType.SELL]
-    if side == "sell":
         return [DealType.BUY]
+    if side == "sell":
+        return [DealType.SELL]
     return [DealType.BUY, DealType.SELL]
 
 
@@ -167,17 +161,33 @@ def get_strategy_deals_payload(
     base = db.query(Deal).filter(Deal.strategy_id == strategy_id)
     if side in {"buy", "sell"}:
         base = base.filter(Deal.type.in_(_side_types_for_table(side)))
-    if q:
-        term = f"%{q}%"
-        conditions: list[Any] = [
-            Deal.symbol.ilike(term),
-            cast(Deal.ticket, String).ilike(term),
-        ]
-        try:
-            conditions.append(Deal.type == DealType(q.upper()))
-        except ValueError:
-            pass
-        base = base.filter(or_(*conditions))
+    base = apply_deal_search_filter(base, q)
+
+    total = base.count()
+    deals = (
+        base.order_by(Deal.timestamp.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return PaginatedDeals(
+        items=[DealResponse.from_orm_deal(deal) for deal in deals],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+def get_portfolio_deals_payload(
+    db: Session,
+    strategy_ids: list[str],
+    *,
+    page: int,
+    page_size: int,
+    q: str | None = None,
+) -> PaginatedDeals:
+    base = db.query(Deal).filter(Deal.strategy_id.in_(strategy_ids))
+    base = apply_deal_search_filter(base, q, include_strategy_id=True)
 
     total = base.count()
     deals = (
@@ -290,3 +300,74 @@ def get_backtest_deals_payload(
         page=page,
         page_size=page_size,
     )
+
+
+def get_portfolio_daily_payload(
+    db: Session,
+    strategy_ids: list[str],
+) -> list[dict[str, object]]:
+    if not strategy_ids:
+        return []
+    rows = (
+        db.query(
+            cast(Deal.timestamp, Date).label("date"),
+            func.sum(Deal.profit + Deal.commission + Deal.swap).label("net_profit"),
+            func.count(Deal.id).label("trades_count"),
+        )
+        .filter(Deal.strategy_id.in_(strategy_ids))
+        .filter(Deal.type != "BALANCE")
+        .group_by(cast(Deal.timestamp, Date))
+        .order_by(cast(Deal.timestamp, Date))
+        .all()
+    )
+    return [
+        {
+            "date": str(r.date),
+            "net_profit": float(r.net_profit),
+            "trades_count": int(r.trades_count),
+        }
+        for r in rows
+    ]
+
+
+def get_portfolio_trade_stats_payload(
+    db: Session,
+    strategy_ids: list[str],
+) -> dict[str, list[dict[str, int | float | str]]]:
+    if not strategy_ids:
+        return _empty_trade_stats()
+    payload = _empty_trade_stats()
+    types = [DealType.BUY, DealType.SELL]
+
+    def _query(group_expr):
+        return (
+            db.query(
+                group_expr.label("key"),
+                func.count().label("count"),
+                func.sum(Deal.profit + Deal.commission + Deal.swap).label("net_profit"),
+            )
+            .filter(Deal.strategy_id.in_(strategy_ids))
+            .filter(Deal.type.in_(types))
+            .group_by(group_expr)
+            .order_by(group_expr)
+            .all()
+        )
+
+    for row in _query(extract("hour", Deal.timestamp)):
+        hour = int(row.key)
+        payload["by_hour"][hour] = {
+            "hour": hour,
+            "count": int(row.count),
+            "net_profit": round(float(row.net_profit or 0), 2),
+        }
+
+    for row in _query(_iso_weekday_expr(db, Deal.timestamp)):
+        day = int(row.key) - 1
+        payload["by_dow"][day] = {
+            "dow": day + 1,
+            "label": payload["by_dow"][day]["label"],
+            "count": int(row.count),
+            "net_profit": round(float(row.net_profit or 0), 2),
+        }
+
+    return payload

@@ -152,7 +152,6 @@ def test_get_real_overview_payload_aggregates_live_metrics(db_session):
 
 
 def test_get_real_daily_payload_filters_current_mode_strategies(db_session):
-    now = datetime.now(UTC)
     real_account = Account(id="acc-real", account_type="Real")
     demo_account = Account(id="acc-demo", account_type="Demo")
     real_strategy = Strategy(id="s-real", name="Alpha", account=real_account)
@@ -165,7 +164,7 @@ def test_get_real_daily_payload_filters_current_mode_strategies(db_session):
             demo_strategy,
             Setting(key="real_page_mode", value="real"),
             Deal(
-                timestamp=now,
+                timestamp=datetime(2026, 4, 9, 20, 30, tzinfo=UTC),
                 ticket=1,
                 strategy_id="s-real",
                 symbol="EURUSD",
@@ -177,8 +176,20 @@ def test_get_real_daily_payload_filters_current_mode_strategies(db_session):
                 swap=0.0,
             ),
             Deal(
-                timestamp=now,
+                timestamp=datetime(2026, 4, 9, 21, 30, tzinfo=UTC),
                 ticket=2,
+                strategy_id="s-real",
+                symbol="EURUSD",
+                type=DealType.SELL,
+                volume=0.1,
+                price=1.2,
+                profit=20.0,
+                commission=-2.0,
+                swap=0.0,
+            ),
+            Deal(
+                timestamp=datetime(2026, 4, 10, 12, 0, tzinfo=UTC),
+                ticket=3,
                 strategy_id="s-demo",
                 symbol="GBPUSD",
                 type=DealType.BUY,
@@ -192,9 +203,50 @@ def test_get_real_daily_payload_filters_current_mode_strategies(db_session):
     )
     db_session.flush()
 
-    payload = dov.get_real_daily_payload(db_session)
+    payload = dov.get_real_daily_payload(
+        db_session,
+        now_utc=datetime(2026, 4, 10, 18, 0, tzinfo=UTC),
+    )
 
-    assert payload == [{"date": str(now.date()), "net_profit": 38.0}]
+    assert payload == [
+        {"date": "2026-04-09", "net_profit": 38.0},
+        {"date": "2026-04-10", "net_profit": 18.0},
+    ]
+
+
+def test_get_real_daily_payload_appends_current_local_day_when_missing(db_session):
+    real_account = Account(id="acc-real", account_type="Real")
+    real_strategy = Strategy(id="s-real", name="Alpha", account=real_account)
+    db_session.add_all(
+        [
+            real_account,
+            real_strategy,
+            Setting(key="real_page_mode", value="real"),
+            Deal(
+                timestamp=datetime(2026, 4, 10, 12, 0, tzinfo=UTC),
+                ticket=1,
+                strategy_id="s-real",
+                symbol="EURUSD",
+                type=DealType.BUY,
+                volume=0.1,
+                price=1.1,
+                profit=10.0,
+                commission=-1.0,
+                swap=0.0,
+            ),
+        ]
+    )
+    db_session.flush()
+
+    payload = dov.get_real_daily_payload(
+        db_session,
+        now_utc=datetime(2026, 4, 12, 9, 0, tzinfo=UTC),
+    )
+
+    assert payload == [
+        {"date": "2026-04-10", "net_profit": 9.0},
+        {"date": "2026-04-12", "net_profit": 0.0, "trades_count": 0},
+    ]
 
 
 def test_get_real_recent_deals_payload_returns_strategy_names(db_session):

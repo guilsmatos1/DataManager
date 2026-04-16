@@ -24,7 +24,10 @@ class CalmarRatio(BaseMetric):
             return None
         # Annualised return (CAGR)
         total_ret = float(np.prod(1 + r)) - 1.0
-        annual_ret = (1.0 + total_ret) ** (252.0 / len(r)) - 1.0
+        base = 1.0 + total_ret
+        if base <= 0:
+            return None
+        annual_ret = base ** (252.0 / len(r)) - 1.0
         # Max drawdown from cumulative price series
         prices = np.concatenate([[1.0], np.cumprod(1 + r)])
         peaks = np.maximum.accumulate(prices)

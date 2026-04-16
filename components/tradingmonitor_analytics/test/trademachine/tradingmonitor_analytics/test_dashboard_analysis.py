@@ -52,6 +52,37 @@ def test_list_portfolios_payload_selects_requested_mode(db_session, monkeypatch)
     assert payload[0].net_profit == pytest.approx(20.0)
 
 
+def test_list_portfolios_payload_tolerates_metric_failures(db_session, monkeypatch):
+    strategy_demo = Strategy(id="s-demo", name="Demo", real_account=False)
+    portfolio = Portfolio(
+        name="Broken Metrics",
+        strategies=[strategy_demo],
+    )
+    db_session.add_all([strategy_demo, portfolio])
+    db_session.flush()
+
+    monkeypatch.setattr(
+        da,
+        "_calculate_backtest_portfolio_net_profit",
+        lambda db, strategy_ids: 30.0,
+    )
+    monkeypatch.setattr(
+        da,
+        "calculate_portfolio_metrics",
+        lambda strategy_ids: (_ for _ in ()).throw(ValueError("boom")),
+    )
+
+    payload = da.list_portfolios_payload(db_session, mode="demo")
+
+    assert len(payload) == 1
+    assert payload[0].id == portfolio.id
+    assert payload[0].demo_net_profit is None
+    assert payload[0].real_net_profit is None
+    assert payload[0].backtest_net_profit == pytest.approx(30.0)
+    assert payload[0].net_profit is None
+    assert payload[0].metrics_error == "boom"
+
+
 def test_list_strategy_backtests_payload_injects_net_profit(db_session):
     strategy = Strategy(id="s1", name="Alpha")
     db_session.add(strategy)
@@ -111,7 +142,7 @@ def test_get_advanced_analysis_payload_builds_expected_response(
     db_session.flush()
 
     deals_df = pd.DataFrame(
-        {"strategy_id": ["s1"], "profit": [50.0]},
+        {"strategy_id": ["s1"], "profit": [50.0], "commission": [0.0], "swap": [0.0]},
         index=pd.DatetimeIndex([datetime(2026, 1, 1, tzinfo=UTC)]),
     )
     equity_df = pd.DataFrame(

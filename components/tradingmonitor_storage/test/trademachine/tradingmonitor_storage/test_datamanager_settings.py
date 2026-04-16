@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from trademachine.tradingmonitor_storage.api_schemas import DataManagerSettings
 from trademachine.tradingmonitor_storage.config import settings
 from trademachine.tradingmonitor_storage.db.models import Setting
@@ -8,11 +10,17 @@ from trademachine.tradingmonitor_storage.services.datamanager_settings import (
 
 
 def test_get_datamanager_settings_falls_back_to_env_defaults():
-    resolved = get_datamanager_settings()
+    with patch(
+        "trademachine.tradingmonitor_storage.services.datamanager_settings.settings"
+    ) as mock_settings:
+        mock_settings.datamanager_url = settings.datamanager_url
+        mock_settings.datamanager_api_key = "YOUR_API_KEY_HERE"
+        mock_settings.datamanager_timeout = settings.datamanager_timeout
+        resolved = get_datamanager_settings()
 
     assert resolved.url == settings.datamanager_url
-    assert resolved.api_key == settings.datamanager_api_key
-    assert resolved.api_key_configured is True
+    assert resolved.api_key == "YOUR_API_KEY_HERE"
+    assert resolved.api_key_configured is False
     assert resolved.timeout == settings.datamanager_timeout
 
 
@@ -26,10 +34,16 @@ def test_get_datamanager_settings_prefers_database_values(db_session):
     )
     db_session.flush()
 
-    resolved = get_datamanager_settings(db_session)
+    with patch(
+        "trademachine.tradingmonitor_storage.services.datamanager_settings.settings"
+    ) as mock_settings:
+        mock_settings.datamanager_url = settings.datamanager_url
+        mock_settings.datamanager_api_key = "YOUR_API_KEY_HERE"
+        mock_settings.datamanager_timeout = settings.datamanager_timeout
+        resolved = get_datamanager_settings(db_session)
 
     assert resolved.url == "http://localhost:9999"
-    assert resolved.api_key == settings.datamanager_api_key
+    assert resolved.api_key == "secret"
     assert resolved.api_key_configured is True
     assert resolved.timeout == 12.5
 

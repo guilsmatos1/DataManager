@@ -216,6 +216,32 @@ class TestPortfolioMetricsEdgeCases:
                 assert result["Total Trades"] == 6
                 # Should still calculate basic metrics without equity
 
+    def test_portfolio_metrics_tolerates_duplicate_timestamps(self):
+        base_time = datetime(2024, 1, 1, tzinfo=UTC)
+        duplicate_index = pd.DatetimeIndex(
+            [base_time, base_time, base_time + timedelta(days=1)],
+            tz="UTC",
+        )
+        duplicate_deals_df = pd.DataFrame(
+            {
+                "profit": [10.0, -5.0, 15.0],
+                "commission": [-1.0, -1.0, -1.0],
+                "swap": [0.0, 0.0, 0.0],
+                "type": ["BUY", "SELL", "BUY"],
+            },
+            index=duplicate_index,
+        )
+
+        with patch(
+            "trademachine.tradingmonitor_analytics.metrics.calculator.get_strategy_deals"
+        ) as mock_get_deals:
+            mock_get_deals.side_effect = [duplicate_deals_df, duplicate_deals_df.copy()]
+
+            result = calculate_portfolio_metrics(["s1", "s2"])
+
+            assert result["Total Trades"] == 6
+            assert result["Profit"] == pytest.approx(34.0)
+
 
 class TestCalculatorExtended:
     def test_calculate_correlation_matrix_basic(self, mock_deals_df):

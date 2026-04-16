@@ -40,6 +40,7 @@ class StrategyResponse(BaseModel):
     backtest_net_profit: float | None = None
     trades_count: int | None = None
     max_drawdown: float | None = None  # 0-1 fraction
+    ret_dd: float | None = None
     last_seen_at: datetime | None = None
     last_trade_at: datetime | None = None
     zombie_alert: bool = False
@@ -100,6 +101,7 @@ class PortfolioResponse(BaseModel):
     backtest_net_profit: float | None = None
     demo_net_profit: float | None = None
     real_net_profit: float | None = None
+    metrics_error: str | None = None
 
     @classmethod
     def from_orm_portfolio(cls, portfolio):
@@ -305,6 +307,8 @@ class TelegramSettings(BaseModel):
     chat_id: str | None = None
     bot_token_configured: bool = False
     chat_id_configured: bool = False
+    bot_token_masked: str | None = None
+    chat_id_masked: str | None = None
     notify_closed_trades: bool = False
     notify_system_errors: bool = False
     var_95_threshold: float | None = None
@@ -317,3 +321,200 @@ class DataManagerSettings(BaseModel):
     api_key: str = ""
     api_key_configured: bool = False
     timeout: float = 30.0
+
+
+# ── Typed response models for previously untyped endpoints ───────────────────
+
+
+class MetricsResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class DailyProfitRow(BaseModel):
+    date: str
+    net_profit: float
+    trades_count: int | None = None
+
+
+class EquityTimestampPoint(BaseModel):
+    timestamp: str | None = None
+    equity: float | None = None
+
+
+class CorrelationInsights(BaseModel):
+    avg_correlation: float | None = None
+    most_positive: list = []
+    most_negative: list = []
+
+
+class CorrelationResponse(BaseModel):
+    strategies: list[str] = []
+    matrix: list[list[float | None]] = []
+    data_points: int | None = None
+    period: str | None = None
+    date_range: list[str | None] = []
+    insights: CorrelationInsights | None = None
+    error: str | None = None
+
+
+class DynamicCorrelationResponse(BaseModel):
+    window_days: int | None = None
+    strategies: list[str] = []
+    matrix: list[list[float | None]] = []
+    error: str | None = None
+
+
+class ConcurrencyInsights(BaseModel):
+    top_hour: list = []
+    top_day: list = []
+    top_week: list = []
+
+
+class ConcurrencyResponse(BaseModel):
+    strategies: list[str] = []
+    same_hour: list[list[float]] = []
+    same_day: list[list[float]] = []
+    same_week: list[list[float]] = []
+    insights: ConcurrencyInsights | None = None
+    error: str | None = None
+
+
+class ContributionsResponse(BaseModel):
+    positive: dict[str, float] = {}
+    negative: dict[str, float] = {}
+
+
+class StrategyEquityBreakdown(BaseModel):
+    name: str | None = None
+    points: list[EquityTimestampPoint] = []
+
+
+class EquityBreakdownResponse(BaseModel):
+    total: list[EquityTimestampPoint] = []
+    strategies: dict[str, StrategyEquityBreakdown] = {}
+
+
+class AdvancedAnalysisBenchmark(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class StrategyContribution(BaseModel):
+    strategy_id: str
+    name: str
+    profit: float
+
+
+class DailyPnlPoint(BaseModel):
+    date: str
+    net_profit: float
+
+
+class TradeStatsByHour(BaseModel):
+    hour: int
+    count: int
+    net_profit: float
+
+
+class TradeStatsByDow(BaseModel):
+    dow: int
+    label: str
+    count: int
+    net_profit: float
+
+
+class TradeStats(BaseModel):
+    by_hour: list[TradeStatsByHour] = []
+    by_dow: list[TradeStatsByDow] = []
+
+
+class StrategyEquityCurve(BaseModel):
+    strategy_id: str
+    name: str
+    points: list[EquityTimestampPoint] = []
+
+
+class AdvancedAnalysisResponse(BaseModel):
+    metrics: dict[str, object] = {}
+    equity_curve: list[EquityTimestampPoint] = []
+    comparison_curve: list = []
+    benchmark: dict | None = None
+    selected_strategies: list[str] = []
+    history_type: str = ""
+    strategy_contributions: list[StrategyContribution] = []
+    daily_pnl: list[DailyPnlPoint] = []
+    trade_stats: TradeStats = TradeStats()
+    per_strategy_equity: list[StrategyEquityCurve] = []
+
+
+class RealStrategyOverview(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class RealOverviewTotals(BaseModel):
+    net_profit: float = 0.0
+    floating_pnl: float = 0.0
+    day_pnl: float = 0.0
+    open_trades_count: int | None = None
+    pending_orders_count: int | None = None
+    counts_available: bool = False
+
+
+class RealOverviewResponse(BaseModel):
+    mode: str
+    strategies: list[dict] = []
+    totals: RealOverviewTotals = RealOverviewTotals()
+
+
+class RecentDeal(BaseModel):
+    timestamp: str | None = None
+    ticket: int
+    strategy_id: str
+    strategy_name: str | None = None
+    symbol: str | None = None
+    type: str
+    profit: float = 0.0
+    commission: float = 0.0
+    swap: float = 0.0
+    net_profit: float = 0.0
+
+
+class FloatingPosition(BaseModel):
+    strategy_id: str
+    strategy_name: str | None = None
+    balance: float
+    equity: float
+    floating_pnl: float
+
+
+class FloatingPnlResponse(BaseModel):
+    total_floating_pnl: float
+    positions: list[FloatingPosition] = []
+
+
+class HealthResponse(BaseModel):
+    status: str
+    db_ok: bool
+    heartbeat: str | None = None
+    heartbeat_age_seconds: float | None = None
+    uptime_seconds: float | None = None
+
+
+class IngestionClient(BaseModel):
+    ip: str
+    port: int
+
+
+class IngestionStatusResponse(BaseModel):
+    connected_clients: int = 0
+    clients: list[IngestionClient] = []
+    last_event_at: dict[str, str] = {}
+    uptime_seconds: float = 0.0
+    heartbeat: str | None = None
+
+
+class IngestionErrorResponse(BaseModel):
+    id: int
+    timestamp: str | None = None
+    topic: str | None = None
+    error_message: str | None = None
+    raw_message: str | None = None

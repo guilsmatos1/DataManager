@@ -519,6 +519,8 @@ class TestCheckPerformanceDrift:
                         with patch(
                             "trademachine.tradingmonitor_analytics.analysis.drift._notify_drift"
                         ) as mock_notify:
+                            # Ensure no backtest is found via .order_by().first()
+                            mock_db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
                             result = check_performance_drift("var_breach")
 
         assert result is not None
@@ -952,6 +954,8 @@ class TestDependencyInjection:
                     with patch(
                         "trademachine.tradingmonitor_analytics.analysis.drift._notify_drift"
                     ) as mock_notify:
+                        # Ensure no backtest is found via .order_by().first()
+                        mock_db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
                         # Pass custom settings directly via DI - no patching needed!
                         result = check_performance_drift(
                             "di_test_strategy", settings=custom_settings
@@ -1001,6 +1005,7 @@ class TestDependencyInjection:
                     with patch(
                         "trademachine.tradingmonitor_analytics.analysis.drift._notify_drift"
                     ) as mock_notify:
+                        mock_db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
                         # With 50% threshold, even volatile equity won't breach
                         result = check_performance_drift(
                             "high_threshold_test", settings=custom_settings

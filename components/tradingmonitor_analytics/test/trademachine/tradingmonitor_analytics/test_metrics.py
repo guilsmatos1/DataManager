@@ -46,7 +46,7 @@ def test_calculate_metrics_basic():
     assert metrics["Profit"] == 18.0 - 4.0
     assert metrics["Win Rate (%)"] == 50.0
     assert metrics["Gross Profit"] == 25.0
-    assert metrics["Gross Loss"] == 7.0
+    assert metrics["Gross Loss"] == -7.0
     assert metrics["Profit Factor"] == 25.0 / 7.0
     assert "Sharpe Ratio" in metrics
     assert "Drawdown" in metrics

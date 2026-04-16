@@ -101,18 +101,18 @@ _patch_sqlite_composite_pk()
 
 @pytest.fixture(autouse=True)
 def clear_ingestion_caches():
-    """Clear tcp_server in-memory caches before/after each test to prevent cross-test pollution."""
-    import trademachine.tradingmonitor_ingestion.ingestion.tcp_server as _tcp
+    """Clear processor in-memory caches before/after each test to prevent cross-test pollution."""
+    import trademachine.tradingmonitor_ingestion.ingestion.processors as _proc
 
-    _tcp.EXISTING_STRATEGIES.clear()
-    _tcp.EXISTING_ACCOUNTS.clear()
-    _tcp.EXISTING_SYMBOLS.clear()
-    _tcp._active_backtests.clear()
+    _proc.EXISTING_STRATEGIES.clear()
+    _proc.EXISTING_ACCOUNTS.clear()
+    _proc.EXISTING_SYMBOLS.clear()
+    _proc._active_backtests.clear()
     yield
-    _tcp.EXISTING_STRATEGIES.clear()
-    _tcp.EXISTING_ACCOUNTS.clear()
-    _tcp.EXISTING_SYMBOLS.clear()
-    _tcp._active_backtests.clear()
+    _proc.EXISTING_STRATEGIES.clear()
+    _proc.EXISTING_ACCOUNTS.clear()
+    _proc.EXISTING_SYMBOLS.clear()
+    _proc._active_backtests.clear()
 
 
 # ── SQLite fixtures ───────────────────────────────────────────────────────────

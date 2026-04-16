@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}TradingMonitor — Correlation Analysis{% endblock %}
+
+{% block chartjs %}
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb">
+    <a href="/">Overview</a>
+    <span class="breadcrumb-sep" aria-hidden="true">›</span>
+    <a href="/advanced-analysis">Advanced Analysis</a>
+    <span class="breadcrumb-sep" aria-hidden="true">›</span>
+    <span aria-current="page">Correlation</span>
+</nav>
+<div class="page-header">
+    <h1><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/></svg> Correlation Analysis</h1>
+    <span id="strategy-count" class="badge badge-neutral"></span>
+</div>
+
+<!-- Correlation Matrix -->
+<div class="card" style="margin-bottom:1rem">
+    <div class="section-header">
+        <h2>Returns Correlation Matrix</h2>
+        <div class="period-tabs">
+            <button class="period-tab active" data-period="daily"   onclick="setPeriod('daily')">Daily</button>
+            <button class="period-tab"        data-period="weekly"  onclick="setPeriod('weekly')">Weekly</button>
+            <button class="period-tab"        data-period="monthly" onclick="setPeriod('monthly')">Monthly</button>
+        </div>
+    </div>
+    <p class="corr-description text-muted" id="corr-desc"></p>
+    <div id="corr-container" style="margin-top:1rem"><div class="loading">Loading...</div></div>
+    <div id="corr-insights" class="insights-row" style="margin-top:1.25rem"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/page-correlation-standalone.js"></script>
+{% endblock %}

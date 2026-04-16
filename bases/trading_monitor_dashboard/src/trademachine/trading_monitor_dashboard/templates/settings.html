@@ -61,11 +61,13 @@
                 <form id="telegram-form" onsubmit="saveSettings(event)">
                     <div class="form-group">
                         <label for="bot_token" class="settings-label">Bot Token</label>
-                        <input type="password" id="bot_token" name="bot_token" class="field-input" placeholder="e.g.: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+                        <input type="text" id="bot_token" name="bot_token" class="field-input" placeholder="e.g.: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+                        <small id="bot_token_hint" class="settings-hint"></small>
                     </div>
                     <div class="form-group">
                         <label for="chat_id" class="settings-label">Chat ID</label>
                         <input type="text" id="chat_id" name="chat_id" class="field-input" placeholder="e.g.: -100123456789">
+                        <small id="chat_id_hint" class="settings-hint"></small>
                     </div>
                     <div class="form-group settings-checkboxes">
                         <label class="settings-checkbox-label">
@@ -107,7 +109,7 @@
                     </div>
                     <div class="form-group">
                         <label for="dm_api_key" class="settings-label">API Key</label>
-                        <input type="password" id="dm_api_key" name="dm_api_key" class="field-input" placeholder="YOUR_API_KEY_HERE">
+                        <input type="text" id="dm_api_key" name="dm_api_key" class="field-input" placeholder="YOUR_API_KEY_HERE">
                     </div>
                     <div class="form-group">
                         <label for="dm_timeout" class="settings-label">Timeout (seconds)</label>
@@ -222,12 +224,12 @@
             </div>
             <div class="card-body">
                 <div class="form-group">
-                    <label for="real_page_mode" class="settings-label">/real page mode</label>
+                    <label for="real_page_mode" class="settings-label">Live Monitor mode</label>
                     <select id="real_page_mode" name="real_page_mode" class="field-input">
                         <option value="real">Show Real accounts only</option>
                         <option value="demo">Show Demo accounts only</option>
                     </select>
-                    <small class="settings-hint">The /real view will only display one of the two groups: Real or Demo.</small>
+                    <small class="settings-hint">The Live Monitor will only display one of the two groups: Real or Demo.</small>
                 </div>
                 <div style="display: flex; gap: 0.75rem; align-items: center;">
                     <button type="button" class="btn btn-primary" onclick="saveSettings(event)" >Save Visualization</button>

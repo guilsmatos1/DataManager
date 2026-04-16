@@ -19,25 +19,31 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "settings",
-        sa.Column("key", sa.String(length=64), nullable=False),
-        sa.Column(
-            "value",
-            sa.Text(),
-            nullable=False,
-            server_default=sa.text("''"),
-        ),
-        sa.PrimaryKeyConstraint("key"),
-    )
-    op.add_column(
-        "strategies",
-        sa.Column(
-            "max_allowed_drawdown",
-            sa.Numeric(precision=6, scale=2),
-            nullable=True,
-        ),
-    )
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    existing_tables = insp.get_table_names()
+    if "settings" not in existing_tables:
+        op.create_table(
+            "settings",
+            sa.Column("key", sa.String(length=64), nullable=False),
+            sa.Column(
+                "value",
+                sa.Text(),
+                nullable=False,
+                server_default=sa.text("''"),
+            ),
+            sa.PrimaryKeyConstraint("key"),
+        )
+    existing_cols = [c["name"] for c in insp.get_columns("strategies")]
+    if "max_allowed_drawdown" not in existing_cols:
+        op.add_column(
+            "strategies",
+            sa.Column(
+                "max_allowed_drawdown",
+                sa.Numeric(precision=6, scale=2),
+                nullable=True,
+            ),
+        )
 
 
 def downgrade() -> None:

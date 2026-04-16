@@ -12,30 +12,28 @@ from trademachine.tradingmonitor_analytics.services.dashboard_shared import (
 from trademachine.tradingmonitor_analytics.services.dashboard_shared import (
     strategy_matches_history_type as _strategy_matches_history_type,
 )
-from trademachine.tradingmonitor_storage.api_schemas import SummaryResponse
+from trademachine.tradingmonitor_storage.api_schemas import (
+    AccountResponse,
+    SummaryResponse,
+    SymbolResponse,
+)
 from trademachine.tradingmonitor_storage.public import (
     Account,
     Deal,
     DealType,
     EquityCurve,
     Portfolio,
-    Setting,
     Strategy,
     StrategyRuntimeSnapshot,
+    Symbol,
+    get_setting_str,
     get_strategy_daily_profit_rows,
     get_strategy_intraday_profit_map,
     get_strategy_net_profit_map,
     to_iso,
 )
 
-REAL_OVERVIEW_TIMEZONE = ZoneInfo("America/Sao_Paulo")
-
-
-def _setting_str(db: Session, key: str, default: str) -> str:
-    setting = db.query(Setting).filter(Setting.key == key).first()
-    if not setting or setting.value is None or not str(setting.value).strip():
-        return default
-    return str(setting.value).strip().lower()
+REAL_OVERVIEW_TIMEZONE = ZoneInfo("Europe/Athens")
 
 
 def _get_net_profits(db: Session, strategy_ids: list[str]) -> dict[str, float]:
@@ -66,6 +64,33 @@ def _get_intraday_net_profits(
         day_start_utc=day_start_utc,
         now_utc=now_utc,
     )
+
+
+def _append_current_local_day_point(
+    rows: list[dict[str, object]],
+    *,
+    timezone: ZoneInfo,
+    now_utc: datetime | None = None,
+) -> list[dict[str, object]]:
+    if not rows:
+        return rows
+
+    current_local_day = (
+        (now_utc or datetime.now(UTC)).astimezone(timezone).date().isoformat()
+    )
+    if any(str(row.get("date")) == current_local_day for row in rows):
+        return rows
+
+    rows_with_today = [*rows]
+    rows_with_today.append(
+        {
+            "date": current_local_day,
+            "net_profit": 0.0,
+            "trades_count": 0,
+        }
+    )
+    rows_with_today.sort(key=lambda row: str(row["date"]))
+    return rows_with_today
 
 
 def _get_latest_equity(db: Session, strategy_ids: list[str]) -> dict[str, EquityCurve]:
@@ -168,7 +193,7 @@ def _compute_var(equity_series: list[float], percentile: float = 95) -> float | 
 
 
 def _load_real_page_mode(db: Session) -> str:
-    return _setting_str(db, "real_page_mode", default="real")
+    return get_setting_str(db, "real_page_mode", default="real")
 
 
 def _load_overview_strategies(db: Session, real_page_mode: str) -> list[Strategy]:
@@ -330,14 +355,25 @@ def get_real_overview_payload(
     }
 
 
-def get_real_daily_payload(db: Session) -> list[dict[str, object]]:
+def get_real_daily_payload(
+    db: Session, *, now_utc: datetime | None = None
+) -> list[dict[str, object]]:
     real_page_mode = _load_real_page_mode(db)
     overview_strategies = _load_overview_strategies(db, real_page_mode)
     if not overview_strategies:
         return []
 
     strategy_ids = [str(strategy.id) for strategy in overview_strategies]
-    return get_strategy_daily_profit_rows(db, strategy_ids)
+    rows = get_strategy_daily_profit_rows(
+        db,
+        strategy_ids,
+        timezone=REAL_OVERVIEW_TIMEZONE,
+    )
+    return _append_current_local_day_point(
+        rows,
+        timezone=REAL_OVERVIEW_TIMEZONE,
+        now_utc=now_utc,
+    )
 
 
 def get_real_recent_deals_payload(
@@ -374,3 +410,90 @@ def get_real_recent_deals_payload(
         }
         for deal in deals
     ]
+
+
+def list_accounts_payload(db: Session) -> list[AccountResponse]:
+    accounts = db.query(Account).all()
+    net_profits: dict[str | None, float] = dict(
+        db.query(
+            Strategy.account_id,
+            func.sum(Deal.profit + Deal.commission + Deal.swap),
+        )
+        .join(Deal, Deal.strategy_id == Strategy.id)
+        .filter(Deal.type.in_([DealType.BUY, DealType.SELL]))
+        .filter(Strategy.account_id.isnot(None))
+        .group_by(Strategy.account_id)
+        .all()
+    )
+    result = []
+    for a in accounts:
+        r = AccountResponse.model_validate(a)
+        raw = net_profits.get(a.id)
+        r.net_profit = float(raw) if raw is not None else None
+        result.append(r)
+    return result
+
+
+def get_floating_pnl_payload(db: Session) -> dict:
+    latest_ts = (
+        db.query(
+            EquityCurve.strategy_id,
+            func.max(EquityCurve.timestamp).label("max_ts"),
+        )
+        .group_by(EquityCurve.strategy_id)
+        .subquery()
+    )
+    rows = (
+        db.query(
+            EquityCurve.strategy_id,
+            EquityCurve.balance,
+            EquityCurve.equity,
+            Strategy.name,
+        )
+        .join(
+            latest_ts,
+            (EquityCurve.strategy_id == latest_ts.c.strategy_id)
+            & (EquityCurve.timestamp == latest_ts.c.max_ts),
+        )
+        .join(Strategy, Strategy.id == EquityCurve.strategy_id)
+        .all()
+    )
+    result = []
+    total_floating = 0.0
+    for row in rows:
+        floating = float(row.equity) - float(row.balance)
+        total_floating += floating
+        result.append(
+            {
+                "strategy_id": row.strategy_id,
+                "strategy_name": row.name,
+                "balance": float(row.balance),
+                "equity": float(row.equity),
+                "floating_pnl": floating,
+            }
+        )
+    result.sort(key=lambda x: abs(x["floating_pnl"]), reverse=True)
+    return {"total_floating_pnl": total_floating, "positions": result}
+
+
+def list_symbols_payload(db: Session) -> list[SymbolResponse]:
+    strat_counts = (
+        db.query(Strategy.symbol_id, func.count(Strategy.id).label("count"))
+        .group_by(Strategy.symbol_id)
+        .subquery()
+    )
+    symbols_data = (
+        db.query(
+            Symbol,
+            func.coalesce(strat_counts.c.count, 0).label("strategies_count"),
+        )
+        .outerjoin(strat_counts, Symbol.id == strat_counts.c.symbol_id)
+        .order_by(Symbol.market, Symbol.name)
+        .all()
+    )
+    result = []
+    for sym, count in symbols_data:
+        resp = SymbolResponse.model_validate(sym)
+        resp.strategies_count = count
+        result.append(resp)
+    return result

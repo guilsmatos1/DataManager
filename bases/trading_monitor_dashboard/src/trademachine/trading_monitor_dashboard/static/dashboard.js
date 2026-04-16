@@ -98,6 +98,39 @@ function _flushUpdatedAt() {
 }
 setInterval(_flushUpdatedAt, 15000);
 
+function formatMt5ServerTimestamp(value, locale = "en-GB") {
+    if (!value) return "—";
+    if (typeof value !== "string") {
+        const parsedDate = new Date(value);
+        return Number.isNaN(parsedDate.getTime()) ? "—" : parsedDate.toLocaleString(locale, { hour12: false });
+    }
+
+    const match = value.match(
+        /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/
+    );
+    if (!match) {
+        const parsedDate = new Date(value);
+        return Number.isNaN(parsedDate.getTime()) ? value : parsedDate.toLocaleString(locale, { hour12: false });
+    }
+
+    const [, year, month, day, hour, minute, second = "00"] = match;
+    return `${day}/${month}/${year}, ${hour}:${minute}:${second}`;
+}
+
+function formatDateTime(value) {
+    if (!value) return "—";
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString("en-GB", { hour12: false });
+}
+
+// HTML-escape user-provided text before interpolating into innerHTML
+function esc(str) {
+    if (str == null) return "";
+    const d = document.createElement("div");
+    d.textContent = String(str);
+    return d.innerHTML;
+}
+
 // Number formatter
 function fmt(value, decimals = 2) {
     if (value === null || value === undefined) return "—";
@@ -116,6 +149,13 @@ const DASHBOARD_ADVANCED_METRIC_KEYS = [
     "calmar ratio",
     "var 95% (daily)",
     "cvar 95% (daily)",
+    "consecutive wins",
+    "consecutive losses",
+    "long trades",
+    "long trades (%)",
+    "short trades",
+    "short trades (%)",
+    "z-score",
 ];
 
 function renderMetricsGrid(container, metrics, options = {}) {
@@ -220,12 +260,53 @@ function buildRebasedEquitySeries(points, scale, valueGetter = (point) => point.
     });
 }
 
+// ── Chart color palette (single source of truth) ────────────────────────────
+const CHART_COLORS = {
+    green:      "#10b981",
+    red:        "#ef4444",
+    greenBg:    "rgba(16,185,129,0.72)",
+    redBg:      "rgba(239,68,68,0.72)",
+    greenFill:  "rgba(16,185,129,0.06)",
+    redFill:    "rgba(239,68,68,0.10)",
+    greenSoft:  "rgba(16,185,129,0.75)",
+    redSoft:    "rgba(239,68,68,0.75)",
+    underwaterBorder: "#ef4444",
+    underwaterFill:   "rgba(239,68,68,0.18)",
+    muted:      "#64748b",
+    mutedBg:    "rgba(100,116,139,0.08)",
+};
+
+function profitBgColor(v) { return v >= 0 ? CHART_COLORS.greenBg : CHART_COLORS.redBg; }
+function profitBorderColor(v) { return v >= 0 ? CHART_COLORS.green : CHART_COLORS.red; }
+
+/**
+ * Safely destroy a Chart.js instance and return null.
+ * Usage: myChart = destroyChart(myChart);
+ */
+function destroyChart(chart) {
+    if (chart) chart.destroy();
+    return null;
+}
+
 function getEquityChartColors() {
     const isDark = document.documentElement.getAttribute("data-theme") !== "light";
     return {
         tickColor: isDark ? "#64748b" : "#94a3b8",
         gridColor: isDark ? "#334155" : "#e2e8f0",
         legendColor: isDark ? "#94a3b8" : "#475569",
+    };
+}
+
+function getProfitPalette(netProfit) {
+    if (typeof netProfit === "number" && netProfit < 0) {
+        return {
+            borderColor: CHART_COLORS.red,
+            backgroundColor: CHART_COLORS.redFill,
+        };
+    }
+    return {
+        borderColor: CHART_COLORS.green,
+        backgroundColor: CHART_COLORS.greenFill,
     };
 }
 
@@ -377,6 +458,147 @@ document.body.addEventListener("htmx:wsAfterMessage", function(evt) {
     }
 });
 
+// ── Shared chart helpers ──────────────────────────────────────────────────
+
+function ensureCanvas(wrapperId, canvasId) {
+    let canvas = document.getElementById(canvasId);
+    if (canvas) return canvas;
+    const wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return null;
+    wrapper.innerHTML = `<canvas id="${canvasId}"></canvas>`;
+    return document.getElementById(canvasId);
+}
+
+function renderChartEmptyState(wrapperId, message = "No data yet.") {
+    const wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return;
+    wrapper.innerHTML = `<p class="empty-state" style="padding:1rem 0">${message}</p>`;
+}
+
+function renderPnlBarChart(canvasId, wrapperId, labels, values, chartRef, view = "bar") {
+    if (!labels.length) {
+        destroyChart(chartRef);
+        renderChartEmptyState(wrapperId, "No P&L data.");
+        return null;
+    }
+    const canvas = ensureCanvas(wrapperId, canvasId);
+    if (!canvas) return chartRef;
+    destroyChart(chartRef);
+
+    const { tickColor, gridColor } = getEquityChartColors();
+    const isBar = view === "bar";
+    const bgColors = values.map(profitBgColor);
+    const brColors = values.map(profitBorderColor);
+
+    return new Chart(canvas.getContext("2d"), {
+        type: isBar ? "bar" : "line",
+        data: {
+            labels,
+            datasets: [{
+                label: "Net P&L",
+                data: values,
+                backgroundColor: isBar ? bgColors : CHART_COLORS.mutedBg,
+                borderColor: isBar ? brColors : CHART_COLORS.muted,
+                borderWidth: isBar ? 1 : 2,
+                borderRadius: isBar ? 4 : 0,
+                fill: !isBar,
+                tension: 0.3,
+                pointRadius: isBar ? 0 : 3,
+                pointBackgroundColor: brColors,
+                segment: isBar ? undefined : {
+                    borderColor: ctx => profitBorderColor(ctx.p1.parsed.y),
+                },
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ` ${fmt(ctx.parsed.y)}` } },
+            },
+            scales: {
+                x: { ticks: { color: tickColor, maxTicksLimit: 18, font: { size: 11 } }, grid: { display: false } },
+                y: { ticks: { color: tickColor, callback: v => fmt(v) }, grid: { color: gridColor } },
+            },
+        },
+    });
+}
+
+function renderDistBarChart(canvasId, wrapperId, labels, profits, chartRef) {
+    const hasData = Array.isArray(profits) && profits.some(v => v !== 0);
+    if (!labels.length || !hasData) {
+        destroyChart(chartRef);
+        renderChartEmptyState(wrapperId, "No trade distribution data.");
+        return null;
+    }
+    const canvas = ensureCanvas(wrapperId, canvasId);
+    if (!canvas) return chartRef;
+    destroyChart(chartRef);
+    const orphan = Chart.getChart(canvas);
+    if (orphan) orphan.destroy();
+
+    const { tickColor, gridColor } = getEquityChartColors();
+    const bgColors = profits.map(profitBgColor);
+    const brColors = profits.map(profitBorderColor);
+
+    return new Chart(canvas, {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [{
+                label: "Net P&L",
+                data: profits,
+                backgroundColor: bgColors,
+                borderColor: brColors,
+                borderWidth: 1,
+                borderRadius: 3,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ` ${fmt(ctx.parsed.y)}` } },
+            },
+            scales: {
+                x: { ticks: { color: tickColor, font: { size: 10 } }, grid: { display: false } },
+                y: { ticks: { color: tickColor, callback: v => fmt(v) }, grid: { color: gridColor } },
+            },
+        },
+    });
+}
+
+function aggregateMonthlyPnl(dailyRows) {
+    const agg = {};
+    dailyRows.forEach(r => {
+        const key = r.date.slice(0, 7);
+        agg[key] = (agg[key] || 0) + r.net_profit;
+    });
+    const labels = Object.keys(agg).sort();
+    const values = labels.map(k => parseFloat(agg[k].toFixed(2)));
+    return { labels, values };
+}
+
+function monthLabelsForDisplay(rawLabels) {
+    return rawLabels.map(k => {
+        const [y, m] = k.split("-");
+        return new Date(y, m - 1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+    });
+}
+
+function aggregateAnnualPnl(monthlyLabels, monthlyValues) {
+    const yearAgg = {};
+    monthlyLabels.forEach((k, i) => {
+        const year = k.slice(0, 4);
+        yearAgg[year] = (yearAgg[year] || 0) + monthlyValues[i];
+    });
+    const labels = Object.keys(yearAgg).sort();
+    const values = labels.map(y => parseFloat(yearAgg[y].toFixed(2)));
+    return { labels, values };
+}
+
 // ── Export Chart utility ───────────────────────────────────────────────────
 function exportChart(canvasId, filename = "chart.png") {
     const canvas = document.getElementById(canvasId);
@@ -463,7 +685,7 @@ async function loadStrategiesDropdown(items, state) {
         state.style.display = "none";
         items.innerHTML = sorted.map((s) => `
             <a class="nav-dropdown-item" href="/strategy/${s.id}">
-                <span>${s.name || s.id}</span>
+                <span>${esc(s.name) || s.id}</span>
                 <span class="nav-dropdown-item-meta">ID: ${s.id}</span>
             </a>
         `).join("");
@@ -487,7 +709,7 @@ async function loadPortfoliosDropdown(items, state) {
         state.style.display = "none";
         items.innerHTML = sorted.map((p) => `
             <a class="nav-dropdown-item" href="/portfolio/${p.id}">
-                <span>${p.name || `Portfolio ${p.id}`}</span>
+                <span>${esc(p.name) || `Portfolio ${p.id}`}</span>
             </a>
         `).join("");
         items.dataset.loaded = "true";
@@ -510,7 +732,7 @@ async function loadAccountsDropdown(items, state) {
         state.style.display = "none";
         items.innerHTML = sorted.map((a) => `
             <a class="nav-dropdown-item" href="/account/${encodeURIComponent(a.id)}">
-                <span>${a.name || a.id}</span>
+                <span>${esc(a.name) || a.id}</span>
                 <span class="nav-dropdown-item-meta">ID: ${a.id}</span>
             </a>
         `).join("");
@@ -534,8 +756,8 @@ async function loadSymbolsDropdown(items, state) {
         state.style.display = "none";
         items.innerHTML = sorted.map((s) => `
             <a class="nav-dropdown-item" href="/symbol/${encodeURIComponent(s.name)}">
-                <span>${s.name}</span>
-                <span class="nav-dropdown-item-meta">${s.market || "Market unavailable"}</span>
+                <span>${esc(s.name)}</span>
+                <span class="nav-dropdown-item-meta">${esc(s.market) || "Market unavailable"}</span>
             </a>
         `).join("");
         items.dataset.loaded = "true";

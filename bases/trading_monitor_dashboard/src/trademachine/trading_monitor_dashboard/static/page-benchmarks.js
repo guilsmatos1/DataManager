@@ -1,6 +1,6 @@
 function benchmarkStatusText(benchmark) {
     if (benchmark.last_error) return benchmark.last_error;
-    if (benchmark.last_synced_at) return `Synced ${new Date(benchmark.last_synced_at).toLocaleString()}`;
+    if (benchmark.last_synced_at) return `Synced ${formatDateTime(benchmark.last_synced_at)}`;
     return "Not synced yet";
 }
 
@@ -9,6 +9,17 @@ function fillBenchmarkForm(row) {
     document.getElementById("benchmark-source").value = row.source;
     document.getElementById("benchmark-asset").value = row.asset;
     document.getElementById("benchmark-timeframe").value = row.timeframe;
+    const status = document.getElementById("benchmarks-status");
+    status.textContent = `Loaded ${row.source}/${row.asset}/${row.timeframe} into the form.`;
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
 }
 
 function renderBenchmarks(list) {
@@ -55,7 +66,16 @@ function renderRemoteBenchmarks(list) {
             <td class="mono">${row.timeframe}</td>
             <td>${row.rows ?? "—"}</td>
             <td>${row.last_timestamp || "—"}</td>
-            <td><button class="btn btn-ghost btn-sm" onclick='fillBenchmarkForm(${JSON.stringify(row)})'>Use</button></td>
+            <td>
+                <button
+                    class="btn btn-ghost btn-sm benchmark-use-btn"
+                    data-source="${escapeHtml(row.source)}"
+                    data-asset="${escapeHtml(row.asset)}"
+                    data-timeframe="${escapeHtml(row.timeframe)}"
+                >
+                    Use
+                </button>
+            </td>
         </tr>
     `).join("");
 
@@ -161,9 +181,12 @@ async function setDefaultBenchmark(id) {
 
 async function deleteBenchmark(id, name) {
     const benchmarkName = name || `#${id}`;
-    if (!confirm(`Delete benchmark "${benchmarkName}"?\n\nThis will permanently remove the benchmark and all synced price history.`)) {
-        return;
-    }
+    const confirmed = await showConfirmModal(
+        "Delete Benchmark",
+        `Delete benchmark <strong>"${benchmarkName}"</strong>?<br><br>This will permanently remove the benchmark and all synced price history.`,
+        { confirmLabel: "Delete", confirmClass: "btn-danger" }
+    );
+    if (!confirmed) return;
 
     const status = document.getElementById("benchmarks-status");
     status.textContent = "Deleting benchmark...";
@@ -175,5 +198,15 @@ async function deleteBenchmark(id, name) {
         status.textContent = `Error: ${e.message}`;
     }
 }
+
+document.addEventListener("click", (event) => {
+    const button = event.target.closest(".benchmark-use-btn");
+    if (!button) return;
+    fillBenchmarkForm({
+        source: button.dataset.source || "",
+        asset: button.dataset.asset || "",
+        timeframe: button.dataset.timeframe || "",
+    });
+});
 
 document.addEventListener("DOMContentLoaded", loadBenchmarksPage);

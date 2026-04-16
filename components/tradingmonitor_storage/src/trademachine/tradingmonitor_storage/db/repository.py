@@ -16,6 +16,7 @@ from trademachine.tradingmonitor_storage.db.aggregates import (
     get_strategy_trade_count_map,
 )
 from trademachine.tradingmonitor_storage.db.database import SessionLocal
+from trademachine.tradingmonitor_storage.db.deal_filters import apply_deal_search_filter
 from trademachine.tradingmonitor_storage.db.models import (
     Account,
     Backtest,
@@ -63,6 +64,13 @@ def _model_to_dict_deals(model: Any) -> dict:
         "commission": float(model.commission) if model.commission is not None else None,
         "swap": float(model.swap) if model.swap is not None else None,
     }
+
+
+def _assign_if_present(obj: Any, mapping: dict[str, Any]) -> None:
+    """Set attributes on *obj* for each key in *mapping* whose value is not None."""
+    for attr, value in mapping.items():
+        if value is not None:
+            setattr(obj, attr, value)
 
 
 def insert_deal_if_new(db: Session, deal_data: dict[str, Any]) -> bool:
@@ -148,24 +156,20 @@ class AccountRepository:
                 acc = Account(id=account_id)
                 db.add(acc)
 
-            if name is not None:
-                acc.name = name
-            if broker is not None:
-                acc.broker = broker
-            if account_type is not None:
-                acc.account_type = account_type
-            if currency is not None:
-                acc.currency = currency
-            if description is not None:
-                acc.description = description
-            if balance is not None:
-                acc.balance = balance
-            if free_margin is not None:
-                acc.free_margin = free_margin
-            if total_deposits is not None:
-                acc.total_deposits = total_deposits
-            if total_withdrawals is not None:
-                acc.total_withdrawals = total_withdrawals
+            _assign_if_present(
+                acc,
+                {
+                    "name": name,
+                    "broker": broker,
+                    "account_type": account_type,
+                    "currency": currency,
+                    "description": description,
+                    "balance": balance,
+                    "free_margin": free_margin,
+                    "total_deposits": total_deposits,
+                    "total_withdrawals": total_withdrawals,
+                },
+            )
 
             db.commit()
         finally:
@@ -266,29 +270,24 @@ class StrategyRepository:
                 strategy = Strategy(id=strategy_id)
                 db.add(strategy)
 
-            if name is not None:
-                strategy.name = name
-            if account_id is not None:
-                strategy.account_id = account_id
+            _assign_if_present(
+                strategy,
+                {
+                    "name": name,
+                    "account_id": account_id,
+                    "timeframe": timeframe,
+                    "operational_style": operational_style,
+                    "trade_duration": trade_duration,
+                    "initial_balance": initial_balance,
+                    "base_currency": base_currency,
+                    "description": description,
+                    "live": live,
+                    "real_account": real_account,
+                },
+            )
             if symbol is not None:
                 strategy.symbol = symbol
                 strategy.symbol_id = _lookup_symbol_id(db, symbol)
-            if timeframe is not None:
-                strategy.timeframe = timeframe
-            if operational_style is not None:
-                strategy.operational_style = operational_style
-            if trade_duration is not None:
-                strategy.trade_duration = trade_duration
-            if initial_balance is not None:
-                strategy.initial_balance = initial_balance
-            if base_currency is not None:
-                strategy.base_currency = base_currency
-            if description is not None:
-                strategy.description = description
-            if live is not None:
-                strategy.live = live
-            if real_account is not None:
-                strategy.real_account = real_account
 
             db.commit()
         finally:
@@ -447,16 +446,16 @@ class PortfolioRepository:
             if not p:
                 return None
 
-            if name is not None:
-                p.name = name
-            if description is not None:
-                p.description = description
-            if live is not None:
-                p.live = live
-            if real_account is not None:
-                p.real_account = real_account
-            if initial_balance is not None:
-                p.initial_balance = initial_balance
+            _assign_if_present(
+                p,
+                {
+                    "name": name,
+                    "description": description,
+                    "live": live,
+                    "real_account": real_account,
+                    "initial_balance": initial_balance,
+                },
+            )
             if strategy_ids is not None:
                 strategies = (
                     db.query(Strategy).filter(Strategy.id.in_(strategy_ids)).all()
@@ -526,20 +525,7 @@ class DealRepository:
         db = SessionLocal()
         try:
             base = db.query(Deal).filter(Deal.strategy_id == strategy_id)
-
-            if q:
-                term = f"%{q}%"
-                from sqlalchemy import String, cast, or_
-
-                conditions: list[Any] = [
-                    Deal.symbol.ilike(term),
-                    cast(Deal.ticket, String).ilike(term),
-                ]
-                try:
-                    conditions.append(Deal.type == DealType(q.upper()))
-                except ValueError:
-                    pass
-                base = base.filter(or_(*conditions))
+            base = apply_deal_search_filter(base, q)
 
             total = base.count()
             deals = (

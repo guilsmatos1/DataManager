@@ -3,6 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
+from trademachine.tradingmonitor_analytics.metrics.utils import (
+    CLOSED_TRADE_TYPES,
+    net_pnl,
+)
 from trademachine.tradingmonitor_storage.public import Strategy
 
 
@@ -19,16 +23,15 @@ def synthetic_equity(
 ) -> pd.DataFrame:
     if deals_df.empty:
         return pd.DataFrame()
-    pnl = deals_df["profit"] + deals_df["commission"] + deals_df["swap"]
     baseline = float(balance_baseline or 0.0)
-    return pd.DataFrame({"equity": pnl.cumsum() + baseline})
+    return pd.DataFrame({"equity": net_pnl(deals_df).cumsum() + baseline})
 
 
-def closed_trades_for_side(deals_df: pd.DataFrame, side: str | None) -> pd.DataFrame:
-    if side not in {"buy", "sell"} or deals_df.empty or "type" not in deals_df.columns:
+def closed_trades(deals_df: pd.DataFrame) -> pd.DataFrame:
+    if deals_df.empty or "type" not in deals_df.columns:
         return deals_df
 
-    trading_deals = deals_df[deals_df["type"].isin(["BUY", "SELL"])].copy()
+    trading_deals = deals_df[deals_df["type"].isin(CLOSED_TRADE_TYPES)].copy()
     if trading_deals.empty:
         return trading_deals
 
@@ -50,23 +53,22 @@ def closed_trades_for_side(deals_df: pd.DataFrame, side: str | None) -> pd.DataF
 
         if closed_volume > epsilon:
             slots[closing_side] -= closed_volume
-            if side == closing_side:
-                ratio = closed_volume / volume
-                closed_rows.append(
-                    (
-                        timestamp,
-                        {
-                            "strategy_id": row.get("strategy_id"),
-                            "symbol": symbol,
-                            "type": deal_type,
-                            "volume": closed_volume,
-                            "price": float(row.get("price") or 0.0),
-                            "profit": float(row.get("profit") or 0.0) * ratio,
-                            "commission": float(row.get("commission") or 0.0) * ratio,
-                            "swap": float(row.get("swap") or 0.0) * ratio,
-                        },
-                    )
+            ratio = closed_volume / volume
+            closed_rows.append(
+                (
+                    timestamp,
+                    {
+                        "strategy_id": row.get("strategy_id"),
+                        "symbol": symbol,
+                        "type": deal_type,
+                        "volume": closed_volume,
+                        "price": float(row.get("price") or 0.0),
+                        "profit": float(row.get("profit") or 0.0) * ratio,
+                        "commission": float(row.get("commission") or 0.0) * ratio,
+                        "swap": float(row.get("swap") or 0.0) * ratio,
+                    },
                 )
+            )
 
         remaining_volume = volume - closed_volume
         if remaining_volume > epsilon:
@@ -82,6 +84,18 @@ def closed_trades_for_side(deals_df: pd.DataFrame, side: str | None) -> pd.DataF
     return closed_df.sort_index(kind="stable")
 
 
+def closed_trades_for_side(deals_df: pd.DataFrame, side: str | None) -> pd.DataFrame:
+    if side not in {"buy", "sell"}:
+        return closed_trades(deals_df)
+
+    realized_trades = closed_trades(deals_df)
+    if realized_trades.empty:
+        return realized_trades
+
+    expected_type = "SELL" if side == "buy" else "BUY"
+    return realized_trades[realized_trades["type"] == expected_type].copy()
+
+
 def equity_points_from_deals(
     deals_df: pd.DataFrame,
     *,
@@ -92,11 +106,7 @@ def equity_points_from_deals(
     if deals_df.empty:
         return []
 
-    pnl = (
-        deals_df["profit"].fillna(0)
-        + deals_df["commission"].fillna(0)
-        + deals_df["swap"].fillna(0)
-    )
+    pnl = net_pnl(deals_df.fillna(0))
     baseline = float(balance_baseline or 0.0)
     equity = pnl.cumsum() + baseline
 

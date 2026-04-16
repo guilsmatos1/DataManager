@@ -200,7 +200,7 @@ def test_get_portfolio_strategies_payload_returns_enriched_portfolio_strategies(
                 type=DealType.BUY,
                 volume=0.1,
                 price=1.1,
-                profit=25.0,
+                profit=46.0,
                 commission=-1.0,
                 swap=0.0,
             ),
@@ -208,13 +208,19 @@ def test_get_portfolio_strategies_payload_returns_enriched_portfolio_strategies(
                 strategy_id="s1",
                 timestamp=datetime(2026, 1, 1, tzinfo=UTC),
                 balance=1000.0,
-                equity=1024.0,
+                equity=1000.0,
             ),
             EquityCurve(
                 strategy_id="s1",
                 timestamp=datetime(2026, 1, 2, tzinfo=UTC),
                 balance=1000.0,
-                equity=1012.0,
+                equity=1100.0,
+            ),
+            EquityCurve(
+                strategy_id="s1",
+                timestamp=datetime(2026, 1, 3, tzinfo=UTC),
+                balance=1000.0,
+                equity=1045.0,
             ),
         ]
     )
@@ -225,5 +231,6 @@ def test_get_portfolio_strategies_payload_returns_enriched_portfolio_strategies(
     assert len(payload) == 1
     assert payload[0].id == "s1"
     assert payload[0].account_name == "Real"
-    assert payload[0].net_profit == pytest.approx(24.0)
-    assert payload[0].max_drawdown == pytest.approx((1024.0 - 1012.0) / 1024.0)
+    assert payload[0].net_profit == pytest.approx(45.0)
+    assert payload[0].max_drawdown == pytest.approx((1100.0 - 1045.0) / 1100.0)
+    assert payload[0].ret_dd == pytest.approx(0.9)

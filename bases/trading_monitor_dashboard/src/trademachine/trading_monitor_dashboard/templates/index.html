@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}TradingMonitor — Overview{% endblock %}
 
+{% block chartjs %}
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
     <h1><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg> Overview</h1>
@@ -47,6 +51,48 @@
         <div class="chart-box">
             <canvas id="pie-duration"></canvas>
         </div>
+    </div>
+</div>
+
+<!-- Zero-state onboarding (shown when there are no strategies) -->
+<div id="zero-state" class="zero-state-banner" style="display:none">
+    <div class="zero-state-inner">
+        <div class="zero-state-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+        </div>
+        <h2 class="zero-state-title">Welcome to TradingMonitor</h2>
+        <p class="zero-state-sub">No strategies detected yet. Follow these steps to get started:</p>
+        <ol class="zero-state-steps">
+            <li>
+                <span class="zero-state-step-num">1</span>
+                <div>
+                    <strong>Download the EA</strong>
+                    <span>Get the MetricsPublisher.mq5 Expert Advisor from <a href="/settings">Settings → General</a>.</span>
+                </div>
+            </li>
+            <li>
+                <span class="zero-state-step-num">2</span>
+                <div>
+                    <strong>Install &amp; configure in MetaTrader 5</strong>
+                    <span>Attach the EA to a chart, set the <code>MagicNumber</code> (strategy ID) and the server address.</span>
+                </div>
+            </li>
+            <li>
+                <span class="zero-state-step-num">3</span>
+                <div>
+                    <strong>Start trading</strong>
+                    <span>The EA will publish DEAL, EQUITY, and ACCOUNT events automatically on every tick.</span>
+                </div>
+            </li>
+            <li>
+                <span class="zero-state-step-num">4</span>
+                <div>
+                    <strong>Refresh this page</strong>
+                    <span>Your strategies will appear here as soon as the first event is received.</span>
+                </div>
+            </li>
+        </ol>
+        <a href="/settings" class="btn btn-primary" style="margin-top:1rem">Go to Settings</a>
     </div>
 </div>
 
@@ -137,7 +183,7 @@
     <div class="modal-box">
         <div class="modal-header">
             <span class="modal-title" id="symbol-modal-title">New Symbol</span>
-            <button class="modal-close" onclick="closeSymbolModal()">✕</button>
+            <button class="modal-close" onclick="closeSymbolModal()" aria-label="Close">✕</button>
         </div>
         <div class="modal-body">
             <div class="edit-grid">
@@ -177,7 +223,7 @@
     <div class="modal-box">
         <div class="modal-header">
             <span class="modal-title" id="portfolio-modal-title">New Portfolio</span>
-            <button class="modal-close" onclick="closeCreateModal()">✕</button>
+            <button class="modal-close" onclick="closeCreateModal()" aria-label="Close">✕</button>
         </div>
         <div class="modal-body">
             <div class="edit-grid">

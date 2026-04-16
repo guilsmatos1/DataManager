@@ -1,8 +1,9 @@
 """Public API for cross-component TradingMonitor Storage access."""
 
-from trademachine.tradingmonitor_storage.api_schemas import (
+from trademachine.tradingmonitor_storage.api_schemas import (  # noqa: F401
     AccountResponse,
     AccountUpdate,
+    AdvancedAnalysisResponse,
     BacktestDealResponse,
     BacktestEquityPointResponse,
     BacktestResponse,
@@ -10,14 +11,28 @@ from trademachine.tradingmonitor_storage.api_schemas import (
     BenchmarkRemoteDatabaseResponse,
     BenchmarkResponse,
     BenchmarkUpdate,
+    ConcurrencyResponse,
+    ContributionsResponse,
+    CorrelationResponse,
+    DailyProfitRow,
     DataManagerSettings,
     DealResponse,
+    DynamicCorrelationResponse,
+    EquityBreakdownResponse,
     EquityPointResponse,
+    EquityTimestampPoint,
+    FloatingPnlResponse,
+    HealthResponse,
+    IngestionErrorResponse,
+    IngestionStatusResponse,
+    MetricsResponse,
     PaginatedBacktestDeals,
     PaginatedDeals,
     PortfolioCreate,
     PortfolioResponse,
     PortfolioUpdate,
+    RealOverviewResponse,
+    RecentDeal,
     StrategyResponse,
     StrategyUpdate,
     SummaryResponse,
@@ -34,6 +49,7 @@ from trademachine.tradingmonitor_storage.db.aggregates import (
     get_strategy_trade_count_map,
 )
 from trademachine.tradingmonitor_storage.db.database import (
+    DatabaseInitializationError,
     DatabaseUnavailableError,
     SessionLocal,
     engine,
@@ -41,6 +57,7 @@ from trademachine.tradingmonitor_storage.db.database import (
     get_db,
     init_db,
 )
+from trademachine.tradingmonitor_storage.db.deal_filters import apply_deal_search_filter
 from trademachine.tradingmonitor_storage.db.models import (
     Account,
     Backtest,
@@ -70,6 +87,14 @@ from trademachine.tradingmonitor_storage.services.datamanager_settings import (
     get_datamanager_settings,
     update_datamanager_settings,
 )
+from trademachine.tradingmonitor_storage.services.settings_utils import (
+    get_setting_bool,
+    get_setting_str,
+)
+from trademachine.tradingmonitor_storage.services.telegram_settings import (  # noqa: F401
+    get_telegram_settings_payload,
+    update_telegram_settings_payload,
+)
 from trademachine.tradingmonitor_storage.utils.notifications import notifier
 
 __all__ = [
@@ -77,6 +102,8 @@ __all__ = [
     "AccountRepository",
     "AccountResponse",
     "AccountUpdate",
+    "AdvancedAnalysisResponse",
+    "apply_deal_search_filter",
     "Backtest",
     "BacktestDeal",
     "BacktestDealResponse",
@@ -89,15 +116,28 @@ __all__ = [
     "BenchmarkRemoteDatabaseResponse",
     "BenchmarkResponse",
     "BenchmarkUpdate",
+    "ConcurrencyResponse",
+    "ContributionsResponse",
+    "CorrelationResponse",
+    "DailyProfitRow",
     "DataManagerSettings",
+    "DatabaseInitializationError",
     "DatabaseUnavailableError",
     "Deal",
     "DealIngestionKey",
     "DealResponse",
     "DealType",
+    "DynamicCorrelationResponse",
+    "EquityBreakdownResponse",
     "EquityCurve",
     "EquityPointResponse",
+    "EquityTimestampPoint",
+    "FloatingPnlResponse",
+    "HealthResponse",
     "IngestionError",
+    "IngestionErrorResponse",
+    "IngestionStatusResponse",
+    "MetricsResponse",
     "PaginatedBacktestDeals",
     "PaginatedDeals",
     "Portfolio",
@@ -105,6 +145,8 @@ __all__ = [
     "PortfolioRepository",
     "PortfolioResponse",
     "PortfolioUpdate",
+    "RealOverviewResponse",
+    "RecentDeal",
     "SessionLocal",
     "Setting",
     "Settings",
@@ -128,10 +170,14 @@ __all__ = [
     "get_strategy_net_profit_map",
     "get_strategy_trade_count_map",
     "get_settings",
+    "get_setting_bool",
+    "get_setting_str",
+    "get_telegram_settings_payload",
     "init_db",
     "notifier",
     "settings",
     "insert_deal_if_new",
     "to_iso",
     "update_datamanager_settings",
+    "update_telegram_settings_payload",
 ]

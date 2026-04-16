@@ -4,6 +4,58 @@
 // loadPortfolio, loadMetrics, loadEquity, loadCalendar are in api-client.js.
 // renderPortfolioStrategies, renderEquityChart, renderCalendar are in table-renderer.js.
 
+/* ── Portfolio Navigation ──────────────────────────────────────────────────── */
+
+let _portfolioNavList = [];
+let _portfolioNavIndex = -1;
+
+function comparePortfolioIds(a, b) {
+    return String(a).localeCompare(String(b), undefined, {
+        numeric: true,
+        sensitivity: "base",
+    });
+}
+
+function renderPortfolioNavigation() {
+    const prevBtn = document.getElementById("portfolio-prev-btn");
+    const nextBtn = document.getElementById("portfolio-next-btn");
+    if (!prevBtn || !nextBtn) return;
+
+    const hasPrev = _portfolioNavIndex > 0;
+    const hasNext = _portfolioNavIndex >= 0 && _portfolioNavIndex < _portfolioNavList.length - 1;
+    prevBtn.disabled = !hasPrev;
+    nextBtn.disabled = !hasNext;
+
+    prevBtn.title = hasPrev
+        ? `Previous portfolio: ${_portfolioNavList[_portfolioNavIndex - 1].name || _portfolioNavList[_portfolioNavIndex - 1].id}`
+        : "Previous portfolio";
+    nextBtn.title = hasNext
+        ? `Next portfolio: ${_portfolioNavList[_portfolioNavIndex + 1].name || _portfolioNavList[_portfolioNavIndex + 1].id}`
+        : "Next portfolio";
+}
+
+function navigatePortfolio(offset) {
+    const target = _portfolioNavList[_portfolioNavIndex + offset];
+    if (!target) return;
+    window.location.href = `/portfolio/${encodeURIComponent(target.id)}`;
+}
+
+async function loadPortfolioNavigation() {
+    try {
+        const portfolios = await fetchJson("/api/portfolios/nav");
+        _portfolioNavList = [...portfolios].sort((a, b) =>
+            comparePortfolioIds(a.id, b.id)
+        );
+        _portfolioNavIndex = _portfolioNavList.findIndex(
+            (p) => String(p.id) === String(PORTFOLIO_ID)
+        );
+    } catch (error) {
+        _portfolioNavList = [];
+        _portfolioNavIndex = -1;
+    }
+    renderPortfolioNavigation();
+}
+
 window.addEventListener("ws-event", function(e) {
     const { topic } = e.detail;
     if (topic === "DEAL" || topic === "EQUITY") { loadMetrics(); loadEquity(); loadCalendar(); loadPortfolioStrategies(); loadPortfolioDeals(); }
@@ -136,7 +188,7 @@ function renderPortfolioDeals(data) {
         const profitCls = profit > 0 ? "profit-positive" : profit < 0 ? "profit-negative" : "";
         const swapCls = swap > 0 ? "profit-positive" : swap < 0 ? "profit-negative" : "";
         const netCls = net > 0 ? "profit-positive" : net < 0 ? "profit-negative" : "";
-        const date = new Date(d.timestamp).toLocaleString("en-GB");
+        const date = formatMt5ServerTimestamp(d.timestamp);
         return `<tr>
             <td>${date}</td>
             <td class="mono">${d.strategy_id}</td>
@@ -178,6 +230,49 @@ function renderPortfolioDeals(data) {
         <button onclick="loadPortfolioDeals(${data.page + 1})" ${data.page >= totalPages ? "disabled" : ""}>Next →</button>`;
 }
 
+/* ── P&L Analysis & Trade Distribution ─────────────────────────────────────── */
+
+let _portMonthlyChart = null;
+let _portAnnualChart = null;
+let _portDistHourChart = null;
+let _portDistDowChart = null;
+
+async function loadPortfolioPnl() {
+    try {
+        const res = await fetch(`/api/portfolios/${PORTFOLIO_ID}/daily`);
+        const rows = await res.json();
+        const { labels, values } = aggregateMonthlyPnl(rows);
+        _portMonthlyChart = renderPnlBarChart(
+            "monthly-pnl-chart", "monthly-pnl-wrapper",
+            monthLabelsForDisplay(labels), values, _portMonthlyChart
+        );
+        const annual = aggregateAnnualPnl(labels, values);
+        _portAnnualChart = renderPnlBarChart(
+            "annual-pnl-chart", "annual-pnl-wrapper",
+            annual.labels, annual.values, _portAnnualChart
+        );
+    } catch (e) { console.error("Portfolio P&L error:", e); }
+}
+
+async function loadPortfolioDistribution() {
+    try {
+        const res = await fetch(`/api/portfolios/${PORTFOLIO_ID}/trade-stats`);
+        const data = await res.json();
+        _portDistHourChart = renderDistBarChart(
+            "dist-hour-chart", "dist-hour-wrapper",
+            data.by_hour.map(r => r.hour + ":00"),
+            data.by_hour.map(r => r.net_profit),
+            _portDistHourChart
+        );
+        _portDistDowChart = renderDistBarChart(
+            "dist-dow-chart", "dist-dow-wrapper",
+            data.by_dow.map(r => r.label),
+            data.by_dow.map(r => r.net_profit),
+            _portDistDowChart
+        );
+    } catch (e) { console.error("Portfolio distribution error:", e); }
+}
+
 // Restore saved page size
 const _savedPortDealsPs = localStorage.getItem("tm-port-deals-page-size");
 if (_savedPortDealsPs) {
@@ -191,9 +286,12 @@ if (_savedPortDealsPs) {
     );
     document.getElementById("advanced-analysis-link")?.addEventListener("click", handleAdvancedAnalysisClick);
     await loadPortfolio();
+    loadPortfolioNavigation();
     loadMetrics();
     loadEquity();
     loadCalendar();
+    loadPortfolioPnl();
+    loadPortfolioDistribution();
     loadPortfolioStrategies();
     loadPortfolioDeals();
 })();

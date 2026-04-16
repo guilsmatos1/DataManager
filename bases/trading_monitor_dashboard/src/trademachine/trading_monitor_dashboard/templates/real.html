@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}TradingMonitor — Account Monitor{% endblock %}
+{% block title %}TradingMonitor — Live Monitor{% endblock %}
 
 {% block chartjs %}
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -14,11 +14,11 @@
     .summary-footnote { margin: -0.25rem 0 1.25rem; color: var(--text-muted); font-size: 0.78rem; }
 </style>
 <div class="page-header">
-    <h1 id="real-page-title"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg> Account Monitor</h1>
+    <h1 id="real-page-title"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg> Live Monitor</h1>
     <span id="real-status-badge" class="badge"></span>
         <button class="btn btn-sm btn-danger" onclick="killAll()">Kill All</button>
 </div>
-<div id="last-updated-bar" class="last-updated-bar">
+<div id="last-updated-bar" class="last-updated-bar" style="display:none">
     <span id="last-updated-text">Refreshing…</span>
     <div class="last-updated-track"><div id="last-updated-fill" class="last-updated-fill"></div></div>
 </div>
@@ -69,7 +69,7 @@
 </div>
 
 <div id="real-empty" class="card" style="display:none">
-    <p class="empty-state">No strategies found for the current /real mode. Change the mode in Settings to view Real or Demo strategies.</p>
+    <p class="empty-state">No strategies found for the current Live Monitor mode. Change the mode in Settings to view Real or Demo strategies.</p>
 </div>
 
 <!-- Recent Deals/Trades Panel -->
@@ -89,14 +89,14 @@
     <div class="table-responsive">
         <table class="data-table">
             <thead><tr>
-                <th class="sortable" id="recent-deals-th-timestamp" onclick="recentDealsSortBy('timestamp')">Date<span id="recent-deals-arrow-timestamp"></span></th>
-                <th class="sortable" id="recent-deals-th-strategy_name" onclick="recentDealsSortBy('strategy_name')">Strategy<span id="recent-deals-arrow-strategy_name"></span></th>
-                <th class="sortable" id="recent-deals-th-symbol" onclick="recentDealsSortBy('symbol')">Symbol<span id="recent-deals-arrow-symbol"></span></th>
-                <th class="sortable" id="recent-deals-th-type" onclick="recentDealsSortBy('type')">Type<span id="recent-deals-arrow-type"></span></th>
-                <th class="sortable" id="recent-deals-th-profit" onclick="recentDealsSortBy('profit')">Profit<span id="recent-deals-arrow-profit"></span></th>
-                <th class="sortable" id="recent-deals-th-commission" onclick="recentDealsSortBy('commission')">Commission<span id="recent-deals-arrow-commission"></span></th>
-                <th class="sortable" id="recent-deals-th-swap" onclick="recentDealsSortBy('swap')">Swap<span id="recent-deals-arrow-swap"></span></th>
-                <th class="sortable" id="recent-deals-th-net_profit" onclick="recentDealsSortBy('net_profit')">Net<span id="recent-deals-arrow-net_profit"></span></th>
+                <th class="sortable" id="recent-deals-th-timestamp" role="button" tabindex="0" aria-label="Sort by date" onclick="recentDealsSortBy('timestamp')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();recentDealsSortBy('timestamp')}">Date<span id="recent-deals-arrow-timestamp"></span></th>
+                <th class="sortable" id="recent-deals-th-strategy_name" role="button" tabindex="0" aria-label="Sort by strategy" onclick="recentDealsSortBy('strategy_name')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();recentDealsSortBy('strategy_name')}">Strategy<span id="recent-deals-arrow-strategy_name"></span></th>
+                <th class="sortable" id="recent-deals-th-symbol" role="button" tabindex="0" aria-label="Sort by symbol" onclick="recentDealsSortBy('symbol')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();recentDealsSortBy('symbol')}">Symbol<span id="recent-deals-arrow-symbol"></span></th>
+                <th class="sortable" id="recent-deals-th-type" role="button" tabindex="0" aria-label="Sort by type" onclick="recentDealsSortBy('type')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();recentDealsSortBy('type')}">Type<span id="recent-deals-arrow-type"></span></th>
+                <th class="sortable" id="recent-deals-th-profit" role="button" tabindex="0" aria-label="Sort by profit" onclick="recentDealsSortBy('profit')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();recentDealsSortBy('profit')}">Profit<span id="recent-deals-arrow-profit"></span></th>
+                <th class="sortable" id="recent-deals-th-commission" role="button" tabindex="0" aria-label="Sort by commission" onclick="recentDealsSortBy('commission')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();recentDealsSortBy('commission')}">Commission<span id="recent-deals-arrow-commission"></span></th>
+                <th class="sortable" id="recent-deals-th-swap" role="button" tabindex="0" aria-label="Sort by swap" onclick="recentDealsSortBy('swap')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();recentDealsSortBy('swap')}">Swap<span id="recent-deals-arrow-swap"></span></th>
+                <th class="sortable" id="recent-deals-th-net_profit" role="button" tabindex="0" aria-label="Sort by net profit" onclick="recentDealsSortBy('net_profit')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();recentDealsSortBy('net_profit')}">Net<span id="recent-deals-arrow-net_profit"></span></th>
             </tr></thead>
             <tbody id="recent-deals-body">
                 <tr><td colspan="8"><div class="skel box-full" style="height:150px"></div></td></tr>

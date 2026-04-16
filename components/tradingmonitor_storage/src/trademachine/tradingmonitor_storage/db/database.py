@@ -1,3 +1,4 @@
+import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,9 +9,11 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
+from trademachine.core.logger import LOGGER_NAME
 from trademachine.tradingmonitor_storage.config import settings
 
 DATABASE_URL = settings.database_url
+logger = logging.getLogger(LOGGER_NAME)
 
 engine = create_engine(DATABASE_URL, echo=settings.debug, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -27,6 +30,10 @@ _ALEMBIC_SCRIPT_DIR = _DOCKER_COMPOSE_DIR / "alembic"
 
 class DatabaseUnavailableError(RuntimeError):
     """Raised when TradingMonitor cannot reach its configured database."""
+
+
+class DatabaseInitializationError(RuntimeError):
+    """Raised when TradingMonitor cannot finish database initialization."""
 
 
 def _render_database_url(url: str) -> str:
@@ -179,9 +186,12 @@ def _ensure_hypertables() -> None:
                 )
             )
             conn.commit()
-        except Exception as e:
+        except SQLAlchemyError as exc:
             conn.rollback()
-            print(f"Hypertable creation error: {e}")
+            logger.exception("Failed to create TradingMonitor hypertables")
+            raise DatabaseInitializationError(
+                "TradingMonitor database setup failed while creating hypertables."
+            ) from exc
 
 
 def init_db():

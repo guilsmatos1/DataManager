@@ -4,7 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="api-key" content="{{ api_key }}">
+    <meta name="description" content="Real-time trading strategy monitor and performance analytics dashboard">
     <title>{% block title %}TradingMonitor{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v18h18'/%3E%3Cpath d='m19 9-5 5-4-4-3 3'/%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
     <script>
         (function() {
@@ -12,11 +17,9 @@
             document.documentElement.setAttribute("data-theme", t);
         })();
     </script>
-    <script src="https://unpkg.com/htmx.org@2.0.3"></script>
-    <script src="https://unpkg.com/htmx-ext-ws@2.0.1/ws.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <script defer src="https://unpkg.com/htmx.org@2.0.3"></script>
+    <script defer src="https://unpkg.com/htmx-ext-ws@2.0.1/ws.js"></script>
+    {% block chartjs %}{% endblock %}
 </head>
 <body>
     <nav class="navbar">
@@ -32,7 +35,7 @@
             </a>
             <a href="/real" class="{{ 'active' if path == '/real' else '' }}">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-                Real
+                Live Monitor
             </a>
             <div class="nav-dropdown" id="strategies-nav">
                 <button type="button" class="nav-dropdown-toggle {{ 'active' if path.startswith('/strategy') else '' }}" id="strategies-toggle" aria-expanded="false">
@@ -79,6 +82,9 @@
                 Benchmarks
             </a>
         </div>
+        <button id="nav-hamburger" class="nav-hamburger" aria-label="Open menu" aria-expanded="false">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
+        </button>
         <div class="nav-status">
             <div class="nav-links">
                 <a href="/settings" class="{{ 'active' if path == '/settings' else '' }}">
@@ -86,8 +92,11 @@
                     Settings
                 </a>
             </div>
-            <button id="theme-toggle" class="btn-theme" onclick="toggleTheme()" title="Toggle theme">🌙</button>
-            <span id="ws-status" class="badge badge-inactive">Offline</span>
+            <button id="theme-toggle" class="btn-theme" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">
+                <svg id="theme-icon-dark" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                <svg id="theme-icon-light" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            </button>
+            <span id="ws-status" class="badge badge-inactive" role="status" aria-live="polite">Offline</span>
         </div>
     </nav>
 

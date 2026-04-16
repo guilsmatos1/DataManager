@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 from trademachine.tradingmonitor_analytics.metrics import repository
 
 
@@ -99,11 +100,13 @@ def test_get_backtest_equity_queries_backtest_equity_table():
     assert mock_read_sql.call_args.kwargs["params"] == {"bid": 7}
 
 
-def test_get_strategy_deals_returns_empty_dataframe_on_query_error():
+def test_get_strategy_deals_raises_repository_error_on_query_error():
     with patch(
         "trademachine.tradingmonitor_analytics.metrics.repository.pd.read_sql",
         side_effect=RuntimeError("boom"),
     ):
-        result = repository.get_strategy_deals("s1")
+        with pytest.raises(repository.MetricsRepositoryError) as exc_info:
+            repository.get_strategy_deals("s1")
 
-    assert result.empty
+    assert "strategy deals for s1" in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, RuntimeError)

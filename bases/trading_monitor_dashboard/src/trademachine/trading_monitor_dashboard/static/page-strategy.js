@@ -210,8 +210,51 @@ function renderStrategyMetrics(container, data) {
     renderMetricsGrid(container, data, {
         hiddenKeys: ["gross profit", "gross loss", "expected value"],
         integerKeys: ["total trades"],
-        negateKeys: ["gross loss"],
     });
+}
+
+function resetSideFilteredVisualState() {
+    _allEquityPoints = [];
+
+    if (equityChart) {
+        equityChart.destroy();
+        equityChart = null;
+    }
+    if (underwaterChart) {
+        underwaterChart.destroy();
+        underwaterChart = null;
+    }
+    if (_monthlyChart) {
+        _monthlyChart.destroy();
+        _monthlyChart = null;
+    }
+    if (_annualChart) {
+        _annualChart.destroy();
+        _annualChart = null;
+    }
+    if (window._distHourChart) {
+        window._distHourChart.destroy();
+        window._distHourChart = null;
+    }
+    if (window._distDowChart) {
+        window._distDowChart.destroy();
+        window._distDowChart = null;
+    }
+
+    const equityWrapper = document.querySelector("#chart-section .chart-wrapper");
+    if (equityWrapper) {
+        equityWrapper.innerHTML = '<p class="empty-state" style="padding:2rem 0">Loading filtered equity...</p>';
+    }
+
+    const drawdownWrapper = document.querySelector("#underwater-section .chart-wrapper");
+    if (drawdownWrapper) {
+        drawdownWrapper.innerHTML = '<p class="empty-state" style="padding:1rem 0">Loading filtered drawdown...</p>';
+    }
+
+    renderChartEmptyState("monthly-pnl-wrapper", "Loading filtered P&L...");
+    renderChartEmptyState("annual-pnl-wrapper", "Loading filtered P&L...");
+    renderChartEmptyState("dist-hour-wrapper", "Loading filtered distribution...");
+    renderChartEmptyState("dist-dow-wrapper", "Loading filtered distribution...");
 }
 
 function setSideFilter(side) {
@@ -230,6 +273,7 @@ function setSideFilter(side) {
     }
     _currentMetrics = null;
     showMetricsSkeleton();
+    resetSideFilteredVisualState();
     refreshCurrentView();
 }
 
@@ -271,18 +315,18 @@ function setPageMode(mode) {
             '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>' +
             '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>';
         // Reset equity chart
-        if (equityChart) { equityChart.destroy(); equityChart = null; }
+        equityChart = destroyChart(equityChart);
         const wrapper = document.querySelector("#chart-section .chart-wrapper");
         if (wrapper) wrapper.innerHTML = '<canvas id="equity-chart"></canvas>';
         // Reset underwater chart
-        if (underwaterChart) { underwaterChart.destroy(); underwaterChart = null; }
+        underwaterChart = destroyChart(underwaterChart);
         const uwWrapper = document.querySelector("#underwater-section .chart-wrapper");
         if (uwWrapper) uwWrapper.innerHTML = '<canvas id="underwater-chart"></canvas>';
         // Reset P&L and distribution charts
-        if (_monthlyChart) { _monthlyChart.destroy(); _monthlyChart = null; }
-        if (_annualChart)  { _annualChart.destroy();  _annualChart  = null; }
-        if (window._distHourChart) { window._distHourChart.destroy(); window._distHourChart = null; }
-        if (window._distDowChart)  { window._distDowChart.destroy();  window._distDowChart  = null; }
+        _monthlyChart = destroyChart(_monthlyChart);
+        _annualChart = destroyChart(_annualChart);
+        window._distHourChart = destroyChart(window._distHourChart);
+        window._distDowChart = destroyChart(window._distDowChart);
         // Reset deals panel
         document.getElementById("deals-container").innerHTML =
             '<div class="skel skel-row"></div><div class="skel skel-row"></div>' +
@@ -328,13 +372,13 @@ async function loadBtDistribution(btId, signal = null) {
             data.by_hour.map(r => r.hour + ":00"),
             data.by_hour.map(r => r.count),
             data.by_hour.map(r => r.net_profit),
-            (v) => v < 0 ? "rgba(239,68,68,0.75)" : "rgba(16,185,129,0.75)"
+            (v) => v < 0 ? CHART_COLORS.redSoft : CHART_COLORS.greenSoft
         );
         renderDistChart("dist-dow-chart", "_distDowChart",
             data.by_dow.map(r => r.label),
             data.by_dow.map(r => r.count),
             data.by_dow.map(r => r.net_profit),
-            (v) => v < 0 ? "rgba(239,68,68,0.75)" : "rgba(16,185,129,0.75)"
+            (v) => v < 0 ? CHART_COLORS.redSoft : CHART_COLORS.greenSoft
         );
     } catch(e) { if (!isAbortError(e)) console.error("Bt Distribution error:", e); }
 }
@@ -415,7 +459,7 @@ async function loadBtDealsInMain(btId, page = 1, signal = null) {
             const profitCls = profit > 0 ? "profit-positive" : profit < 0 ? "profit-negative" : "";
             const netCls    = net    > 0 ? "profit-positive" : net    < 0 ? "profit-negative" : "";
             return `<tr>
-                <td>${new Date(d.timestamp).toLocaleString("en-GB")}</td>
+                <td>${formatMt5ServerTimestamp(d.timestamp)}</td>
                 <td class="mono">${d.ticket}</td>
                 <td>${d.symbol || "—"}</td>
                 <td class="type-${d.type}">${d.type.toUpperCase()}</td>
@@ -547,7 +591,7 @@ async function loadInfo() {
             .map(([label, value]) => `
                 <div class="info-item">
                     <span class="info-label">${label}</span>
-                    <span class="info-value">${value}</span>
+                    <span class="info-value">${esc(value)}</span>
                 </div>`).join("");
 
         updateTabAvailability();
@@ -649,6 +693,9 @@ function renderEquityChart(points) {
     const isPct = _equityScale === "pct";
     const labels = buildEquityChartLabels(points);
     const chartValues = buildRebasedEquitySeries(points, _equityScale);
+    const palette = getProfitPalette(
+        typeof _currentMetrics?.Profit === "number" ? _currentMetrics.Profit : null
+    );
 
     if (equityChart) equityChart.destroy();
     equityChart = createEquityLineChart(ctx, {
@@ -656,8 +703,8 @@ function renderEquityChart(points) {
         datasets: [{
             label: isPct ? "Return (%)" : "Equity",
             data: chartValues,
-            borderColor: '#10b981',
-            backgroundColor: "rgba(100,116,139,0.06)",
+            borderColor: palette.borderColor,
+            backgroundColor: palette.backgroundColor,
             fill: true,
             tension: 0.3,
             pointRadius: 0,
@@ -695,7 +742,7 @@ function renderUnderwaterChart(points) {
 
     if (!points || points.length === 0) {
         canvas.parentElement.innerHTML = '<p class="empty-state" style="padding:1rem 0">No data yet.</p>';
-        if (underwaterChart) { underwaterChart.destroy(); underwaterChart = null; }
+        underwaterChart = destroyChart(underwaterChart);
         return;
     }
 
@@ -721,7 +768,7 @@ function renderUnderwaterChart(points) {
         ? c => ` DD: ${c.parsed.y.toFixed(2)}%`
         : c => ` DD: ${fmt(c.parsed.y)}`;
 
-    if (underwaterChart) underwaterChart.destroy();
+    destroyChart(underwaterChart);
     underwaterChart = new Chart(canvas.getContext("2d"), {
         type: "line",
         data: {
@@ -729,8 +776,8 @@ function renderUnderwaterChart(points) {
             datasets: [{
                 label: ddLabel,
                 data: ddValues,
-                borderColor: "#ef4444",
-                backgroundColor: "rgba(239,68,68,0.18)",
+                borderColor: CHART_COLORS.underwaterBorder,
+                backgroundColor: CHART_COLORS.underwaterFill,
                 fill: true,
                 tension: 0.2,
                 pointRadius: 0,
@@ -809,14 +856,14 @@ function setMonthlyView(v) {
 
 function renderMonthlyChart() {
     if (!_monthlyRawLabels.length) {
-        if (_monthlyChart) { _monthlyChart.destroy(); _monthlyChart = null; }
+        _monthlyChart = destroyChart(_monthlyChart);
         renderChartEmptyState("monthly-pnl-wrapper", "No P&L data for this side.");
         return;
     }
     const canvas = ensureCanvas("monthly-pnl-wrapper", "monthly-pnl-chart");
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    if (_monthlyChart) { _monthlyChart.destroy(); _monthlyChart = null; }
+    _monthlyChart = destroyChart(_monthlyChart);
 
     const { tickColor, gridColor } = getEquityChartColors();
 
@@ -825,8 +872,8 @@ function renderMonthlyChart() {
         return new Date(y, m - 1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
     });
     const isBar    = _monthlyView === "bar";
-    const bgColors = _monthlyValues.map(v => v >= 0 ? "rgba(16,185,129,0.72)" : "rgba(239,68,68,0.72)");
-    const brColors = _monthlyValues.map(v => v >= 0 ? "#10b981" : "#ef4444");
+    const bgColors = _monthlyValues.map(profitBgColor);
+    const brColors = _monthlyValues.map(profitBorderColor);
 
     _monthlyChart = new Chart(ctx, {
         type: isBar ? "bar" : "line",
@@ -835,16 +882,16 @@ function renderMonthlyChart() {
             datasets: [{
                 label: "Net P&L",
                 data: _monthlyValues,
-                backgroundColor: isBar ? bgColors : "rgba(100,116,139,0.08)",
-                borderColor:     isBar ? brColors : "#64748b",
+                backgroundColor: isBar ? bgColors : CHART_COLORS.mutedBg,
+                borderColor:     isBar ? brColors : CHART_COLORS.muted,
                 borderWidth: isBar ? 1 : 2,
                 borderRadius: isBar ? 4 : 0,
                 fill: !isBar,
                 tension: 0.3,
                 pointRadius: isBar ? 0 : 3,
-                pointBackgroundColor: isBar ? brColors : brColors,
+                pointBackgroundColor: brColors,
                 segment: isBar ? undefined : {
-                    borderColor: ctx => ctx.p1.parsed.y >= 0 ? "#10b981" : "#ef4444",
+                    borderColor: ctx => profitBorderColor(ctx.p1.parsed.y),
                 },
             }],
         },
@@ -868,13 +915,13 @@ function renderMonthlyChart() {
 
 function renderAnnualChart() {
     if (!_monthlyRawLabels.length) {
-        if (_annualChart) { _annualChart.destroy(); _annualChart = null; }
+        _annualChart = destroyChart(_annualChart);
         renderChartEmptyState("annual-pnl-wrapper", "No P&L data for this side.");
         return;
     }
     const canvas = ensureCanvas("annual-pnl-wrapper", "annual-pnl-chart");
     if (!canvas) return;
-    if (_annualChart) { _annualChart.destroy(); _annualChart = null; }
+    _annualChart = destroyChart(_annualChart);
 
     const { tickColor, gridColor } = getEquityChartColors();
 
@@ -886,8 +933,8 @@ function renderAnnualChart() {
     const years = Object.keys(yearAgg).sort();
     const values = years.map(y => parseFloat(yearAgg[y].toFixed(2)));
 
-    const bgColors = values.map(v => v >= 0 ? "rgba(16,185,129,0.72)" : "rgba(239,68,68,0.72)");
-    const brColors = values.map(v => v >= 0 ? "#10b981" : "#ef4444");
+    const bgColors = values.map(profitBgColor);
+    const brColors = values.map(profitBorderColor);
 
     _annualChart = new Chart(canvas.getContext("2d"), {
         type: "bar",
@@ -928,13 +975,13 @@ async function loadDistribution(signal = null) {
             data.by_hour.map(r => r.hour + ":00"),
             data.by_hour.map(r => r.count),
             data.by_hour.map(r => r.net_profit),
-            (v) => v < 0 ? "rgba(239,68,68,0.75)" : "rgba(16,185,129,0.75)"
+            (v) => v < 0 ? CHART_COLORS.redSoft : CHART_COLORS.greenSoft
         );
         renderDistChart("dist-dow-chart", "_distDowChart",
             data.by_dow.map(r => r.label),
             data.by_dow.map(r => r.count),
             data.by_dow.map(r => r.net_profit),
-            (v) => v < 0 ? "rgba(239,68,68,0.75)" : "rgba(16,185,129,0.75)"
+            (v) => v < 0 ? CHART_COLORS.redSoft : CHART_COLORS.greenSoft
         );
     } catch(e) { if (!isAbortError(e)) console.error("Distribution load error:", e); }
 }
@@ -944,7 +991,7 @@ function renderDistChart(canvasId, chartVar, labels, counts, profits) {
     const hasData = Array.isArray(counts) && counts.some(c => c > 0);
 
     if (!labels.length || !hasData) {
-        if (window[chartVar]) { window[chartVar].destroy(); window[chartVar] = null; }
+        window[chartVar] = destroyChart(window[chartVar]);
         const orphan = document.getElementById(canvasId);
         if (orphan) { const inst = Chart.getChart(orphan); if (inst) inst.destroy(); }
         renderChartEmptyState(wrapperId, "No trade distribution for this side.");
@@ -954,14 +1001,14 @@ function renderDistChart(canvasId, chartVar, labels, counts, profits) {
     const canvas = ensureCanvas(wrapperId, canvasId);
     if (!canvas) return;
 
-    if (window[chartVar]) { window[chartVar].destroy(); window[chartVar] = null; }
+    window[chartVar] = destroyChart(window[chartVar]);
     const orphan = Chart.getChart(canvas);
     if (orphan) orphan.destroy();
 
     const { tickColor, gridColor } = getEquityChartColors();
 
-    const bgColors = profits.map(v => v < 0 ? "rgba(239,68,68,0.72)" : "rgba(16,185,129,0.72)");
-    const brColors = profits.map(v => v < 0 ? "#ef4444" : "#10b981");
+    const bgColors = profits.map(profitBgColor);
+    const brColors = profits.map(profitBorderColor);
 
     window[chartVar] = new Chart(canvas, {
         type: "bar",
@@ -1067,7 +1114,7 @@ function renderDeals(data) {
         const net = profit + (d.commission || 0) + (d.swap || 0);
         const profitCls = profit > 0 ? "profit-positive" : profit < 0 ? "profit-negative" : "";
         const netCls = net > 0 ? "profit-positive" : net < 0 ? "profit-negative" : "";
-        const date = new Date(d.timestamp).toLocaleString("en-GB");
+        const date = formatMt5ServerTimestamp(d.timestamp);
         return `<tr>
             <td>${date}</td>
             <td class="mono">${d.ticket}</td>
@@ -1099,17 +1146,8 @@ function renderDeals(data) {
             <tbody>${rows}</tbody>
         </table></div>`;
 
-    renderPagination(data.total, data.page, data.page_size);
-}
-
-function renderPagination(total, page, pageSize) {
-    const totalPages = Math.ceil(total / pageSize);
-    const pg = document.getElementById("pagination");
-    if (totalPages <= 1) { pg.innerHTML = ""; return; }
-    pg.innerHTML = `
-        <button onclick="loadDeals(${page - 1})" ${page <= 1 ? "disabled" : ""}>← Previous</button>
-        <span>Page ${page} of ${totalPages}</span>
-        <button onclick="loadDeals(${page + 1})" ${page >= totalPages ? "disabled" : ""}>Next →</button>`;
+    const totalPages = Math.ceil(data.total / data.page_size);
+    renderPagination("pagination", data.page, totalPages, p => loadDeals(p));
 }
 
 window.addEventListener("ws-event", function(e) {

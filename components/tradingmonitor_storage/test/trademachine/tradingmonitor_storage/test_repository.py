@@ -5,6 +5,7 @@ from trademachine.tradingmonitor_storage.db import repository as repo_module
 from trademachine.tradingmonitor_storage.db.models import (
     Deal,
     DealIngestionKey,
+    DealType,
     Strategy,
     Symbol,
 )
@@ -121,3 +122,57 @@ def test_strategy_create_or_update_links_symbol_fk(sqlite_engine, monkeypatch):
         assert strategy.symbol_id is not None
     finally:
         db.close()
+
+
+def test_deal_repository_search_matches_ticket_and_deal_type(
+    sqlite_engine, monkeypatch
+):
+    session_factory = sessionmaker(bind=sqlite_engine)
+    monkeypatch.setattr(repo_module, "SessionLocal", session_factory)
+
+    db = session_factory()
+    try:
+        db.add(Strategy(id="s-search", name="Search Strategy"))
+        db.add_all(
+            [
+                Deal(
+                    timestamp=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+                    ticket=101,
+                    strategy_id="s-search",
+                    symbol="EURUSD",
+                    type=DealType.BUY,
+                    volume=0.1,
+                    price=1.1,
+                    profit=10.0,
+                    commission=-1.0,
+                    swap=0.0,
+                ),
+                Deal(
+                    timestamp=datetime(2024, 1, 1, 12, 1, tzinfo=UTC),
+                    ticket=202,
+                    strategy_id="s-search",
+                    symbol="GBPUSD",
+                    type=DealType.SELL,
+                    volume=0.1,
+                    price=1.2,
+                    profit=8.0,
+                    commission=-1.0,
+                    swap=0.0,
+                ),
+            ]
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    deals_by_ticket, total_by_ticket = DealRepository().get_by_strategy(
+        "s-search", q="202"
+    )
+    deals_by_type, total_by_type = DealRepository().get_by_strategy(
+        "s-search", q="sell"
+    )
+
+    assert total_by_ticket == 1
+    assert deals_by_ticket[0]["ticket"] == 202
+    assert total_by_type == 1
+    assert deals_by_type[0]["type"] == "SELL"

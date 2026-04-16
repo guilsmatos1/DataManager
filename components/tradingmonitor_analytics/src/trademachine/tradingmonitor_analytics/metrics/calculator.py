@@ -16,7 +16,11 @@ from trademachine.tradingmonitor_analytics.metrics.repository import (
     get_strategy_deals,
     get_strategy_equity_curve,
 )
-from trademachine.tradingmonitor_analytics.metrics.utils import net_pnl
+from trademachine.tradingmonitor_analytics.metrics.utils import (
+    combine_equity_series,
+    filter_trading_deals,
+    net_pnl,
+)
 from trademachine.tradingmonitor_storage.public import Portfolio, SessionLocal
 
 # Lazy initialization cache for plugin instances
@@ -43,88 +47,157 @@ __all__ = [
 ]
 
 
+def _build_base_metrics(trading_deals: pd.DataFrame) -> dict:
+    """Compute profit, gross profit/loss, profit factor and win rate."""
+    gross_profit = trading_deals[trading_deals["profit"] > 0]["profit"].sum()
+    gross_loss = -abs(trading_deals[trading_deals["profit"] < 0]["profit"].sum())
+    profit = net_pnl(trading_deals).sum()
+    return {
+        "Total Trades": len(trading_deals),
+        "Profit": profit,
+        "Avg Profit": profit / len(trading_deals),
+        "Gross Profit": gross_profit,
+        "Gross Loss": gross_loss,
+        "Profit Factor": compute_profit_factor(trading_deals["profit"].values),
+        "Win Rate (%)": compute_win_rate(trading_deals["profit"].values),
+    }
+
+
+def _build_streak_metrics(profits: np.ndarray) -> dict:
+    """Compute consecutive wins/losses and Z-Score from profit array."""
+    max_consecutive_wins = 0
+    max_consecutive_losses = 0
+    current_wins = 0
+    current_losses = 0
+    for p in profits:
+        if p > 0:
+            current_wins += 1
+            current_losses = 0
+            max_consecutive_wins = max(max_consecutive_wins, current_wins)
+        elif p < 0:
+            current_losses += 1
+            current_wins = 0
+            max_consecutive_losses = max(max_consecutive_losses, current_losses)
+        else:
+            current_wins = 0
+            current_losses = 0
+
+    wins = np.sum(profits > 0)
+    losses = np.sum(profits < 0)
+    runs = 1
+    for i in range(1, len(profits)):
+        if (
+            (profits[i] > 0) != (profits[i - 1] > 0)
+            and profits[i] != 0
+            and profits[i - 1] != 0
+        ):
+            runs += 1
+    n = wins + losses
+    z_score = None
+    if n > 2 and wins > 0 and losses > 0:
+        expected_runs = (2.0 * wins * losses) / n + 1
+        std_runs = np.sqrt(
+            (2.0 * wins * losses * (2.0 * wins * losses - n)) / (n * n * (n - 1))
+        )
+        if std_runs > 0:
+            z_score = round((runs - expected_runs) / std_runs, 2)
+
+    return {
+        "Consecutive Wins": max_consecutive_wins,
+        "Consecutive Losses": max_consecutive_losses,
+        "Z-Score": z_score,
+    }
+
+
+def _build_trade_breakdown(trading_deals: pd.DataFrame) -> dict:
+    """Compute long/short trade counts and percentages."""
+    total = len(trading_deals)
+    long_trades = int((trading_deals["type"] == "BUY").sum())
+    short_trades = int((trading_deals["type"] == "SELL").sum())
+    long_pct = (long_trades / total * 100) if total else 0.0
+    short_pct = (short_trades / total * 100) if total else 0.0
+    return {
+        "Long Trades": long_trades,
+        "Long Trades (%)": round(long_pct, 2),
+        "Short Trades": short_trades,
+        "Short Trades (%)": round(short_pct, 2),
+    }
+
+
+def _compute_return_pct(equity_df: pd.DataFrame) -> float | None:
+    """Compute return percentage from equity curve."""
+    if equity_df.empty or "equity" not in equity_df.columns:
+        return None
+    equity_series = equity_df["equity"].dropna().astype(float)
+    if equity_series.empty:
+        return None
+    starting = float(equity_series.iloc[0])
+    ending = float(equity_series.iloc[-1])
+    if starting == 0:
+        return None
+    return ((ending - starting) / abs(starting)) * 100
+
+
+def _build_daily_returns(equity_df: pd.DataFrame) -> pd.Series | None:
+    """Resample equity to daily and compute percentage returns for plugins."""
+    if equity_df.empty:
+        return None
+    daily_equity = equity_df["equity"].resample("D").last().ffill().dropna()
+    if len(daily_equity) <= 1:
+        return None
+    return daily_equity.pct_change().dropna()
+
+
+_ORDERED_KEYS = [
+    "Total Trades",
+    "Profit",
+    "Avg Profit",
+    "Return (%)",
+    "Profit Factor",
+    "Ret/DD",
+    "Win Rate (%)",
+    "Drawdown",
+    "Gross Profit",
+    "Gross Loss",
+    "Consecutive Wins",
+    "Consecutive Losses",
+    "Long Trades",
+    "Long Trades (%)",
+    "Short Trades",
+    "Short Trades (%)",
+    "Z-Score",
+]
+
+
 def calculate_metrics_from_df(
     deals_df: pd.DataFrame, equity_df: pd.DataFrame, advanced: bool = False
 ) -> dict:
-    """Helper function to calculate metrics from DataFrames with improved robustness."""
+    """Calculate metrics from DataFrames with improved robustness."""
     if deals_df.empty:
         return {"error": "No trades found."}
 
-    # Filter to BUY/SELL only — pd.read_sql stores enum values as strings ('BUY', 'SELL')
-    trading_deals = deals_df[deals_df["type"].isin(["BUY", "SELL"])]
-
+    trading_deals = filter_trading_deals(deals_df)
     if trading_deals.empty:
         return {"error": "No valid trading deals found."}
 
-    gross_profit = trading_deals[trading_deals["profit"] > 0]["profit"].sum()
-    gross_loss = abs(trading_deals[trading_deals["profit"] < 0]["profit"].sum())
+    metrics = _build_base_metrics(trading_deals)
+    metrics["Return (%)"] = _compute_return_pct(equity_df)
+    metrics.update(_build_streak_metrics(trading_deals["profit"].values))
+    metrics.update(_build_trade_breakdown(trading_deals))
 
-    # Profit includes commissions and swaps
-    profit = net_pnl(trading_deals).sum()
-
-    profit_factor = compute_profit_factor(trading_deals["profit"].values)
-
-    win_rate = compute_win_rate(trading_deals["profit"].values)
-
-    return_pct = None
-    if not equity_df.empty and "equity" in equity_df.columns:
-        equity_series = equity_df["equity"].dropna().astype(float)
-        if not equity_series.empty:
-            starting_equity = float(equity_series.iloc[0])
-            ending_equity = float(equity_series.iloc[-1])
-            if starting_equity != 0:
-                return_pct = (
-                    (ending_equity - starting_equity) / abs(starting_equity)
-                ) * 100
-
-    metrics = {
-        "Total Trades": len(trading_deals),
-        "Profit": profit,
-        "Return (%)": return_pct,
-        "Gross Profit": gross_profit,
-        "Gross Loss": gross_loss,
-        "Profit Factor": profit_factor,
-        "Win Rate (%)": win_rate,
-    }
-
-    # Prepare data for plugins
-    daily_returns = None
-    if not equity_df.empty:
-        daily_equity = equity_df["equity"].resample("D").last().ffill().dropna()
-        if len(daily_equity) > 1:
-            daily_returns = daily_equity.pct_change().dropna()
-
-    # Execute Plugins
+    daily_returns = _build_daily_returns(equity_df)
     for plugin_cls in PLUGINS:
         plugin = _get_plugin(plugin_cls)
         if not advanced and plugin.is_advanced:
             continue
-
         val = plugin.calculate(trading_deals, daily_returns)
         if val is not None:
             metrics[plugin.name] = val
 
-    ordered_keys = [
-        "Total Trades",
-        "Profit",
-        "Return (%)",
-        "Profit Factor",
-        "Ret/DD",
-        "Win Rate (%)",
-        "Drawdown",
-        "Gross Profit",
-        "Gross Loss",
-    ]
-
-    final_metrics = {}
-    for k in ordered_keys:
-        if k in metrics:
-            final_metrics[k] = metrics[k]
-
+    final_metrics = {k: metrics[k] for k in _ORDERED_KEYS if k in metrics}
     for k, v in metrics.items():
         if k not in final_metrics:
             final_metrics[k] = v
-
     return final_metrics
 
 
@@ -325,11 +398,10 @@ def calculate_portfolio_metrics(strategy_ids: list[str]) -> dict:
 
     for sid in strategy_ids:
         df_deals = get_strategy_deals(sid)
-        df_equity = get_strategy_equity_curve(sid)
         if not df_deals.empty:
             all_deals.append(df_deals)
-        if not df_equity.empty:
-            all_equity.append(df_equity)
+            pnl = net_pnl(df_deals)
+            all_equity.append(pd.DataFrame({"equity": pnl.cumsum()}))
 
     if not all_deals:
         return {"error": "No data found for any strategy in this portfolio."}
@@ -339,13 +411,12 @@ def calculate_portfolio_metrics(strategy_ids: list[str]) -> dict:
     if all_equity:
         # Portfolio Equity Aligment:
         # 1. Join all series 2. Fill gaps with ffill 3. Sum row-wise
-        equity_combined_df = pd.concat(
-            [df["equity"] for df in all_equity], axis=1
-        ).sort_index()
         # Filling NaNs with ffill (carry forward last known value) and then 0 for initial period
         # ffill preenche apenas lacunas dentro do período ativo de cada estratégia (máx 5 períodos).
         # fillna(0) cobre o período anterior ao início de cada estratégia.
-        equity_combined_df = equity_combined_df.ffill(limit=5).fillna(0)
+        equity_combined_df = combine_equity_series(
+            [equity_df["equity"] for equity_df in all_equity]
+        )
         portfolio_equity = equity_combined_df.sum(axis=1)
         combined_equity_df = pd.DataFrame(portfolio_equity, columns=["equity"])
     else:
@@ -412,8 +483,7 @@ def generate_qs_report(
                     all_equity.append(df_e["equity"])
 
             if all_equity:
-                equity_combined_df = pd.concat(all_equity, axis=1).sort_index()
-                equity_combined_df = equity_combined_df.ffill(limit=5).fillna(0)
+                equity_combined_df = combine_equity_series(all_equity)
                 portfolio_equity = equity_combined_df.sum(axis=1)
                 equity_df = pd.DataFrame(portfolio_equity, columns=["equity"])
 

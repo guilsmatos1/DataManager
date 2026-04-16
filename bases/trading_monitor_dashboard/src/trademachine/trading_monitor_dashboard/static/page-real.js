@@ -8,6 +8,14 @@ let _recentDealsSortCol = "timestamp";
 let _recentDealsSortAsc = false;
 let _recentDealsPage = 1;
 
+function parseRealPnlDate(value) {
+    if (typeof value !== "string") return new Date(value);
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) return new Date(value);
+    const [, year, month, day] = match;
+    return new Date(Number(year), Number(month) - 1, Number(day));
+}
+
 async function loadReal() {
     let data;
     try {
@@ -19,7 +27,7 @@ async function loadReal() {
     }
 
     const isDemoMode = (data.mode || "real") === "demo";
-    document.getElementById("real-page-title").textContent = "Account Monitor";
+    document.getElementById("real-page-title").textContent = "Live Monitor";
 
     if (!data.strategies || data.strategies.length === 0) {
         document.getElementById("real-empty").style.display = "block";
@@ -56,7 +64,8 @@ function filterRealPnlPoints(points, period) {
     } else if (period === "1Y") {
         cutoff.setFullYear(cutoff.getFullYear() - 1);
     }
-    return points.filter(point => new Date(point.date) >= cutoff);
+    cutoff.setHours(0, 0, 0, 0);
+    return points.filter(point => parseRealPnlDate(point.date) >= cutoff);
 }
 
 function syncRealPnlPeriodButtons() {
@@ -97,13 +106,13 @@ function renderRealPnlChart(points) {
     const ctx = canvas.getContext("2d");
     const { tickColor, gridColor } = getEquityChartColors();
     const labels = points.map(point => {
-        const d = new Date(point.date);
+        const d = parseRealPnlDate(point.date);
         return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
     });
     const values = points.map(point => point.net_profit);
-    const colors = values.map(value => value >= 0 ? "rgba(16,185,129,0.85)" : "rgba(239,68,68,0.85)");
+    const colors = values.map(v => v >= 0 ? CHART_COLORS.greenSoft : CHART_COLORS.redSoft);
 
-    if (realPnlChart) realPnlChart.destroy();
+    destroyChart(realPnlChart);
     realPnlChart = new Chart(ctx, {
         type: "bar",
         data: {
@@ -236,7 +245,7 @@ function renderRecentDealsTable() {
     const pageDeals = sorted.slice((_recentDealsPage - 1) * pageSize, _recentDealsPage * pageSize);
 
     container.innerHTML = pageDeals.map(d => {
-        const ts = d.timestamp ? new Date(d.timestamp).toLocaleString() : "—";
+        const ts = formatMt5ServerTimestamp(d.timestamp);
         const profit = d.profit ?? 0;
         const commission = d.commission ?? 0;
         const swap = d.swap ?? 0;

@@ -104,83 +104,107 @@ function closeSymbolModal() {
 }
 
 /* ── Inline editing ── */
+
+/**
+ * Generic inline-edit helper. Replaces a cell with an input/select,
+ * wires blur/enter/escape, and calls saveFn on commit.
+ *
+ * @param {HTMLElement} td
+ * @param {object}      opts
+ * @param {*}           opts.currentValue  - Normalised old value (for equality check)
+ * @param {Function}    opts.renderInput   - (td) => void — inject input/select into td
+ * @param {Function}    opts.parseInput    - (inputEl) => newVal
+ * @param {Function}    opts.saveFn        - (newVal) => Promise
+ * @param {Function}    opts.reloadFn      - () => Promise
+ */
+function startInlineEdit(td, { currentValue, renderInput, parseInput, saveFn, reloadFn }) {
+    if (!td.isConnected) return;
+    const originalHTML = td.innerHTML;
+
+    renderInput(td);
+    const input = td.querySelector("input, select");
+    input.focus();
+    if (input.select && input.tagName === "INPUT") input.select();
+
+    let done = false;
+    const restore = () => { if (td.isConnected) td.innerHTML = originalHTML; };
+
+    const save = async () => {
+        if (done) return;
+        done = true;
+        await new Promise(r => setTimeout(r, 0));
+        if (!td.isConnected) return;
+        const newVal = parseInput(input);
+        if (newVal === currentValue) { restore(); return; }
+        try {
+            await saveFn(newVal);
+            await reloadFn();
+        } catch (e) {
+            restore();
+        }
+    };
+
+    if (input.tagName === "SELECT") {
+        input.addEventListener("change", save);
+    }
+    input.addEventListener("blur", save);
+    input.addEventListener("keydown", e => {
+        if (e.key === "Enter") { e.preventDefault(); save(); }
+        if (e.key === "Escape") { done = true; restore(); }
+    });
+}
+
+function _textInput(td, value) {
+    td.innerHTML = `<input class="inline-edit-input" type="text" value="${String(value).replace(/"/g, "&quot;")}">`;
+}
+
+function _numberInput(td, value) {
+    td.innerHTML = `<input class="inline-edit-input" type="number" step="any" value="${String(value ?? "")}">`;
+}
+
+function _parseText(input) { return input.value.trim() || null; }
+
+function _parseNumber(input) {
+    const trimmed = input.value.trim();
+    const parsed = parseFloat(trimmed);
+    return trimmed === "" || Number.isNaN(parsed) ? null : parsed;
+}
+
+function _cellValue(td) {
+    const raw = td.textContent.trim();
+    return raw === "—" ? "" : raw;
+}
+
 function startEdit(td) {
     const stratId = td.dataset.stratId;
     const field = td.dataset.field;
     const isNumber = td.dataset.type === "number";
     const strat = _allStrategies.find(s => s.id === stratId);
-    const currentValue = strat ? (strat[field] ?? "") : "";
-    makeEditable(td, stratId, field, currentValue, isNumber);
+    const raw = strat ? (strat[field] ?? "") : "";
+    const currentValue = isNumber
+        ? (raw === "" || raw == null ? null : parseFloat(raw))
+        : (raw || null);
+
+    startInlineEdit(td, {
+        currentValue,
+        renderInput: isNumber ? (el) => _numberInput(el, raw) : (el) => _textInput(el, raw),
+        parseInput: isNumber ? _parseNumber : _parseText,
+        saveFn: (val) => patchStrategy(stratId, { [field]: val }),
+        reloadFn: () => loadStrategies(true),
+    });
 }
 
 function startStratAccountEdit(td) {
     const accountId = td.dataset.accountId;
     if (!accountId) return;
-    const original = td.textContent.trim();
-    const currentValue = original === "—" ? "" : original;
-    const originalHTML = td.innerHTML;
-    td.innerHTML = `<input class="inline-edit-input" type="text" value="${currentValue.replace(/"/g, "&quot;")}">`;
-    const input = td.querySelector("input");
-    input.focus();
-    input.select();
-    let done = false;
-    const save = async () => {
-        if (done) return;
-        done = true;
-        const newVal = input.value.trim() || null;
-        if (newVal === (currentValue || null)) { td.innerHTML = originalHTML; return; }
-        try {
-            await patchAccount(accountId, { account_type: newVal });
-            await loadStrategies(true);
-        } catch (e) {
-            td.innerHTML = originalHTML;
-        }
-    };
-    input.addEventListener("blur", save);
-    input.addEventListener("keydown", e => {
-        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-        if (e.key === "Escape") { done = true; td.innerHTML = originalHTML; }
-    });
-}
+    const currentValue = _cellValue(td) || null;
 
-function makeEditable(td, stratId, field, currentValue, isNumber = false) {
-    const original = td.innerHTML;
-    const inputType = isNumber ? "number" : "text";
-    const inputValue = isNumber
-        ? String(currentValue ?? "")
-        : String(currentValue ?? "").replace(/"/g, "&quot;");
-    td.innerHTML = `<input class="inline-edit-input" type="${inputType}" ${isNumber ? 'step="any"' : ""} value="${inputValue}">`;
-    const input = td.querySelector("input");
-    input.focus();
-    input.select();
-    let done = false;
-    const save = async () => {
-        if (done) return;
-        done = true;
-        let newVal;
-        if (isNumber) {
-            const trimmed = input.value.trim();
-            const parsed = parseFloat(trimmed);
-            newVal = trimmed === "" || Number.isNaN(parsed) ? null : parsed;
-            const currentNumeric = currentValue === "" || currentValue == null
-                ? null
-                : parseFloat(currentValue);
-            if (newVal === currentNumeric) { td.innerHTML = original; return; }
-        } else {
-            newVal = input.value.trim() || null;
-            if (newVal === (currentValue || null)) { td.innerHTML = original; return; }
-        }
-        try {
-            await patchStrategy(stratId, { [field]: newVal });
-            await loadStrategies(true);
-        } catch (e) {
-            td.innerHTML = original;
-        }
-    };
-    input.addEventListener("blur", save);
-    input.addEventListener("keydown", e => {
-        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-        if (e.key === "Escape") { done = true; td.innerHTML = original; }
+    startInlineEdit(td, {
+        currentValue,
+        renderInput: (el) => _textInput(el, _cellValue(td)),
+        parseInput: _parseText,
+        saveFn: (val) => patchAccount(accountId, { account_type: val }),
+        reloadFn: () => loadStrategies(true),
     });
 }
 
@@ -188,69 +212,32 @@ function startPortfolioEdit(td) {
     const portfolioId = td.dataset.portfolioId;
     const field = td.dataset.field;
     const isNumber = td.dataset.type === "number";
-    const original = td.textContent.trim();
-    const currentValue = original === "—" ? "" : original;
-    const originalHTML = td.innerHTML;
-    const inputType = isNumber ? "number" : "text";
-    const rawValue = isNumber ? currentValue.replace(/[^0-9.\-]/g, "") : currentValue;
-    td.innerHTML = `<input class="inline-edit-input" type="${inputType}" step="any" value="${rawValue.replace(/"/g, "&quot;")}">`;
-    const input = td.querySelector("input");
-    input.focus();
-    input.select();
-    let done = false;
-    const save = async () => {
-        if (done) return;
-        done = true;
-        let newVal;
-        if (isNumber) {
-            const parsed = parseFloat(input.value);
-            newVal = isNaN(parsed) ? null : parsed;
-            if (newVal === (rawValue ? parseFloat(rawValue) : null)) { td.innerHTML = originalHTML; return; }
-        } else {
-            newVal = input.value.trim() || null;
-            if (newVal === (currentValue || null)) { td.innerHTML = originalHTML; return; }
-        }
-        try {
-            await patchPortfolio(portfolioId, { [field]: newVal });
-            await loadPortfolios();
-        } catch (e) {
-            td.innerHTML = originalHTML;
-        }
-    };
-    input.addEventListener("blur", save);
-    input.addEventListener("keydown", e => {
-        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-        if (e.key === "Escape") { done = true; td.innerHTML = originalHTML; }
+    const cellText = _cellValue(td);
+    const rawValue = isNumber ? cellText.replace(/[^0-9.\-]/g, "") : cellText;
+    const currentValue = isNumber
+        ? (rawValue ? parseFloat(rawValue) : null)
+        : (cellText || null);
+
+    startInlineEdit(td, {
+        currentValue,
+        renderInput: isNumber ? (el) => _numberInput(el, rawValue) : (el) => _textInput(el, cellText),
+        parseInput: isNumber ? _parseNumber : _parseText,
+        saveFn: (val) => patchPortfolio(portfolioId, { [field]: val }),
+        reloadFn: () => loadPortfolios(),
     });
 }
 
 function startAccountEdit(td) {
     const accountId = td.dataset.accountId;
     const field = td.dataset.field;
-    const original = td.textContent.trim();
-    const currentValue = original === "—" ? "" : original;
-    const originalHTML = td.innerHTML;
-    td.innerHTML = `<input class="inline-edit-input" type="text" value="${currentValue.replace(/"/g, "&quot;")}">`;
-    const input = td.querySelector("input");
-    input.focus();
-    input.select();
-    let done = false;
-    const save = async () => {
-        if (done) return;
-        done = true;
-        const newVal = input.value.trim() || null;
-        if (newVal === (currentValue || null)) { td.innerHTML = originalHTML; return; }
-        try {
-            await patchAccount(accountId, { [field]: newVal });
-            await loadAccounts();
-        } catch (e) {
-            td.innerHTML = originalHTML;
-        }
-    };
-    input.addEventListener("blur", save);
-    input.addEventListener("keydown", e => {
-        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-        if (e.key === "Escape") { done = true; td.innerHTML = originalHTML; }
+    const currentValue = _cellValue(td) || null;
+
+    startInlineEdit(td, {
+        currentValue,
+        renderInput: (el) => _textInput(el, _cellValue(td)),
+        parseInput: _parseText,
+        saveFn: (val) => patchAccount(accountId, { [field]: val }),
+        reloadFn: () => loadAccounts(),
     });
 }
 
@@ -258,77 +245,39 @@ function startSymbolEdit(td) {
     const symId = td.dataset.symId;
     const field = td.dataset.field;
     const isNumber = td.dataset.type === "number";
-    const original = td.textContent.trim();
-    const currentValue = original === "—" ? "" : original;
-    const originalHTML = td.innerHTML;
+    const cellText = _cellValue(td);
+    const rawValue = isNumber ? cellText.replace(/[^0-9.\-]/g, "") : cellText;
 
-    if (field === "market") {
+    const isMarket = field === "market";
+    const currentValue = isMarket
+        ? (cellText || null)
+        : isNumber ? (rawValue ? parseFloat(rawValue) : null) : (cellText || null);
+
+    const renderMarketSelect = (el) => {
         const options = ["", "Forex", "Crypto", "Futures", "Indices", "Stocks", "Commodities", "Other"];
-        const selectHtml = `<select class="inline-edit-input">
-            ${options.map(opt => `<option value="${opt}" ${opt === currentValue ? "selected" : ""}>${opt || "— Select —"}</option>`).join("")}
+        el.innerHTML = `<select class="inline-edit-input">
+            ${options.map(opt => `<option value="${opt}" ${opt === cellText ? "selected" : ""}>${opt || "— Select —"}</option>`).join("")}
         </select>`;
-        td.innerHTML = selectHtml;
-    } else {
-        const inputType = isNumber ? "number" : "text";
-        const rawValue = isNumber ? currentValue.replace(/[^0-9.\-]/g, "") : currentValue;
-        td.innerHTML = `<input class="inline-edit-input" type="${inputType}" step="any" value="${rawValue.replace(/"/g, "&quot;")}">`;
-    }
-
-    const input = td.querySelector("input, select");
-    input.focus();
-    if (input.tagName === "INPUT") {
-        input.select();
-    }
-
-    let done = false;
-    const save = async () => {
-        if (done) return;
-        done = true;
-        let newVal;
-
-        if (field === "market") {
-            newVal = input.value || null;
-            if (newVal === (currentValue || null)) { td.innerHTML = originalHTML; return; }
-        } else if (isNumber) {
-            const parsed = parseFloat(input.value);
-            newVal = isNaN(parsed) ? null : parsed;
-            const rawValue = isNumber ? currentValue.replace(/[^0-9.\-]/g, "") : currentValue;
-            const oldVal = rawValue ? parseFloat(rawValue) : null;
-            if (newVal === oldVal) { td.innerHTML = originalHTML; return; }
-        } else {
-            newVal = input.value.trim() || null;
-            if (newVal === (currentValue || null)) { td.innerHTML = originalHTML; return; }
-        }
-
-        try {
-            await fetchJson(`/api/symbols/${symId}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ [field]: newVal }),
-            });
-            await loadSymbols(true);
-        } catch(e) {
-            console.error("Save failed:", e);
-            td.innerHTML = originalHTML;
-        }
     };
 
-    if (input.tagName === "SELECT") {
-        input.addEventListener("change", save);
-        input.addEventListener("blur", save);
-    } else {
-        input.addEventListener("blur", save);
-        input.addEventListener("keydown", e => {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                save();
-            }
-            if (e.key === "Escape") {
-                done = true;
-                td.innerHTML = originalHTML;
-            }
-        });
-    }
+    const renderFn = isMarket
+        ? renderMarketSelect
+        : isNumber ? (el) => _numberInput(el, rawValue) : (el) => _textInput(el, cellText);
+    const parseFn = isMarket
+        ? (input) => input.value || null
+        : isNumber ? _parseNumber : _parseText;
+
+    startInlineEdit(td, {
+        currentValue,
+        renderInput: renderFn,
+        parseInput: parseFn,
+        saveFn: (val) => fetchJson(`/api/symbols/${symId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ [field]: val }),
+        }),
+        reloadFn: () => loadSymbols(true),
+    });
 }
 
 async function toggleStratLive(stratId, currentLive) {
