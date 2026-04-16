@@ -22,10 +22,30 @@ _DOCKER_DATABASE_HOST = "127.0.0.1"
 _DOCKER_DATABASE_PORT = 5433
 _DOCKER_DATABASE_NAME = "tradingmonitor"
 _DOCKER_SERVICE_NAME = "timescaledb"
-_PROJECT_ROOT = Path(__file__).resolve().parents[6]
-_DOCKER_COMPOSE_DIR = _PROJECT_ROOT / "projects" / "tradingmonitor"
-_ALEMBIC_INI_PATH = _DOCKER_COMPOSE_DIR / "alembic.ini"
-_ALEMBIC_SCRIPT_DIR = _DOCKER_COMPOSE_DIR / "alembic"
+
+
+def _find_alembic_ini() -> Path:
+    """Locate alembic.ini by walking up from this file.
+
+    Works in both local development (deep Polylith layout) and Docker
+    (alembic.ini copied to /app/alembic.ini).
+    """
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "projects" / "tradingmonitor" / "alembic.ini"
+        if candidate.exists():
+            return candidate
+        flat_candidate = parent / "alembic.ini"
+        if flat_candidate.exists():
+            return flat_candidate
+    raise FileNotFoundError(
+        "Cannot locate alembic.ini. "
+        "In Docker, ensure COPY projects/tradingmonitor/alembic.ini ./alembic.ini "
+        "is present in the Dockerfile."
+    )
+
+
+_ALEMBIC_INI_PATH = _find_alembic_ini()
+_ALEMBIC_SCRIPT_DIR = _ALEMBIC_INI_PATH.parent / "alembic"
 
 
 class DatabaseUnavailableError(RuntimeError):
@@ -92,7 +112,7 @@ def _docker_database_diagnosis() -> str:
                 "--filter",
                 "status=running",
             ],
-            cwd=_DOCKER_COMPOSE_DIR,
+            cwd=_ALEMBIC_INI_PATH.parent,
             capture_output=True,
             text=True,
             check=False,

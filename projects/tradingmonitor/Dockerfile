@@ -39,5 +39,6 @@ COPY bases/ ./bases/
 COPY components/ ./components/
 COPY projects/tradingmonitor/pyproject.toml ./pyproject.toml
 COPY projects/tradingmonitor/alembic/ ./alembic/
+COPY projects/tradingmonitor/alembic.ini ./alembic.ini
 
 CMD ["trading-monitor", "start-dashboard", "--host", "0.0.0.0", "--port", "8000"]
