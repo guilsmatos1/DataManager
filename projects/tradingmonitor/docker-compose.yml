@@ -17,6 +17,8 @@ x-casaos:
   env:
     - DATABASE_URL
     - API_KEY
+    - DATAMANAGER_URL
+    - DATAMANAGER_API_KEY
 
 services:
   tradingmonitor_app:
@@ -27,13 +29,25 @@ services:
     container_name: tradingmonitor-server
     restart: always
     ports:
-      - "8000:8000"
-      - "5555:5555"
+      - "${DASHBOARD_PORT:-8000}:8000"
+      - "${SERVER_PORT:-5555}:5555"
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://tradingmonitor_user:changeme@host.docker.internal:5432/tradingmonitor}
+      - API_KEY=${API_KEY:-changeme}
+      - DASHBOARD_HOST=0.0.0.0
+      - DASHBOARD_PORT=${DASHBOARD_PORT:-8000}
       - SERVER_HOST=0.0.0.0
-      - SERVER_PORT=5555
-      - API_KEY=${API_KEY}
-      - DEBUG=${DEBUG:-False}
+      - SERVER_PORT=${SERVER_PORT:-5555}
+      - DATAMANAGER_URL=${DATAMANAGER_URL:-http://host.docker.internal:8686}
+      - DATAMANAGER_API_KEY=${DATAMANAGER_API_KEY:-}
+      - ENABLE_NOTIFICATIONS=${ENABLE_NOTIFICATIONS:-false}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - ENABLE_DRIFT_ALERTS=${ENABLE_DRIFT_ALERTS:-true}
+    volumes:
+      - tradingmonitor_reports:/app/reports
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+volumes:
+  tradingmonitor_reports:
