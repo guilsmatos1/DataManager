@@ -1,0 +1,21 @@
+{
+  "all_symbols_info": [
+    {
+      "name": "EURUSD",
+      "point": 1e-05,
+      "trade_contract_size": 100000.0,
+      "filling_mode": 2,
+      "digits": 5,
+      "volume_min": 0.01,
+      "volume_max": 200.0,
+      "volume_step": 0.01,
+      "trade_stops_level": 0,
+      "visible": true,
+      "bid": 1.18526,
+      "ask": 1.18536,
+      "description": "Euro vs US Dollar",
+      "currency_profit": "USD",
+      "currency_margin": "EUR"
+    }
+  ]
+}

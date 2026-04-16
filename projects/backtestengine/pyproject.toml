@@ -7,10 +7,25 @@ name = "trademachine-backtestengine-project"
 version = "0.1.0"
 description = "BacktestEngine project"
 dependencies = [
-    "trademachine-backtestengine",
-    "trademachine-backtest-engine-cli",
+    "numpy>=2.4.3",
+    "pandas>=2.2.3,<3.0.0",
+    "polars>=1.39.3",
+    "pydantic>=2.12.5",
+    "tqdm>=4.67.3",
+    "typer>=0.24.1",
 ]
 
+[tool.polylith.projects]
+"trademachine/backtestengine_broker" = "components"
+"trademachine/backtestengine_history" = "components"
+"trademachine/backtestengine_stats" = "components"
+"trademachine/backtestengine" = "components"
+"trademachine/backtest_engine_cli" = "bases"
+
+[tool.uv.sources]
+trademachine = { path = "../../components/trademachine" }
+trademachine_bases = { path = "../../bases/trademachine" }
+
 [tool.setuptools.packages.find]
-where = ["."]
-include = []
+where = ["src"]
+include = ["strategytester5*"]

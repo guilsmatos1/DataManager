@@ -1,0 +1,12 @@
+{
+  "tester": {
+    "bot_name": "USATECH M1 Smoke Test",
+    "symbols": ["USATECH"],
+    "timeframe": "M1",
+    "start_date": "09.04.2026 00:00",
+    "end_date": "10.04.2026 00:00",
+    "modelling": "every_tick",
+    "deposit": 1000,
+    "leverage": "1:100"
+  }
+}

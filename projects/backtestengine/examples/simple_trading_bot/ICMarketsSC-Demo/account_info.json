@@ -1,0 +1,32 @@
+{
+  "account_info": {
+    "login": 52557820,
+    "trade_mode": 0,
+    "leverage": 500,
+    "limit_orders": 200,
+    "margin_so_mode": 0,
+    "trade_allowed": true,
+    "trade_expert": true,
+    "margin_mode": 2,
+    "currency_digits": 2,
+    "fifo_close": false,
+    "balance": 933.07,
+    "credit": 0.0,
+    "profit": 0.0,
+    "equity": 933.07,
+    "margin": 0.0,
+    "margin_free": 933.07,
+    "margin_level": 0.0,
+    "margin_so_call": 100.0,
+    "margin_so_so": 0.0,
+    "margin_initial": 0.0,
+    "margin_maintenance": 0.0,
+    "assets": 0.0,
+    "liabilities": 0.0,
+    "commission_blocked": 0.0,
+    "name": "EMMANUEL JOCTAN MSIGWA",
+    "server": "ICMarketsSC-Demo",
+    "currency": "USD",
+    "company": "Raw Trading Ltd"
+  }
+}

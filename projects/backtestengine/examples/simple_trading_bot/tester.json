@@ -1,0 +1,12 @@
+{
+  "tester": {
+    "bot_name": "Simple Bot Smoke Test",
+    "symbols": ["EURUSD"],
+    "timeframe": "H1",
+    "start_date": "01.01.2024 00:00",
+    "end_date": "01.01.2024 08:00",
+    "modelling": "every_tick",
+    "deposit": 1000,
+    "leverage": "1:100"
+  }
+}
