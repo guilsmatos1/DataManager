@@ -1,20 +1,39 @@
-services:
-  timescaledb:
-    image: timescale/timescaledb:latest-pg15
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: tradingmonitor
-    ports:
-      - "127.0.0.1:5433:5432"
-    volumes:
-      - timescaledb_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d tradingmonitor"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: tradingmonitor_app
+  author: guilsmatos
+  category: Finance
+  description:
+    en_us: Real-time trading monitor dashboard with MT5 ingestion
+  tagline:
+    en_us: Trading Monitor
+  title:
+    en_us: TradingMonitor
+  scheme: http
+  index: /
+  port_map: "8000"
+  env:
+    - DATABASE_URL
+    - API_KEY
 
-volumes:
-  timescaledb_data:
+services:
+  tradingmonitor_app:
+    build:
+      context: ../..
+      dockerfile: projects/tradingmonitor/Dockerfile
+    image: guilsmatos/tradingmonitor:latest
+    container_name: tradingmonitor-server
+    restart: always
+    ports:
+      - "8000:8000"
+      - "5555:5555"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://tradingmonitor_user:changeme@host.docker.internal:5432/tradingmonitor}
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=5555
+      - API_KEY=${API_KEY}
+      - DEBUG=${DEBUG:-False}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

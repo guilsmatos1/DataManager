@@ -17,24 +17,11 @@ x-casaos:
   index: /
   port_map: "8686"
   env:
-    - DATABASE_URL
+    - DATAMANAGER_API_KEY
+    - DATAMANAGER_DATABASE_URL
+    - FRED_API_KEY
 
 services:
-  timescaledb:
-    image: timescale/timescaledb:latest-pg17-oss
-    container_name: datamanager-timescaledb
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-datamanager}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-datamanager}
-    volumes:
-      - timescaledb_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-datamanager}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   datamanager_api:
     build:
       context: ../..
@@ -49,14 +36,6 @@ services:
       - FRED_API_KEY=${FRED_API_KEY}
       - DATAMANAGER_HOST=0.0.0.0
       - DATAMANAGER_PORT=8686
-      - DATAMANAGER_DATABASE_URL=postgresql://${POSTGRES_USER:-datamanager}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-datamanager}
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-    # volumes:
-    #   - ../../metadata:/app/metadata:ro
-    #   - ../../bases:/app/bases:ro
-    #   - ../../components:/app/components:ro
-
-volumes:
-  timescaledb_data:
+      - DATAMANAGER_DATABASE_URL=${DATAMANAGER_DATABASE_URL:-postgresql://datamanager_user:changeme@host.docker.internal:5432/datamanager}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
