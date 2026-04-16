@@ -53,3 +53,12 @@ Component naming: single-domain → no separator (portfoliomaster, datamanager);
 - DO NOT ignore pre-commit hooks (ruff, lint-imports, xenon, vulture).
 - DO NOT add deps without checking with deptry and poly libs.
 - DO NOT edit a subproject without consulting its CLAUDE.md first.
+
+## Coding Standards & Clean Code
+When writing code, STRICTLY adhere to these Clean Code principles:
+- **Meaningful Names:** Use variable, function, and class names that reveal intent (e.g., `isUserAuthenticated` instead of `auth`).
+- **Small Functions:** Functions should do one thing and remain concise.
+- **DRY (Don't Repeat Yourself):** Eliminate redundancies by extracting logic into reusable components or utility functions.
+- **Self-Explanatory:** Code must be readable enough to render "what" comments unnecessary; use comments only to explain the "why".
+- **SOLID:** Apply SOLID principles, with a strong focus on Single Responsibility (SRP) and Open/Closed (OCP).
+- **Error Handling:** Implement clear logging and predictable exception handling; never leave empty catch blocks.
