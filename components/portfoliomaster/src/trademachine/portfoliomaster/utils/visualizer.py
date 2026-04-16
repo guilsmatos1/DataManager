@@ -86,11 +86,115 @@ def plot_portfolio_equity(
     fig.show()
 
 
+def _extract_submatrix(
+    correlation_matrix: np.ndarray,
+    all_strategy_names: list[str],
+    combo: tuple[str, ...],
+) -> tuple[np.ndarray, list[str]]:
+    """Extracts the sub-matrix for a portfolio combo from the full correlation matrix."""
+    name_to_idx = {name: idx for idx, name in enumerate(all_strategy_names)}
+    indices = [name_to_idx[s] for s in combo if s in name_to_idx]
+    sub_names = [all_strategy_names[i] for i in indices]
+    sub = correlation_matrix[np.ix_(indices, indices)]
+    return sub, sub_names
+
+
+def _annotation_color(value: float) -> str:
+    """Returns a contrasting text color for heatmap cell annotations."""
+    if np.isnan(value):
+        return "#888"
+    return "#1a1a2e" if -0.4 < value < 0.4 else "white"
+
+
+def _build_correlation_heatmap_json(
+    correlation_matrix: np.ndarray, strategy_names: list[str], title: str
+) -> str:
+    """Builds a Plotly heatmap JSON string from the upper-triangle correlation matrix."""
+    n = len(strategy_names)
+    full = correlation_matrix.copy()
+    for i in range(n):
+        for j in range(i + 1, n):
+            full[j, i] = full[i, j]
+
+    annotations = []
+    for i in range(n):
+        for j in range(n):
+            val = full[i, j]
+            text = f"{val:.2f}" if not np.isnan(val) else ""
+            annotations.append(
+                dict(
+                    x=strategy_names[j],
+                    y=strategy_names[i],
+                    text=text,
+                    showarrow=False,
+                    font=dict(
+                        color=_annotation_color(val),
+                        size=max(12, 18 - n),
+                        weight="bold" if i != j else "normal",
+                    ),
+                )
+            )
+
+    max_label_len = max((len(s) for s in strategy_names), default=0)
+    left_margin = max(100, 10 * max_label_len)
+    bottom_margin = max(80, 12 * max_label_len)
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=full.tolist(),
+            x=strategy_names,
+            y=strategy_names,
+            colorscale=[
+                [0.0, "#2166ac"],
+                [0.25, "#67a9cf"],
+                [0.5, "#f7f7f7"],
+                [0.75, "#ef8a62"],
+                [1.0, "#b2182b"],
+            ],
+            zmin=-1,
+            zmax=1,
+            xgap=2,
+            ygap=2,
+            colorbar=dict(
+                title=dict(text="Correlation", font=dict(color="#e0e0e0", size=13)),
+                tickfont=dict(color="#e0e0e0", size=11),
+                thickness=14,
+                len=0.6,
+                outlinewidth=0,
+            ),
+        )
+    )
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=16, color="#4fc3f7")),
+        template="plotly_dark",
+        plot_bgcolor="#1a1a2e",
+        paper_bgcolor="#1a1a2e",
+        height=max(400, 100 * n + 140),
+        margin=dict(t=70, b=bottom_margin, l=left_margin, r=60),
+        xaxis=dict(
+            side="bottom",
+            tickangle=-45,
+            tickfont=dict(size=12, color="#ccc"),
+            showgrid=False,
+        ),
+        yaxis=dict(
+            autorange="reversed",
+            tickfont=dict(size=12, color="#ccc"),
+            showgrid=False,
+        ),
+        annotations=annotations,
+    )
+    return fig.to_json()
+
+
 def generate_portfolio_report_html(
     portfolios: list[dict],
     strategies: dict[str, pl.DataFrame],
     output_path: str = "portfolio_report.html",
     open_browser: bool = True,
+    strategy_names: list[str] | None = None,
+    correlation_matrix: np.ndarray | None = None,
+    **_extra: object,
 ) -> str:
     """Generates a self-contained HTML report with a metrics table and per-portfolio
     equity charts. Clicking a row opens the chart; a back arrow returns to the table.
@@ -114,15 +218,28 @@ def generate_portfolio_report_html(
             if not port_ts:
                 raise ValueError("No trade data found for this portfolio.")
 
+            strategy_palette = [
+                "#67a9cf",
+                "#ef8a62",
+                "#a6d854",
+                "#fc8d62",
+                "#8da0cb",
+                "#e78ac3",
+                "#ffd92f",
+                "#b3b3b3",
+            ]
+
             fig = go.Figure()
-            for name, ts, equity in strategy_traces:
+            for trace_idx, (name, ts, equity) in enumerate(strategy_traces):
+                color = strategy_palette[trace_idx % len(strategy_palette)]
                 fig.add_trace(
                     go.Scatter(
                         x=ts,
                         y=equity,
                         name=name,
-                        line=dict(width=2, dash="solid"),
-                        opacity=0.7,
+                        line=dict(width=1.5, color=color),
+                        opacity=0.6,
+                        hovertemplate="%{y:,.2f}<extra>%{fullData.name}</extra>",
                     )
                 )
             fig.add_trace(
@@ -130,19 +247,51 @@ def generate_portfolio_report_html(
                     x=port_ts,
                     y=port_equity,
                     name="PORTFOLIO",
-                    line=dict(color="white", width=4),
+                    line=dict(color="#4fc3f7", width=3),
+                    fill="tozeroy",
+                    fillcolor="rgba(79, 195, 247, 0.08)",
+                    hovertemplate="%{y:,.2f}<extra>PORTFOLIO</extra>",
                 )
             )
             fig.update_layout(
-                title=f"Portfolio #{idx + 1}: {', '.join(combo)}",
-                xaxis_title="Time",
-                yaxis_title="Net Profit",
+                title=dict(
+                    text=f"Portfolio #{idx + 1}: {', '.join(combo)}",
+                    font=dict(size=16, color="#4fc3f7"),
+                ),
                 template="plotly_dark",
+                plot_bgcolor="#1a1a2e",
+                paper_bgcolor="#1a1a2e",
+                xaxis=dict(
+                    title=dict(text="Time", font=dict(color="#888", size=12)),
+                    tickfont=dict(color="#666", size=11),
+                    gridcolor="rgba(255,255,255,0.04)",
+                    zeroline=False,
+                ),
+                yaxis=dict(
+                    title=dict(text="Net Profit", font=dict(color="#888", size=12)),
+                    tickfont=dict(color="#666", size=11),
+                    tickformat=",",
+                    gridcolor="rgba(255,255,255,0.06)",
+                    zeroline=True,
+                    zerolinecolor="rgba(255,255,255,0.15)",
+                    zerolinewidth=1,
+                ),
                 hovermode="x unified",
-                height=580,
-                margin=dict(t=80, b=40, l=60, r=40),
+                hoverlabel=dict(
+                    bgcolor="#16213e",
+                    bordercolor="#4fc3f7",
+                    font=dict(color="#e0e0e0", size=12),
+                ),
+                height=600,
+                margin=dict(t=60, b=50, l=70, r=30),
                 legend=dict(
-                    orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1,
+                    font=dict(color="#ccc", size=11),
+                    bgcolor="rgba(0,0,0,0)",
                 ),
             )
             chart_json = fig.to_json()
@@ -150,23 +299,64 @@ def generate_portfolio_report_html(
             chart_json = json.dumps({"error": str(exc)})
         chart_data_json.append(chart_json)
 
+    # --- Build per-portfolio correlation heatmap JSON (if available) ---
+    has_correlation = (
+        correlation_matrix is not None
+        and strategy_names is not None
+        and len(strategy_names) > 1
+    )
+    corr_data_json: list[str] = []
+    if has_correlation:
+        for idx, portfolio in enumerate(portfolios):
+            combo = tuple(portfolio.get("Combo", ()))
+            if len(combo) < 2:
+                corr_data_json.append("")
+                continue
+            sub_matrix, sub_names = _extract_submatrix(
+                correlation_matrix, strategy_names, combo
+            )
+            title = f"Portfolio #{idx + 1}: {', '.join(combo)}"
+            corr_data_json.append(
+                _build_correlation_heatmap_json(sub_matrix, sub_names, title)
+            )
+
     # --- Embed chart data as JSON script tags ---
     chart_data_scripts = "\n".join(
         f'<script type="application/json" id="chart-data-{i}">{d}</script>'
         for i, d in enumerate(chart_data_json)
     )
+    if has_correlation:
+        for i, cj in enumerate(corr_data_json):
+            if cj:
+                chart_data_scripts += (
+                    f'\n<script type="application/json" id="corr-data-{i}">'
+                    f"{cj}</script>"
+                )
 
-    # --- Chart view divs (empty containers, filled on first click) ---
-    chart_sections_html = "\n".join(
-        f'<div id="chart-{i}" class="chart-view">'
-        f'<div class="chart-header">'
-        f'<button class="back-btn" onclick="showTable()">&#8592; Back to Table</button>'
-        f'<span class="chart-title">Portfolio #{i + 1} &mdash; {", ".join(p.get("Combo", ()))}</span>'
-        f"</div>"
-        f'<div id="chart-body-{i}" class="chart-body"></div>'
-        f"</div>"
-        for i, p in enumerate(portfolios)
-    )
+    # --- Chart & correlation view divs (empty containers, filled on first click) ---
+    detail_sections: list[str] = []
+    for i, p in enumerate(portfolios):
+        combo_label = ", ".join(p.get("Combo", ()))
+        detail_sections.append(
+            f'<div id="chart-{i}" class="chart-view">'
+            f'<div class="chart-header">'
+            f'<button class="back-btn" onclick="showTable()">&#8592; Back to Table</button>'
+            f'<span class="chart-title">Portfolio #{i + 1} &mdash; {combo_label}</span>'
+            f"</div>"
+            f'<div id="chart-body-{i}" class="chart-body"></div>'
+            f"</div>"
+        )
+        if has_correlation and i < len(corr_data_json) and corr_data_json[i]:
+            detail_sections.append(
+                f'<div id="corr-{i}" class="chart-view">'
+                f'<div class="chart-header">'
+                f'<button class="back-btn" onclick="showTable()">&#8592; Back to Table</button>'
+                f'<span class="chart-title">Correlation &mdash; Portfolio #{i + 1}</span>'
+                f"</div>"
+                f'<div id="corr-body-{i}" class="chart-body"></div>'
+                f"</div>"
+            )
+    chart_sections_html = "\n".join(detail_sections)
 
     # --- Table column definitions ---
     columns = [
@@ -195,9 +385,28 @@ def generate_portfolio_report_html(
     ]
 
     headers_html = "".join(f"<th>{name}</th>" for name, _ in columns)
+    headers_html += "<th>Actions</th>"
+
+    def _action_buttons(idx: int, has_corr_for_row: bool) -> str:
+        equity_btn = (
+            f'<button class="action-btn" onclick="event.stopPropagation(); '
+            f'showChart({idx})">Equity</button>'
+        )
+        if has_corr_for_row:
+            corr_btn = (
+                f'<button class="action-btn" onclick="event.stopPropagation(); '
+                f'showCorrelation({idx})">Correlation</button>'
+            )
+        else:
+            corr_btn = ""
+        return f'<td class="actions-cell">{equity_btn}{corr_btn}</td>'
+
     rows_html = "\n".join(
-        f'<tr onclick="showChart({i})" title="Click to view equity chart">'
+        "<tr>"
         + "".join(f"<td>{fn(p, i)}</td>" for _, fn in columns)
+        + _action_buttons(
+            i, has_correlation and i < len(corr_data_json) and bool(corr_data_json[i])
+        )
         + "</tr>"
         for i, p in enumerate(portfolios)
     )
@@ -205,13 +414,44 @@ def generate_portfolio_report_html(
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     n = len(portfolios)
 
+    # --- Pre-build correlation JS (avoids f-string brace issues) ---
+    if has_correlation:
+        corr_js = """
+var initializedCorr = {};
+function showCorrelation(idx) {
+  document.getElementById('table-view').style.display = 'none';
+  var view = document.getElementById('corr-' + idx);
+  if (!view) return;
+  view.style.display = 'flex';
+
+  if (!initializedCorr[idx]) {
+    initializedCorr[idx] = true;
+    var dataEl = document.getElementById('corr-data-' + idx);
+    if (!dataEl) return;
+    var corrData = JSON.parse(dataEl.textContent);
+    var body = document.getElementById('corr-body-' + idx);
+    var layout = Object.assign({}, corrData.layout, {
+      autosize: true,
+      height: undefined
+    });
+    Plotly.newPlot(body, corrData.data, layout, {responsive: true});
+  } else {
+    requestAnimationFrame(function() {
+      var plotDiv = document.getElementById('corr-body-' + idx).querySelector('.js-plotly-plot');
+      if (plotDiv) Plotly.Plots.resize(plotDiv);
+    });
+  }
+}"""
+    else:
+        corr_js = ""
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Portfolio Report</title>
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 {chart_data_scripts}
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -240,7 +480,6 @@ thead th {{
 }}
 tbody tr {{
   border-bottom: 1px solid #252545;
-  cursor: pointer;
   transition: background 0.12s;
 }}
 tbody tr:hover {{ background: #0f3460 !important; }}
@@ -249,7 +488,6 @@ tbody tr:nth-child(even) {{ background: #16213e; }}
 td {{ padding: 8px 12px; vertical-align: middle; }}
 td:first-child {{ font-weight: 700; color: #4fc3f7; text-align: center; width: 36px; }}
 td:nth-child(2) {{ color: #ccc; font-size: 0.8rem; max-width: 300px; white-space: normal; word-break: break-word; }}
-.click-hint {{ color: #444; font-size: 0.78rem; margin-top: 10px; text-align: right; }}
 
 /* CHART VIEW */
 .chart-view {{ display: none; flex-direction: column; height: 100vh; }}
@@ -278,6 +516,22 @@ td:nth-child(2) {{ color: #ccc; font-size: 0.8rem; max-width: 300px; white-space
 .back-btn:hover {{ background: #4fc3f7; color: #1a1a2e; }}
 .chart-title {{ color: #ccc; font-size: 0.95rem; }}
 .chart-body {{ flex: 1; overflow: hidden; padding: 8px; min-height: 0; }}
+
+/* ACTION BUTTONS */
+.actions-cell {{ white-space: nowrap; }}
+.action-btn {{
+  background: #0f3460;
+  color: #4fc3f7;
+  border: 1px solid #4fc3f7;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-right: 4px;
+  transition: background 0.15s, color 0.15s;
+}}
+.action-btn:hover {{ background: #4fc3f7; color: #1a1a2e; }}
 </style>
 </head>
 <body>
@@ -285,7 +539,7 @@ td:nth-child(2) {{ color: #ccc; font-size: 0.8rem; max-width: 300px; white-space
 <div id="table-view">
   <div class="report-header">
     <h1>Portfolio Optimization Results</h1>
-    <div class="subtitle">Generated {generated_at} &mdash; {n} portfolio(s) ranked &mdash; click any row to view equity chart</div>
+    <div class="subtitle">Generated {generated_at} &mdash; {n} portfolio(s) ranked</div>
   </div>
   <div class="table-wrapper">
   <table>
@@ -295,7 +549,6 @@ td:nth-child(2) {{ color: #ccc; font-size: 0.8rem; max-width: 300px; white-space
     </tbody>
   </table>
   </div>
-  <div class="click-hint">Click any row to view the equity chart &#8594;</div>
 </div>
 
 {chart_sections_html}
@@ -336,6 +589,8 @@ function showTable() {{
   document.querySelectorAll('.chart-view').forEach(function(el) {{ el.style.display = 'none'; }});
   document.getElementById('table-view').style.display = 'block';
 }}
+
+{corr_js}
 </script>
 
 </body>
@@ -647,7 +902,7 @@ def generate_montecarlo_report_html(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Monte Carlo Report</title>
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <script type="application/json" id="mc-chart-data-0">{chart_eq_json}</script>
 <script type="application/json" id="mc-chart-data-1">{chart_mdd_json}</script>
 <script type="application/json" id="mc-chart-data-2">{chart_rdd_json}</script>
@@ -882,7 +1137,7 @@ def generate_adherence_report_html(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Adherence Report — SQX vs MT5</title>
-<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{ background: #1a1a2e; color: #e0e0e0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; }}

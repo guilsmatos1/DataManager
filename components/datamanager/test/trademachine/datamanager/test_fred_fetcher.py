@@ -35,10 +35,11 @@ def _install_openbb(
 
     module = types.ModuleType("openbb")
     module.obb = SimpleNamespace(  # type: ignore[attr-defined]
+        user=SimpleNamespace(credentials=SimpleNamespace(fred_api_key="")),
         economy=SimpleNamespace(
             fred_search=fred_search,
             fred_series=fred_series,
-        )
+        ),
     )
     monkeypatch.setitem(sys.modules, "openbb", module)
     return calls

@@ -147,6 +147,8 @@ uv run portfoliomaster optimize --import-p my_portfolio.json --report
 
 Executa a otimização via algoritmo genético. Esse comando existe separado para deixar explícito quando estamos saindo da busca exaustiva e entrando em um motor heurístico/estocástico com parâmetros próprios.
 
+Quando usado com `--ga-loop <N>`, o comando roda o GA `N` vezes com seeds diferentes e mantém um rank global acumulado dos melhores portfólios encontrados entre todos os loops. O universo de estratégias não é podado entre iterações; o que se acumula é o ranking de combos.
+
 Flags específicas mais usadas:
 
 | Flag | Descrição |
@@ -159,6 +161,12 @@ Flags específicas mais usadas:
 
 Também aceita as mesmas flags gerais de `optimize` para carga, filtro, ranking, correlação, exportação e Monte Carlo.
 
+No modo `--ga-loop`, quando `--output <dir>` é informado, o comando gera:
+- um `rank.json` final consolidado
+- um `report.html` final consolidado
+- subpastas `loop_01`, `loop_02`, ... com os artefatos de cada execução
+- `multi_ga_summary.json` com o resumo das iterações
+
 Exemplos:
 
 ```bash
@@ -167,6 +175,9 @@ uv run portfoliomaster optimize-genetic --load tests/reports --min 10 --max 15 -
 
 # Genetic Algorithm em múltiplos loops com rank global acumulado
 uv run portfoliomaster optimize-genetic --load tests/reports --min 10 --max 15 --corr 0.2 --ga-loop 5 --top 10
+
+# Genetic Algorithm em múltiplos loops com artefatos por loop + consolidado final
+uv run portfoliomaster optimize-genetic --load tests/reports --min 10 --max 15 --corr 0.2 --ga-loop 5 --top 10 --output ./results/ga_loop_run
 
 # Genetic Algorithm com ajuste explícito da busca
 uv run portfoliomaster optimize-genetic --load tests/reports --min 10 --max 15 --corr 0.2 --ga-population 300 --ga-generations 100 --ga-crossover 0.7 --ga-mutation 0.2

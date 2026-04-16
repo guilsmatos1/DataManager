@@ -17,10 +17,24 @@ def create_prompt_session(
         from prompt_toolkit import PromptSession
         from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
         from prompt_toolkit.history import FileHistory
+        from prompt_toolkit.key_binding import KeyBindings
+
+        key_bindings = KeyBindings()
+
+        @key_bindings.add("up")
+        def _history_previous(event) -> None:
+            """Navigates to the previous command in history."""
+            event.current_buffer.history_backward(count=event.arg)
+
+        @key_bindings.add("down")
+        def _history_next(event) -> None:
+            """Navigates to the next command in history."""
+            event.current_buffer.history_forward(count=event.arg)
 
         return PromptSession(
             history=FileHistory(history_file),
             auto_suggest=AutoSuggestFromHistory(),
+            key_bindings=key_bindings,
         )
     except Exception as e:
         if logger is not None:

@@ -97,7 +97,7 @@ def test_clean_deals_df_keeps_valid_date(parser):
             "Tipo": ["Type", "BUY", "balance", "SELL"],
         }
     )
-    cleaned = parser._clean_deals_df(df)
+    cleaned = parser.clean_deals_df(df)
     # the first row is dropped, the third row matches 'balance'
     assert len(cleaned) == 3
     assert "Invalid" in cleaned["Horário"].values

@@ -18,6 +18,12 @@ members = [
     "datamanager-project",
     "metalabelingmaster-project",
     "portfoliomaster-project",
+    "trademachine-backtest-engine-cli",
+    "trademachine-backtestengine",
+    "trademachine-backtestengine-broker",
+    "trademachine-backtestengine-history",
+    "trademachine-backtestengine-project",
+    "trademachine-backtestengine-stats",
     "trademachine-core",
     "trademachine-datamanager",
     "trademachine-datamanager-api",
@@ -2803,6 +2809,7 @@ dependencies = [
     { name = "pandas" },
     { name = "plotly" },
     { name = "polars" },
+    { name = "prompt-toolkit" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -2819,6 +2826,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.3,<3.0.0" },
     { name = "plotly", specifier = ">=6.6.0" },
     { name = "polars", specifier = ">=1.39.3" },
+    { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "pyarrow", specifier = ">=23.0.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
@@ -3880,6 +3888,102 @@ wheels = [
 ]
 
 [[package]]
+name = "trademachine-backtest-engine-cli"
+version = "0.1.0"
+source = { editable = "bases/backtest_engine_cli" }
+dependencies = [
+    { name = "trademachine-backtestengine" },
+    { name = "trademachine-core" },
+    { name = "trademachine-datamanager" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "trademachine-backtestengine", editable = "components/backtestengine" },
+    { name = "trademachine-core", editable = "components/core" },
+    { name = "trademachine-datamanager", editable = "components/datamanager" },
+]
+
+[[package]]
+name = "trademachine-backtestengine"
+version = "0.1.0"
+source = { editable = "components/backtestengine" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "trademachine-backtestengine-broker" },
+    { name = "trademachine-backtestengine-history" },
+    { name = "trademachine-backtestengine-stats" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "trademachine-backtestengine-broker", editable = "components/backtestengine_broker" },
+    { name = "trademachine-backtestengine-history", editable = "components/backtestengine_history" },
+    { name = "trademachine-backtestengine-stats", editable = "components/backtestengine_stats" },
+]
+
+[[package]]
+name = "trademachine-backtestengine-broker"
+version = "0.1.0"
+source = { editable = "components/backtestengine_broker" }
+
+[[package]]
+name = "trademachine-backtestengine-history"
+version = "0.1.0"
+source = { editable = "components/backtestengine_history" }
+dependencies = [
+    { name = "polars" },
+    { name = "trademachine-backtestengine-broker" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "polars", specifier = ">=1.39.3" },
+    { name = "trademachine-backtestengine-broker", editable = "components/backtestengine_broker" },
+]
+
+[[package]]
+name = "trademachine-backtestengine-project"
+version = "0.1.0"
+source = { editable = "projects/backtestengine" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "polars" },
+    { name = "pydantic" },
+    { name = "tqdm" },
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=2.4.3" },
+    { name = "pandas", specifier = ">=2.2.3,<3.0.0" },
+    { name = "polars", specifier = ">=1.39.3" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "tqdm", specifier = ">=4.67.3" },
+    { name = "typer", specifier = ">=0.24.1" },
+]
+
+[[package]]
+name = "trademachine-backtestengine-stats"
+version = "0.1.0"
+source = { editable = "components/backtestengine_stats" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "trademachine-backtestengine-broker" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=2.4.3" },
+    { name = "pandas", specifier = ">=2.2.3,<3.0.0" },
+    { name = "trademachine-backtestengine-broker", editable = "components/backtestengine_broker" },
+]
+
+[[package]]
 name = "trademachine-core"
 version = "0.1.0"
 source = { editable = "components/core" }
@@ -3972,6 +4076,7 @@ name = "trademachine-portfolio-master-cli"
 version = "0.1.0"
 source = { editable = "bases/portfolio_master_cli" }
 dependencies = [
+    { name = "prompt-toolkit" },
     { name = "trademachine-core" },
     { name = "trademachine-mt5" },
     { name = "trademachine-portfoliomaster" },
@@ -3979,6 +4084,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "trademachine-core", editable = "components/core" },
     { name = "trademachine-mt5", editable = "components/mt5" },
     { name = "trademachine-portfoliomaster", editable = "components/portfoliomaster" },
@@ -4133,6 +4239,11 @@ dev = [
     { name = "pytest-cov" },
     { name = "radon" },
     { name = "ruff" },
+    { name = "trademachine-backtest-engine-cli" },
+    { name = "trademachine-backtestengine" },
+    { name = "trademachine-backtestengine-broker" },
+    { name = "trademachine-backtestengine-history" },
+    { name = "trademachine-backtestengine-stats" },
     { name = "trademachine-core" },
     { name = "trademachine-datamanager" },
     { name = "trademachine-datamanager-api" },
@@ -4201,6 +4312,11 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "radon", specifier = ">=6.0.1" },
     { name = "ruff" },
+    { name = "trademachine-backtest-engine-cli", editable = "bases/backtest_engine_cli" },
+    { name = "trademachine-backtestengine", editable = "components/backtestengine" },
+    { name = "trademachine-backtestengine-broker", editable = "components/backtestengine_broker" },
+    { name = "trademachine-backtestengine-history", editable = "components/backtestengine_history" },
+    { name = "trademachine-backtestengine-stats", editable = "components/backtestengine_stats" },
     { name = "trademachine-core", editable = "components/core" },
     { name = "trademachine-datamanager", editable = "components/datamanager" },
     { name = "trademachine-datamanager-api", editable = "bases/datamanager_api" },

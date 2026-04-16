@@ -191,6 +191,7 @@ class TestDataManagerService:
             "timeframe": "M1",
             "rows": 5,
         }
+        manager.storage.aggregate_exists.return_value = False
 
         manager.resample_data("mock", "BTCUSD", "M5")
 

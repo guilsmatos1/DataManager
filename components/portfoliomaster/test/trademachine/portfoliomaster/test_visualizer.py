@@ -6,6 +6,7 @@ Mocks UI interactions (Plotly show, webbrowser open) to run in CI.
 import os
 from unittest.mock import patch
 
+import numpy as np
 import polars as pl
 import pytest
 from trademachine.portfoliomaster.utils.visualizer import (
@@ -118,7 +119,9 @@ def test_generate_portfolio_report_html_creates_file(
         assert "Portfolio Optimization Results" in content
         assert "Strat1" in content
         assert "Strat2" in content
-        assert "plotly-latest.min.js" in content
+        assert "cdn.plot.ly/plotly-" in content
+        assert "Actions</th>" in content
+        assert "showChart(" in content
 
 
 @patch("webbrowser.open")
@@ -135,6 +138,68 @@ def test_generate_portfolio_report_html_handles_errors(_, tmp_path):
         assert "Chart error" in content
 
 
+@patch("webbrowser.open")
+def test_generate_portfolio_report_html_with_per_portfolio_correlation(
+    _, sample_portfolios, sample_strategies, tmp_path
+):
+    corr = np.array([[1.0, 0.45], [np.nan, 1.0]])
+    output_path = str(tmp_path / "report_corr.html")
+    path = generate_portfolio_report_html(
+        sample_portfolios,
+        sample_strategies,
+        output_path=output_path,
+        open_browser=False,
+        strategy_names=["Strat1", "Strat2"],
+        correlation_matrix=corr,
+    )
+
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+        assert "corr-data-0" in content
+        assert "corr-0" in content
+        assert "showCorrelation(0)" in content
+        assert ">Correlation</button>" in content
+
+
+@patch("webbrowser.open")
+def test_generate_portfolio_report_html_without_correlation(
+    _, sample_portfolios, sample_strategies, tmp_path
+):
+    output_path = str(tmp_path / "report_no_corr.html")
+    path = generate_portfolio_report_html(
+        sample_portfolios,
+        sample_strategies,
+        output_path=output_path,
+        open_browser=False,
+    )
+
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+        assert "corr-data-" not in content
+        assert "showCorrelation" not in content
+
+
+@patch("webbrowser.open")
+def test_generate_portfolio_report_html_single_strategy_no_correlation(_, tmp_path):
+    """Single-strategy portfolios should not get a correlation button."""
+    corr = np.array([[1.0, 0.5], [np.nan, 1.0]])
+    portfolios = [{"Combo": ("A",)}]
+    output_path = str(tmp_path / "report_single.html")
+    path = generate_portfolio_report_html(
+        portfolios,
+        {},
+        output_path=output_path,
+        open_browser=False,
+        strategy_names=["A", "B"],
+        correlation_matrix=corr,
+    )
+
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+        assert "corr-data-0" not in content
+        assert ">Correlation</button>" not in content
+
+
 # ---------------------------------------------------------------------------
 # generate_montecarlo_report_html
 # ---------------------------------------------------------------------------
@@ -142,8 +207,6 @@ def test_generate_portfolio_report_html_handles_errors(_, tmp_path):
 
 class MockMCResult:
     def __init__(self):
-        import numpy as np
-
         self.simulated_equities = np.zeros((10, 5))
         self.original_equity = np.array([0, 1, 2, 3, 4])
         self.max_dd_distribution = np.array([10, 20])

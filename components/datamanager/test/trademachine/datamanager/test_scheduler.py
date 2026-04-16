@@ -89,7 +89,6 @@ def _install_scheduler_fakes(monkeypatch):
 
 def test_add_job_keeps_ohlcv_contract(monkeypatch):
     _install_scheduler_fakes(monkeypatch)
-    monkeypatch.setattr(scheduler_module.uuid, "uuid4", lambda: "job-1")
 
     service = SchedulerService(manager=MagicMock())
     job = service.add_job("dukascopy", "EURUSD", "M1", interval_minutes=60)
@@ -102,7 +101,6 @@ def test_add_job_keeps_ohlcv_contract(monkeypatch):
 
 def test_add_series_job_uses_series_contract(monkeypatch):
     _install_scheduler_fakes(monkeypatch)
-    monkeypatch.setattr(scheduler_module.uuid, "uuid4", lambda: "series-job-1")
 
     service = SchedulerService(manager=MagicMock())
     job = service.add_series_job(

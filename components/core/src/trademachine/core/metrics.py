@@ -57,9 +57,9 @@ def compute_equity_curve(returns: np.ndarray) -> np.ndarray:
 
 
 def compute_win_rate(returns: np.ndarray) -> float:
-    """Compute win rate (percentage of trades with profit >= 0).
+    """Compute win rate (percentage of winning trades among non-zero trades).
 
-    MT5 convention: break-even trades count as wins.
+    Break-even trades (profit == 0) are excluded from the calculation.
 
     Args:
         returns: Array of individual trade/period returns.
@@ -69,8 +69,11 @@ def compute_win_rate(returns: np.ndarray) -> float:
     """
     if len(returns) == 0:
         return 0.0
-    wins = np.sum(returns >= 0)
-    return float((wins / len(returns)) * 100)
+    non_zero = returns[returns != 0]
+    if len(non_zero) == 0:
+        return 0.0
+    wins = np.sum(non_zero > 0)
+    return float((wins / len(non_zero)) * 100)
 
 
 def compute_profit_factor(returns: np.ndarray) -> float:

@@ -204,7 +204,7 @@ class MT5ReportParser:
 
         return df
 
-    def _clean_deals_df(self, df: pd.DataFrame) -> pd.DataFrame:
+    def clean_deals_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """Removes repeated header rows and non-timestamped rows from the deals table.
 
         Must be called after EN→PT column rename so 'Horário' and 'Tipo' are present.
@@ -247,6 +247,6 @@ class MT5ReportParser:
             )
 
         # Clean after any rename so 'Horário'/'Tipo' are guaranteed to exist
-        self.deals_by_expert[expert_name] = self._clean_deals_df(deals_df)
+        self.deals_by_expert[expert_name] = self.clean_deals_df(deals_df)
 
         return expert_name

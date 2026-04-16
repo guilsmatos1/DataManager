@@ -3,7 +3,7 @@ x-casaos:
     - amd64
     - arm64
   main: datamanager_api
-  author: guilsmatos1
+  author: guilsmatos
   category: Finance
   description:
     en_us: Centralized financial data management system (OHLCV)
@@ -21,7 +21,7 @@ x-casaos:
 
 services:
   timescaledb:
-    image: timescale/timescaledb:2.17-apache-pg17
+    image: timescale/timescaledb:latest-pg17-oss
     container_name: datamanager-timescaledb
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-datamanager}
@@ -39,7 +39,7 @@ services:
     build:
       context: ../..
       dockerfile: projects/datamanager/Dockerfile
-    image: guilsmatos1/datamanager:latest
+    image: guilsmatos/datamanager:latest
     container_name: datamanager-server
     restart: always
     ports:
@@ -49,7 +49,7 @@ services:
       - FRED_API_KEY=${FRED_API_KEY}
       - DATAMANAGER_HOST=0.0.0.0
       - DATAMANAGER_PORT=8686
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-datamanager}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-datamanager}
+      - DATAMANAGER_DATABASE_URL=postgresql://${POSTGRES_USER:-datamanager}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-datamanager}
     depends_on:
       timescaledb:
         condition: service_healthy
