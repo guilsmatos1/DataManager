@@ -226,6 +226,72 @@
 
     document.addEventListener('DOMContentLoaded', loadDmSettings);
 
+    // ── Benchmark Auto-Sync Scheduler ────────────────────────────────────────
+
+    async function loadBschedSettings() {
+        try {
+            const res = await fetch('/api/settings/benchmark-scheduler', { headers: { 'X-API-Key': API_KEY } });
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById('bsched_enabled').checked = Boolean(data.enabled);
+                document.getElementById('bsched_interval_hours').value = data.interval_hours ?? 24;
+            }
+        } catch (e) { console.error('Error loading benchmark scheduler settings:', e); }
+    }
+
+    async function saveBschedSettings() {
+        const btn = document.getElementById('bsched-save-btn');
+        const status = document.getElementById('bsched-status');
+        btn.disabled = true; btn.innerText = 'Saving...'; status.style.display = 'none';
+        try {
+            const res = await fetch('/api/settings/benchmark-scheduler', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+                body: JSON.stringify({
+                    enabled: document.getElementById('bsched_enabled').checked,
+                    interval_hours: parseFloat(document.getElementById('bsched_interval_hours').value) || 24,
+                })
+            });
+            if (res.ok) {
+                status.innerText = 'Settings saved!';
+                status.style.color = 'var(--green)';
+            } else { throw new Error('Failed to save'); }
+        } catch (e) {
+            status.innerText = 'Error saving.';
+            status.style.color = 'var(--red)';
+        } finally {
+            status.style.display = 'block';
+            btn.disabled = false; btn.innerText = 'Save';
+        }
+    }
+
+    async function syncAllBenchmarksNow() {
+        const btn = document.getElementById('bsched-sync-btn');
+        const status = document.getElementById('bsched-sync-status');
+        btn.disabled = true;
+        status.textContent = 'Syncing...';
+        status.style.color = 'var(--text-muted)';
+        try {
+            const res = await fetch('/api/benchmarks/sync-all', {
+                method: 'POST', headers: { 'X-API-Key': API_KEY }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                status.textContent = `✅ ${data.synced} synced, ${data.skipped} skipped, ${data.failed} failed.`;
+                status.style.color = data.failed > 0 ? 'var(--yellow, #f59e0b)' : 'var(--green)';
+            } else {
+                const err = await res.json();
+                status.textContent = '❌ ' + (err.detail || 'Error');
+                status.style.color = 'var(--red)';
+            }
+        } catch (e) {
+            status.textContent = '❌ Connection error';
+            status.style.color = 'var(--red)';
+        } finally { btn.disabled = false; }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadBschedSettings);
+
     // ── CSV Mapping ──────────────────────────────────────────────────────────
 
     let _magicMapping = {}; // { filename: magicNumber }

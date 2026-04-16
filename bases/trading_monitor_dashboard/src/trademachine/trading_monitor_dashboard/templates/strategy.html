@@ -137,6 +137,7 @@
             <div class="skel skel-metric"></div><div class="skel skel-metric"></div>
             <div class="skel skel-metric"></div><div class="skel skel-metric"></div>
             <div class="skel skel-metric"></div><div class="skel skel-metric"></div>
+            <div class="skel skel-metric"></div>
         </div>
     </section>
 
@@ -147,7 +148,7 @@
             <span id="updated-equity" class="updated-at"></span>
             <span id="equity-side-info" class="badge badge-neutral" style="display:none;margin-left:0.5rem">Equity shows all trades</span>
             <div style="margin-left:auto; display:flex; gap:0.4rem">
-                <button class="btn-chart-action" onclick="exportChart('equity-chart', 'equity.png')" title="Export image">⭳ Export</button>
+                <button class="btn-chart-action" onclick="exportChart('equity-chart', 'equity.png')" title="Export image">Export</button>
             </div>
             <div class="period-tabs" style="margin-left:0.75rem" id="equity-scale-tabs">
                 <button class="period-tab" data-es="monetary" onclick="setEquityScale('monetary')">$</button>
@@ -170,7 +171,7 @@
     <section class="card full-width" id="underwater-section">
         <div class="section-header">
             <h2>Drawdown Underwater</h2>
-            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('underwater-chart', 'drawdown.png')" title="Export image">⭳ Export</button>
+            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('underwater-chart', 'drawdown.png')" title="Export image">Export</button>
         </div>
         <div class="chart-wrapper" style="height:150px">
             <canvas id="underwater-chart"></canvas>
@@ -182,8 +183,8 @@
         <div class="section-header">
             <h2>P&amp;L Analysis</h2>
             <div style="margin-left:auto; display:flex; gap:0.4rem">
-                <button class="btn-chart-action" onclick="exportChart('monthly-pnl-chart', 'pnl_analysis_month.png')" title="Export P&amp;L by Month">⭳ Export Month</button>
-                <button class="btn-chart-action" onclick="exportChart('annual-pnl-chart', 'pnl_analysis_year.png')" title="Export P&amp;L by Year">⭳ Export Year</button>
+                <button class="btn-chart-action" onclick="exportChart('monthly-pnl-chart', 'pnl_analysis_month.png')" title="Export P&amp;L by Month">Export Month</button>
+                <button class="btn-chart-action" onclick="exportChart('annual-pnl-chart', 'pnl_analysis_year.png')" title="Export P&amp;L by Year">Export Year</button>
             </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
@@ -203,8 +204,8 @@
         <div class="section-header">
             <h2>Trade Distribution</h2>
             <div style="margin-left:auto; display:flex; gap:0.4rem">
-                <button class="btn-chart-action" onclick="exportChart('dist-hour-chart', 'distribution_hour.png')" title="Export Distribution by Hour">⭳ Export Hour</button>
-                <button class="btn-chart-action" onclick="exportChart('dist-dow-chart', 'distribution_dow.png')" title="Export Distribution by Day">⭳ Export Day</button>
+                <button class="btn-chart-action" onclick="exportChart('dist-hour-chart', 'distribution_hour.png')" title="Export Distribution by Hour">Export Hour</button>
+                <button class="btn-chart-action" onclick="exportChart('dist-dow-chart', 'distribution_dow.png')" title="Export Distribution by Day">Export Day</button>
             </div>
         </div>
         <div class="two-col-charts">
@@ -257,5 +258,6 @@
 // Bootstrap: inject server-side constant for page-strategy.js
 const STRATEGY_ID = "{{ strategy_id }}";
 </script>
+<script src="/static/table-renderer.js?v={{ js_v }}"></script>
 <script src="/static/page-strategy.js?v={{ js_v }}"></script>
 {% endblock %}

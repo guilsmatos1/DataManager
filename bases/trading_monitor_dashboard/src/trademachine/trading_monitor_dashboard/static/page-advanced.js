@@ -13,6 +13,8 @@ let _advDistHourChart = null;
 let _advDistDowChart = null;
 let _advUnderwaterChart = null;
 let _advOverlayChart = null;
+let _overlayScale = localStorage.getItem("tm-advanced-overlay-scale") || "pct";
+let _advPerStrategyEquity = [];
 
 function setAdvancedSide(side) {
     _advancedSide = side;
@@ -97,6 +99,7 @@ function resetAnalysisOutput() {
     _advDistDowChart = destroyChart(_advDistDowChart);
     _advUnderwaterChart = destroyChart(_advUnderwaterChart);
     _advOverlayChart = destroyChart(_advOverlayChart);
+    _advPerStrategyEquity = [];
     document.getElementById("equity-section").style.display = "none";
     document.getElementById("underwater-section").style.display = "none";
     document.getElementById("metrics-section").style.display = "none";
@@ -333,6 +336,33 @@ function renderContributionCharts(contributions) {
     }
 }
 
+const ANALYSIS_METRIC_CATEGORIES = [
+    {
+        title: "Summary",
+        keys: ["total trades", "profit", "avg profit", "return (%)", "return on capital (%)"],
+    },
+    {
+        title: "Profitability",
+        keys: ["profit factor", "win rate (%)", "gross profit", "gross loss"],
+    },
+    {
+        title: "Risk-Adjusted Returns",
+        keys: ["risk-reward ratio", "sharpe ratio", "sortino ratio", "calmar ratio", "ret/dd"],
+    },
+    {
+        title: "Drawdown & Risk",
+        keys: ["drawdown", "var 95% (daily)", "cvar 95% (daily)", "z-score"],
+    },
+    {
+        title: "Streaks",
+        keys: ["consecutive wins", "consecutive losses"],
+    },
+    {
+        title: "Trade Breakdown",
+        keys: ["long trades", "long trades (%)", "short trades", "short trades (%)"],
+    },
+];
+
 function renderAnalysisMetrics(metrics) {
     const container = document.getElementById("analysis-metrics");
     const section = document.getElementById("metrics-section");
@@ -343,11 +373,60 @@ function renderAnalysisMetrics(metrics) {
         return;
     }
 
-    renderMetricsGrid(container, metrics, {
+    container.innerHTML = "";
+    container.classList.remove("metrics-grid");
+    container.classList.add("metrics-categories");
+    const gridOptions = {
         advancedKeys: [],
         integerKeys: ["total trades", "consecutive wins", "consecutive losses", "long trades", "short trades"],
-        hiddenKeys: ["return on capital (%)"],
+    };
+
+    const metricEntries = Object.entries(metrics);
+    const lookup = new Map(metricEntries.map(([key, value]) => [key.toLowerCase(), { key, value }]));
+    const used = new Set();
+
+    ANALYSIS_METRIC_CATEGORIES.forEach((category) => {
+        const categoryMetrics = {};
+        category.keys.forEach((keyLower) => {
+            const entry = lookup.get(keyLower);
+            if (entry && !used.has(keyLower)) {
+                categoryMetrics[entry.key] = entry.value;
+                used.add(keyLower);
+            }
+        });
+        if (!Object.keys(categoryMetrics).length) return;
+
+        const group = document.createElement("div");
+        group.className = "metrics-category";
+        const heading = document.createElement("h3");
+        heading.className = "metrics-category-title";
+        heading.textContent = category.title;
+        const grid = document.createElement("div");
+        grid.className = "metrics-grid";
+        renderMetricsGrid(grid, categoryMetrics, gridOptions);
+        group.appendChild(heading);
+        group.appendChild(grid);
+        container.appendChild(group);
     });
+
+    const remaining = {};
+    metricEntries.forEach(([key, value]) => {
+        if (!used.has(key.toLowerCase())) remaining[key] = value;
+    });
+    if (Object.keys(remaining).length) {
+        const group = document.createElement("div");
+        group.className = "metrics-category";
+        const heading = document.createElement("h3");
+        heading.className = "metrics-category-title";
+        heading.textContent = "Other";
+        const grid = document.createElement("div");
+        grid.className = "metrics-grid";
+        renderMetricsGrid(grid, remaining, gridOptions);
+        group.appendChild(heading);
+        group.appendChild(grid);
+        container.appendChild(group);
+    }
+
     section.style.display = "block";
 }
 
@@ -504,8 +583,20 @@ function renderAnalysisUnderwaterChart(equityPoints) {
     section.style.display = "block";
 }
 
+function setOverlayScale(scale) {
+    _overlayScale = scale;
+    localStorage.setItem("tm-advanced-overlay-scale", scale);
+    document.querySelectorAll("#overlay-scale-tabs .period-tab").forEach((button) =>
+        button.classList.toggle("active", button.dataset.os === scale)
+    );
+    if (Array.isArray(_advPerStrategyEquity) && _advPerStrategyEquity.length) {
+        renderStrategyOverlay(_advPerStrategyEquity);
+    }
+}
+
 function renderStrategyOverlay(perStrategyEquity) {
     const section = document.getElementById("overlay-section");
+    _advPerStrategyEquity = perStrategyEquity || [];
 
     if (!perStrategyEquity || perStrategyEquity.length < 2) {
         _advOverlayChart = destroyChart(_advOverlayChart);
@@ -516,8 +607,8 @@ function renderStrategyOverlay(perStrategyEquity) {
     const wrapper = document.querySelector("#overlay-section .chart-wrapper");
     wrapper.innerHTML = '<canvas id="overlay-chart"></canvas>';
     const canvas = document.getElementById("overlay-chart");
-    const { tickColor, gridColor } = getEquityChartColors();
-    const isPct = _analysisEquityScale === "pct";
+    const { tickColor } = getEquityChartColors();
+    const isPct = _overlayScale === "pct";
 
     const longestSeries = perStrategyEquity.reduce(
         (longest, s) => s.points.length > longest.points.length ? s : longest,
@@ -525,9 +616,13 @@ function renderStrategyOverlay(perStrategyEquity) {
     );
     const labels = buildEquityChartLabels(longestSeries.points);
 
+    const initialBalance = parseFloat(document.getElementById("param-initial-balance").value) || null;
     const datasets = perStrategyEquity.map((s, i) => {
         const color = CONTRIB_COLORS[i % CONTRIB_COLORS.length];
-        const values = buildRebasedEquitySeries(s.points, "pct", p => p.equity);
+        const pctOptions = (isPct && initialBalance)
+            ? { pctBaseline: 0, pctDenominator: initialBalance }
+            : {};
+        const values = buildRebasedEquitySeries(s.points, _overlayScale, (p) => p.equity, pctOptions);
         return {
             label: s.name,
             data: values,
@@ -544,13 +639,16 @@ function renderStrategyOverlay(perStrategyEquity) {
     _advOverlayChart = createEquityLineChart(canvas.getContext("2d"), {
         labels,
         datasets,
-        isPct: true,
+        isPct,
         zoom: false,
         legend: { display: true, labels: { color: tickColor, boxWidth: 12, padding: 10 } },
-        yTitle: "Return %",
+        yTitle: isPct ? "Return %" : "Return",
         tooltipLabel: (c) => {
             if (c.parsed.y == null) return null;
-            return ` ${c.dataset.label}: ${Number(c.parsed.y).toFixed(2)}%`;
+            const formatted = isPct
+                ? `${Number(c.parsed.y).toFixed(2)}%`
+                : fmt(c.parsed.y);
+            return ` ${c.dataset.label}: ${formatted}`;
         },
     });
     section.style.display = "block";
@@ -708,6 +806,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (urlParams.initialBalance) document.getElementById("param-initial-balance").value = urlParams.initialBalance;
     if (urlParams.side) setAdvancedSide(urlParams.side);
     setAnalysisEquityScale(_analysisEquityScale);
+    setOverlayScale(_overlayScale);
 
     await Promise.all([
         loadAdvancedDefaults(),

@@ -47,20 +47,23 @@
         <h2>Strategies</h2>
         <span id="symbol-strategies-badge" class="badge badge-neutral">0</span>
     </div>
+    <div style="padding:0.4rem 0 0.25rem;display:flex;align-items:center;gap:0.5rem">
+        <input class="field-input" type="text" id="symbol-strat-search" placeholder="Search…" oninput="renderSymbolStrategies()" style="max-width:200px">
+        <select id="symbol-strat-page-size" class="field-input" style="width:auto" onchange="renderSymbolStrategies()">
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+        </select>
+        <span class="text-muted" style="font-size:0.8rem">per page</span>
+    </div>
     <div class="table-wrap">
         <table class="data-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Name</th>
-                    <th>Symbol</th>
-                    <th>Account</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
+            <thead id="symbol-strategies-head"></thead>
             <tbody id="symbol-strategies-body"></tbody>
         </table>
     </div>
+    <div id="symbol-strat-pagination" class="pagination"></div>
 </div>
 
 <div id="symbol-empty" class="card" style="display:none">
@@ -70,5 +73,6 @@
 
 {% block scripts %}
 <script>const SYMBOL_NAME = {{ symbol_name | tojson }};</script>
-<script src="/static/page-symbol.js"></script>
+<script src="/static/table-renderer.js?v={{ js_v }}"></script>
+<script src="/static/page-symbol.js?v={{ js_v }}"></script>
 {% endblock %}

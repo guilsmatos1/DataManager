@@ -17,8 +17,11 @@ from trademachine.core.logger import LOGGER_NAME, setup_logger
 from trademachine.trading_monitor_dashboard.bridge import init_bridge, push_event
 from trademachine.trading_monitor_dashboard.routes import router
 from trademachine.trading_monitor_dashboard.websocket import manager
+from trademachine.tradingmonitor_analytics.public import run_benchmark_auto_sync
 from trademachine.tradingmonitor_storage.public import (
+    SessionLocal,
     ensure_database_connection,
+    get_benchmark_scheduler_settings,
     settings,
 )
 
@@ -36,6 +39,35 @@ def _file_hash(path: Path) -> str:
     return hashlib.md5(path.read_bytes()).hexdigest()[:8]  # noqa: S324
 
 
+def _static_hash(static_dir: Path) -> str:
+    h = hashlib.md5()  # noqa: S324
+    for js_file in sorted(static_dir.glob("*.js")):
+        h.update(js_file.read_bytes())
+    return h.hexdigest()[:8]
+
+
+_BENCHMARK_POLL_INTERVAL = 60  # seconds between checks when scheduler is disabled
+
+
+async def _benchmark_scheduler_loop() -> None:
+    """Periodically sync all enabled benchmarks based on persisted settings."""
+    while True:
+        try:
+            with SessionLocal() as db:
+                cfg = get_benchmark_scheduler_settings(db)
+            if not cfg.enabled:
+                await asyncio.sleep(_BENCHMARK_POLL_INTERVAL)
+                continue
+            with SessionLocal() as db:
+                await run_in_threadpool(run_benchmark_auto_sync, db)
+            await asyncio.sleep(cfg.interval_hours * 3600)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("Benchmark auto-sync loop error")
+            await asyncio.sleep(_BENCHMARK_POLL_INTERVAL)
+
+
 def create_app(
     with_ingestion: bool = False,
     server_host: str = "127.0.0.1",
@@ -48,6 +80,7 @@ def create_app(
         init_bridge(manager.queue, loop)
 
         broadcaster_task = asyncio.create_task(manager.run_broadcaster())
+        benchmark_task = asyncio.create_task(_benchmark_scheduler_loop())
 
         if with_ingestion:
             from trademachine.tradingmonitor_ingestion.public import (
@@ -67,8 +100,13 @@ def create_app(
         yield
 
         broadcaster_task.cancel()
+        benchmark_task.cancel()
         try:
             await broadcaster_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await benchmark_task
         except asyncio.CancelledError:
             pass
 
@@ -82,7 +120,7 @@ def create_app(
     app.include_router(router)
 
     _ctx = {
-        "js_v": _file_hash(BASE_DIR / "static" / "dashboard.js"),
+        "js_v": _static_hash(BASE_DIR / "static"),
     }
 
     @app.middleware("http")

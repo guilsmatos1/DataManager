@@ -3,13 +3,14 @@
 // STRATEGY_ID is injected by the template as a global const before this file.
 // ────────────────────────────────────────────────────────────────────────────
 
-let equityChart = null;
+// equityChart, underwaterChart, _allEquityPoints, _equityPeriod, _equityScale declared by table-renderer.js
+equityChart = null;
 let _currentStrategy = null;
 let _currentMetrics = null;
-let _allEquityPoints = [];
-let _equityPeriod = localStorage.getItem("tm-equity-period") || "all";
-let _equityScale  = localStorage.getItem("tm-equity-scale")  || "monetary";
-let underwaterChart = null;
+_allEquityPoints = [];
+_equityPeriod = localStorage.getItem("tm-equity-period") || "all";
+_equityScale  = localStorage.getItem("tm-equity-scale")  || "monetary";
+underwaterChart = null;
 let _distHourChart = null;
 let _distDowChart  = null;
 let _dealsSearchTimer = null;
@@ -80,6 +81,27 @@ function beginViewRequest() {
 
 function isAbortError(error) {
     return error?.name === "AbortError";
+}
+
+function selectedBacktest() {
+    if (!Array.isArray(_backtests) || _selectedBtId == null) return null;
+    return _backtests.find((bt) => bt.id === _selectedBtId) || null;
+}
+
+function getStrategyEquityPctOptions() {
+    // Return (%) metric uses Profit / initial_balance * 100.
+    // For live/incubation equity, backend baselines at 0 (equity = cumulative PnL),
+    // so pctBaseline = 0. For backtest equity, backend baselines at initial_balance,
+    // so pctBaseline = initial_balance. pctDenominator is always initial_balance.
+    if (_pageMode === "backtest") {
+        const bt = selectedBacktest();
+        const ib = Number(bt?.initial_balance);
+        if (!Number.isFinite(ib) || ib <= 0) return {};
+        return { pctBaseline: ib, pctDenominator: ib };
+    }
+    const ib = Number(_currentStrategy?.initial_balance);
+    if (!Number.isFinite(ib) || ib <= 0) return {};
+    return { pctBaseline: 0, pctDenominator: ib };
 }
 
 function ensureCanvas(wrapperId, canvasId) {
@@ -203,7 +225,8 @@ function showMetricsSkeleton() {
     document.getElementById("metrics-container").innerHTML =
         '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>' +
         '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>' +
-        '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>';
+        '<div class="skel skel-metric"></div><div class="skel skel-metric"></div>' +
+        '<div class="skel skel-metric"></div>';
 }
 
 function renderStrategyMetrics(container, data) {
@@ -692,7 +715,13 @@ function renderEquityChart(points) {
     }
     const isPct = _equityScale === "pct";
     const labels = buildEquityChartLabels(points);
-    const chartValues = buildRebasedEquitySeries(points, _equityScale);
+    const pctOpts = getStrategyEquityPctOptions();
+    const chartValues = buildRebasedEquitySeries(
+        points,
+        _equityScale,
+        (point) => point.equity,
+        pctOpts,
+    );
     const palette = getProfitPalette(
         typeof _currentMetrics?.Profit === "number" ? _currentMetrics.Profit : null
     );
@@ -750,7 +779,8 @@ function renderUnderwaterChart(points) {
     const seriesValues = buildRebasedEquitySeries(
         points,
         _equityScale,
-        (point) => point.equity ?? point.balance ?? 0
+        (point) => point.equity ?? point.balance ?? 0,
+        getStrategyEquityPctOptions(),
     );
 
     let peak = -Infinity;
@@ -1284,5 +1314,9 @@ if (_savedPs) {
 
 loadInfo();
 loadBacktests();
-loadStrategyNavigation();
+if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(() => loadStrategyNavigation(), { timeout: 2000 });
+} else {
+    setTimeout(loadStrategyNavigation, 500);
+}
 initLazyLoading();

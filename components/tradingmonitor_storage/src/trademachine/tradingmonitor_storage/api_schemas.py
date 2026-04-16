@@ -323,6 +323,11 @@ class DataManagerSettings(BaseModel):
     timeout: float = 30.0
 
 
+class BenchmarkSchedulerSettings(BaseModel):
+    enabled: bool = False
+    interval_hours: float = 24.0
+
+
 # ── Typed response models for previously untyped endpoints ───────────────────
 
 

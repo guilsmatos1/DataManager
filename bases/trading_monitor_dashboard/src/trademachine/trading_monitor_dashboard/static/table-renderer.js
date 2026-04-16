@@ -1,6 +1,6 @@
 /* ── Table & Chart Rendering ────────────────────────────────────────────────── */
 
-const CHART_COLORS = [
+const PIE_COLORS = [
     "#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6",
     "#ec4899","#06b6d4","#84cc16","#f97316","#a78bfa"
 ];
@@ -110,7 +110,7 @@ function renderPie(key, canvasId, data) {
             labels,
             datasets: [{
                 data: values,
-                backgroundColor: CHART_COLORS.slice(0, labels.length),
+                backgroundColor: PIE_COLORS.slice(0, labels.length),
                 borderColor: "transparent",
                 borderWidth: 0,
                 hoverOffset: 4,
@@ -496,6 +496,15 @@ const STRAT_COLORS = [
     "#facc15","#38bdf8","#f87171","#4ade80","#e879f9",
 ];
 
+function getPortfolioEquityPctOptions() {
+    // Portfolio "Return (%)" = Profit / portfolio.initial_balance * 100.
+    // Backend equity is cumulative PnL with baseline=0, so pctBaseline=0.
+    const portfolio = typeof _portfolio !== "undefined" ? _portfolio : null;
+    const ib = Number(portfolio?.initial_balance);
+    if (!Number.isFinite(ib) || ib <= 0) return {};
+    return { pctBaseline: 0, pctDenominator: ib };
+}
+
 function setEquityPeriod(period) {
     _equityPeriod = period;
     document.querySelectorAll(".period-tab[data-ep]").forEach(b =>
@@ -556,7 +565,13 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
     const labels = buildEquityChartLabels(filtered);
     const tsSet = new Set(filtered.map(p => p.timestamp));
     const isPct = _equityScale === "pct";
-    const totalSeries = buildRebasedEquitySeries(filtered, _equityScale);
+    const pctOpts = getPortfolioEquityPctOptions();
+    const totalSeries = buildRebasedEquitySeries(
+        filtered,
+        _equityScale,
+        (point) => point.equity,
+        pctOpts,
+    );
     const palette = getProfitPalette(
         typeof _portfolioNetProfit === "number" ? _portfolioNetProfit : null
     );
@@ -576,7 +591,9 @@ function renderEquityChart(totalPoints, strategiesMap, period) {
         const color = STRAT_COLORS[colorIdx++ % STRAT_COLORS.length];
         datasets.push({
             label: info.name || sid,
-            data: pts.length ? buildRebasedEquitySeries(pts, _equityScale) : [],
+            data: pts.length
+                ? buildRebasedEquitySeries(pts, _equityScale, (p) => p.equity, pctOpts)
+                : [],
             borderColor: color,
             backgroundColor: "transparent",
             fill: false, tension: 0.3, pointRadius: 0, borderWidth: 1.2,
@@ -623,7 +640,10 @@ function renderPortfolioUnderwaterChart(points) {
 
     const isPct = _equityScale === "pct";
     const seriesValues = buildRebasedEquitySeries(
-        points, _equityScale, (point) => point.equity ?? point.balance ?? 0
+        points,
+        _equityScale,
+        (point) => point.equity ?? point.balance ?? 0,
+        getPortfolioEquityPctOptions(),
     );
 
     let peak = -Infinity;

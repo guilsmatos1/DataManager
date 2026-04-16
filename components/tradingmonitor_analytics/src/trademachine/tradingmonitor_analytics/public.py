@@ -18,6 +18,9 @@ from trademachine.tradingmonitor_analytics.analysis.drift import (
     check_performance_drift,
 )
 from trademachine.tradingmonitor_analytics.metrics.calculator import generate_qs_report
+from trademachine.tradingmonitor_analytics.services.benchmark_scheduler import (
+    run_benchmark_auto_sync,
+)
 from trademachine.tradingmonitor_analytics.services.dashboard_analysis import (
     DashboardAnalysisNotFoundError,
     DashboardAnalysisValidationError,
@@ -80,6 +83,7 @@ __all__ = [
     "DriftReport",
     "benchmark_to_dict",
     "check_performance_drift",
+    "run_benchmark_auto_sync",
     "compute_max_drawdown",
     "create_benchmark_record",
     "delete_benchmark_record",

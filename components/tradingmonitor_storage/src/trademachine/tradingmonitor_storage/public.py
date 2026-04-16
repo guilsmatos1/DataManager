@@ -10,6 +10,7 @@ from trademachine.tradingmonitor_storage.api_schemas import (  # noqa: F401
     BenchmarkCreate,
     BenchmarkRemoteDatabaseResponse,
     BenchmarkResponse,
+    BenchmarkSchedulerSettings,
     BenchmarkUpdate,
     ConcurrencyResponse,
     ContributionsResponse,
@@ -83,6 +84,10 @@ from trademachine.tradingmonitor_storage.db.repository import (
     insert_deal_if_new,
     to_iso,
 )
+from trademachine.tradingmonitor_storage.services.benchmark_scheduler_settings import (
+    get_benchmark_scheduler_settings,
+    update_benchmark_scheduler_settings,
+)
 from trademachine.tradingmonitor_storage.services.datamanager_settings import (
     get_datamanager_settings,
     update_datamanager_settings,
@@ -115,6 +120,7 @@ __all__ = [
     "BenchmarkPrice",
     "BenchmarkRemoteDatabaseResponse",
     "BenchmarkResponse",
+    "BenchmarkSchedulerSettings",
     "BenchmarkUpdate",
     "ConcurrencyResponse",
     "ContributionsResponse",
@@ -163,6 +169,7 @@ __all__ = [
     "TelegramSettings",
     "engine",
     "ensure_database_connection",
+    "get_benchmark_scheduler_settings",
     "get_datamanager_settings",
     "get_db",
     "get_strategy_daily_profit_rows",
@@ -178,6 +185,7 @@ __all__ = [
     "settings",
     "insert_deal_if_new",
     "to_iso",
+    "update_benchmark_scheduler_settings",
     "update_datamanager_settings",
     "update_telegram_settings_payload",
 ]

@@ -3,6 +3,11 @@
 {% block title %}TradingMonitor — Settings{% endblock %}
 
 {% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb">
+    <a href="/">Overview</a>
+    <span class="breadcrumb-sep" aria-hidden="true">›</span>
+    <span aria-current="page">Settings</span>
+</nav>
 <div class="page-header">
     <h1><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1-1-1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> Settings</h1>
 </div>
@@ -24,7 +29,7 @@
                 <h2 class="card-title">EA MetricsPublisher</h2>
             </div>
             <div class="card-body">
-                <p class="settings-hint" style="margin-bottom:1rem">
+                <p class="settings-hint settings-hint--mb">
                     Download the EA ready to publish <code>DEAL</code>, <code>EQUITY</code>, <code>ACCOUNT</code> and <code>STRATEGY_RUNTIME</code> to TradingMonitor.
                 </p>
                 <a href="/downloads/metrics-publisher" class="btn btn-primary">
@@ -43,8 +48,8 @@
                     <input type="number" step="0.01" id="default_initial_balance" name="default_initial_balance" class="field-input" placeholder="e.g.: 100000">
                     <small class="settings-hint">Default initial balance value when creating new strategies. Use 100000 to simulate a 100k balance.</small>
                 </div>
-                <div style="display: flex; gap: 0.75rem; align-items: center;">
-                    <button type="button" class="btn btn-primary" onclick="saveSettings(event)" >Save Preferences</button>
+                <div class="settings-actions">
+                    <button type="button" class="btn btn-primary" onclick="saveSettings(event)">Save Preferences</button>
                     <span id="general-status" class="edit-status"></span>
                 </div>
             </div>
@@ -84,11 +89,11 @@
                         <input type="number" step="0.01" id="var_95_threshold" name="var_95_threshold" class="field-input" placeholder="e.g.: 5.0">
                         <small class="settings-hint">Notify on Telegram if daily VaR exceeds this value.</small>
                     </div>
-                    <div id="settings-status" style="margin-bottom: 1rem; font-size: 0.85rem; display: none;"></div>
-                    <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-                        <button type="submit" class="btn btn-primary" id="save-btn" >Save Telegram</button>
-                        <button type="button" class="btn btn-ghost btn-sm" id="test-telegram-btn" onclick="testTelegram()" style="border: 1px solid var(--border);">Send Test</button>
-                        <span id="test-telegram-status" style="font-size: 0.85rem;"></span>
+                    <div id="settings-status" class="settings-status-msg" style="display: none;"></div>
+                    <div class="settings-actions settings-actions--wrap">
+                        <button type="submit" class="btn btn-primary" id="save-btn">Save Telegram</button>
+                        <button type="button" class="btn btn-ghost btn-sm btn-bordered" id="test-telegram-btn" onclick="testTelegram()">Send Test</button>
+                        <span id="test-telegram-status" class="settings-inline-status"></span>
                     </div>
                 </form>
             </div>
@@ -99,7 +104,7 @@
                 <h2 class="card-title">DataManager Integration</h2>
             </div>
             <div class="card-body">
-                <p class="settings-hint" style="margin-bottom:1rem">
+                <p class="settings-hint settings-hint--mb">
                     Configure the connection to the DataManager API to synchronize benchmarks and market data.
                 </p>
                 <form id="dm-form" onsubmit="saveDmSettings(event)">
@@ -115,13 +120,42 @@
                         <label for="dm_timeout" class="settings-label">Timeout (seconds)</label>
                         <input type="number" step="0.1" id="dm_timeout" name="dm_timeout" class="field-input" placeholder="30">
                     </div>
-                    <div id="dm-status" style="margin-bottom: 1rem; font-size: 0.85rem; display: none;"></div>
-                    <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-                        <button type="submit" class="btn btn-primary" id="dm-save-btn" >Save DataManager</button>
-                        <button type="button" class="btn btn-ghost btn-sm" id="dm-test-btn" onclick="testDmConnection()" style="border: 1px solid var(--border);">Test Connection</button>
-                        <span id="dm-test-status" style="font-size: 0.85rem;"></span>
+                    <div id="dm-status" class="settings-status-msg" style="display: none;"></div>
+                    <div class="settings-actions settings-actions--wrap">
+                        <button type="submit" class="btn btn-primary" id="dm-save-btn">Save DataManager</button>
+                        <button type="button" class="btn btn-ghost btn-sm btn-bordered" id="dm-test-btn" onclick="testDmConnection()">Test Connection</button>
+                        <span id="dm-test-status" class="settings-inline-status"></span>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+        <div class="card" style="margin-top:1rem">
+            <div class="card-header">
+                <h2 class="card-title">Benchmark Auto-Sync</h2>
+            </div>
+            <div class="card-body">
+                <p class="settings-hint settings-hint--mb">
+                    Automatically sync all enabled benchmarks from DataManager on a recurring schedule.
+                </p>
+                <div class="form-group">
+                    <label class="settings-checkbox-label">
+                        <input type="checkbox" id="bsched_enabled" name="bsched_enabled">
+                        <span>Enable automatic sync</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="bsched_interval_hours" class="settings-label">Interval (hours)</label>
+                    <input type="number" step="0.5" min="1" id="bsched_interval_hours" name="bsched_interval_hours" class="field-input" placeholder="24" style="max-width:160px">
+                    <small class="settings-hint">How often to sync. Minimum 1 hour recommended.</small>
+                </div>
+                <div id="bsched-status" class="settings-status-msg" style="display:none"></div>
+                <div class="settings-actions settings-actions--wrap">
+                    <button type="button" class="btn btn-primary" id="bsched-save-btn" onclick="saveBschedSettings()">Save</button>
+                    <button type="button" class="btn btn-ghost btn-sm btn-bordered" id="bsched-sync-btn" onclick="syncAllBenchmarksNow()">Sync Now</button>
+                    <span id="bsched-sync-status" class="settings-inline-status"></span>
+                </div>
             </div>
         </div>
     </div>
@@ -133,47 +167,43 @@
                 <h2 class="card-title">Import MT5 Backtests</h2>
             </div>
             <div class="card-body">
-                <p class="settings-hint" style="margin-bottom:1rem">
+                <p class="settings-hint settings-hint--mb">
                     Select one or more HTML reports exported by MetaTrader 5 (Report → Export as HTML).
                     The strategy corresponding to the Magic Number must be registered.
                 </p>
 
-                <div id="bt-drop-zone"
-                     style="border: 2px dashed var(--border); border-radius: var(--radius); padding: 2rem 1rem;
-                            text-align:center; cursor:pointer; color:var(--text-muted); margin-bottom:1rem;
-                            transition: border-color 0.2s, background 0.2s;"
+                <div id="bt-drop-zone" class="bt-drop-zone"
                      onclick="document.getElementById('bt-file-input').click()"
                      ondragover="btDragOver(event)" ondragleave="btDragLeave(event)" ondrop="btDrop(event)">
-                    <div style="font-size:2rem; margin-bottom:0.5rem;">📂</div>
+                    <div class="bt-drop-zone-icon">📂</div>
                     <div>Drag HTML files here or <strong>click to select</strong></div>
-                    <div style="font-size:0.8rem; margin-top:0.4rem;">Multiple files supported</div>
+                    <div class="bt-drop-zone-hint">Multiple files supported</div>
                 </div>
                 <input type="file" id="bt-file-input" accept=".html,.htm" multiple style="display:none"
                        onchange="btFilesSelected(this.files)">
 
-                <div id="bt-file-list" style="margin-bottom:1rem;"></div>
+                <div id="bt-file-list" class="bt-file-list"></div>
 
-                <div style="display:flex; align-items:center; gap:1rem; margin-bottom:0.75rem;">
+                <div class="bt-upload-row">
                     <button class="btn btn-primary btn-sm" id="bt-upload-btn" onclick="btUpload()" disabled>
                         Import
                     </button>
-                    <span id="bt-upload-status" style="font-size:0.85rem; color:var(--text-muted);"></span>
+                    <span id="bt-upload-status" class="bt-upload-status"></span>
                 </div>
 
-                <div id="bt-progress-wrap" style="display:none; margin-bottom:1rem;">
-                    <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted); margin-bottom:0.35rem;">
+                <div id="bt-progress-wrap" class="bt-progress-wrap" style="display:none">
+                    <div class="bt-progress-header">
                         <span id="bt-progress-label">Processing…</span>
                         <span id="bt-progress-pct">0%</span>
                     </div>
-                    <div style="background:var(--border); border-radius:4px; height:6px; overflow:hidden;">
-                        <div id="bt-progress-bar"
-                             style="height:100%; width:0%; background:var(--accent); border-radius:4px; transition:width 0.25s ease;"></div>
+                    <div class="bt-progress-track">
+                        <div id="bt-progress-bar" class="bt-progress-fill"></div>
                     </div>
                 </div>
 
-                <div id="bt-results" style="margin-top:1.25rem; display:none;">
-                    <h3 style="font-size:0.9rem; font-weight:600; margin-bottom:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em;">Result</h3>
-                    <table class="data-table" style="width:100%">
+                <div id="bt-results" class="bt-results-section" style="display:none">
+                    <h3 class="bt-result-title">Result</h3>
+                    <table class="data-table">
                         <thead><tr>
                             <th>File</th>
                             <th>Status</th>
@@ -192,22 +222,21 @@
                 <h2 class="card-title">CSV Mapping (File → Magic Number)</h2>
             </div>
             <div class="card-body">
-                <p class="settings-hint" style="margin-bottom:1rem">
+                <p class="settings-hint settings-hint--mb">
                     Optional. Upload a CSV with columns <code>file</code> and <code>MagicNumber</code> to link
                     HTML reports that do not have an embedded Magic Number, or to overwrite the value found in the HTML.
                 </p>
-                <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-                    <label class="btn btn-ghost btn-sm" style="cursor:pointer;">
+                <div class="settings-actions settings-actions--wrap">
+                    <label class="btn btn-ghost btn-sm csv-select-label">
                         Select CSV
                         <input type="file" id="csv-mapping-input" accept=".csv,.txt" style="display:none" onchange="csvMappingLoad(this)">
                     </label>
                     <button class="btn btn-ghost btn-sm" onclick="downloadCsvMappingExample()">Download Example</button>
-                    <span id="csv-mapping-status" style="font-size:0.85rem; color:var(--text-muted);"></span>
-                    <button class="btn btn-sm" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25);"
-                            onclick="csvMappingClear()" id="csv-mapping-clear" style="display:none">Clear</button>
+                    <span id="csv-mapping-status" class="settings-inline-status"></span>
+                    <button class="btn btn-sm btn-danger-soft" onclick="csvMappingClear()" id="csv-mapping-clear" style="display:none">Clear</button>
                 </div>
-                <div id="csv-mapping-preview" style="margin-top:0.75rem; display:none;">
-                    <table class="data-table" style="width:100%; max-width:500px;">
+                <div id="csv-mapping-preview" class="csv-mapping-preview" style="display:none">
+                    <table class="data-table csv-preview-table">
                         <thead><tr><th>File</th><th>Magic Number</th></tr></thead>
                         <tbody id="csv-mapping-tbody"></tbody>
                     </table>
@@ -231,8 +260,8 @@
                     </select>
                     <small class="settings-hint">The Live Monitor will only display one of the two groups: Real or Demo.</small>
                 </div>
-                <div style="display: flex; gap: 0.75rem; align-items: center;">
-                    <button type="button" class="btn btn-primary" onclick="saveSettings(event)" >Save Visualization</button>
+                <div class="settings-actions">
+                    <button type="button" class="btn btn-primary" onclick="saveSettings(event)">Save Visualization</button>
                     <span id="visualization-status" class="edit-status"></span>
                 </div>
             </div>
@@ -242,16 +271,16 @@
     <!-- ── SYSTEM TAB ── -->
     <div id="tab-system" class="settings-tab-content" style="display:none">
         <div class="card">
-            <div class="card-header" style="display:flex;align-items:center;gap:1rem">
+            <div class="card-header settings-card-header-row">
                 <h2 class="card-title">Ingestion Errors (Dead Letters)</h2>
-                <span id="dl-count" class="badge badge-neutral" style="margin-left:auto"></span>
+                <span id="dl-count" class="badge badge-neutral"></span>
                 <button class="btn btn-ghost btn-sm" onclick="loadDeadLetters()">Update</button>
-                <button class="btn btn-sm" style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25)" onclick="clearDeadLetters()">Clear all</button>
+                <button class="btn btn-sm btn-danger-soft" onclick="clearDeadLetters()">Clear all</button>
             </div>
             <div class="card-body">
-                <p style="color:var(--text-muted);font-size:0.8rem;margin-bottom:0.75rem">Last messages that failed to be processed by the TCP server.</p>
-                <div id="dl-list" style="display:flex;flex-direction:column;gap:0.5rem">
-                    <p style="color:var(--text-muted);font-size:0.85rem">Loading…</p>
+                <p class="dl-hint">Last messages that failed to be processed by the TCP server.</p>
+                <div id="dl-list" class="dl-list">
+                    <p class="dl-empty">Loading…</p>
                 </div>
             </div>
         </div>
@@ -261,5 +290,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/page-settings.js"></script>
+<script src="/static/page-settings.js?v={{ js_v }}"></script>
 {% endblock %}

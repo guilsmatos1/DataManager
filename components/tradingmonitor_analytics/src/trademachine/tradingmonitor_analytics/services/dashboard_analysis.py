@@ -197,15 +197,19 @@ def _build_comparison_curve(
             for timestamp, value in chart_series.items()
         ]
 
-    first_equity = float(chart_series.iloc[0])
-    scaled_benchmark = _normalize_series_to_base(
-        benchmark_df["close"].astype(float),
-        first_equity,
-    )
+    deduped_series = chart_series[~chart_series.index.duplicated(keep="last")]
+    portfolio_start = deduped_series.index[0]
+    portfolio_end = deduped_series.index[-1]
+    first_equity = float(deduped_series.iloc[0])
+
+    benchmark_close = benchmark_df["close"].astype(float)
+    benchmark_in_range = benchmark_close.loc[portfolio_start:portfolio_end]
+    scaled_benchmark = _normalize_series_to_base(benchmark_in_range, first_equity)
+
     joined = (
         pd.concat(
             [
-                chart_series.rename("portfolio"),
+                deduped_series.rename("portfolio"),
                 scaled_benchmark.rename("benchmark"),
             ],
             axis=1,
@@ -213,13 +217,16 @@ def _build_comparison_curve(
         )
         .sort_index()
         .ffill()
-        .dropna(how="all")
+        .bfill()
+        .loc[portfolio_start:portfolio_end]
     )
 
     benchmark_return = _series_return_pct(benchmark_df["close"].astype(float))
     benchmark_drawdown = _series_max_drawdown_pct(benchmark_df["close"].astype(float))
-    portfolio_return = _series_return_pct(chart_series)
-    correlation = _series_correlation(chart_series, benchmark_df["close"].astype(float))
+    portfolio_return = _series_return_pct(deduped_series)
+    correlation = _series_correlation(
+        deduped_series, benchmark_df["close"].astype(float)
+    )
 
     metrics["Benchmark Return"] = benchmark_return
     metrics["Benchmark Drawdown"] = benchmark_drawdown

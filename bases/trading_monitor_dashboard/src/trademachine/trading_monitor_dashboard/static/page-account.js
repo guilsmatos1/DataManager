@@ -1,39 +1,38 @@
 let _accountStrategies = [];
 let _accountSortCol = "id";
 let _accountSortAsc = true;
+let _accountStratPage = 1;
 
 function accountSortBy(col) {
     ({ col: _accountSortCol, asc: _accountSortAsc } = toggleSort(_accountSortCol, _accountSortAsc, col));
+    _accountStratPage = 1;
     renderAccountStrategies();
 }
 
 function renderAccountStrategies() {
-    const arrow = (col) => _accountSortCol === col ? (_accountSortAsc ? " ↑" : " ↓") : "";
-    const thead = document.querySelector("#account-strategies-card thead");
-    if (thead) thead.innerHTML = `
-        <tr>
-            <th class="sortable" onclick="accountSortBy('id')">ID${arrow("id")}</th>
-            <th class="sortable" onclick="accountSortBy('name')">Name${arrow("name")}</th>
-            <th class="sortable" onclick="accountSortBy('symbol')">Symbol${arrow("symbol")}</th>
-            <th class="sortable" onclick="accountSortBy('live')">Status${arrow("live")}</th>
+    const q = (document.getElementById("account-strat-search")?.value || "").toLowerCase().trim();
+    const list = _accountStrategies.filter((s) =>
+        !q || `${s.id} ${s.name || ""} ${s.symbol || ""}`.toLowerCase().includes(q)
+    );
+
+    const thead = document.getElementById("account-strategies-head");
+    if (thead) {
+        const th = (label, col) => sortTh(label, col, _accountSortCol, _accountSortAsc, "accountSortBy");
+        thead.innerHTML = `<tr>
+            ${th("ID", "id")}${th("Name", "name")}${th("Symbol", "symbol")}${th("Status", "live")}
         </tr>`;
+    }
+
+    const sorted = sortList(list, _accountSortCol, _accountSortAsc);
+
+    const ps = parseInt(document.getElementById("account-strat-page-size")?.value || "25");
+    const totalPages = Math.max(1, Math.ceil(sorted.length / ps));
+    if (_accountStratPage > totalPages) _accountStratPage = 1;
+    const pageList = sorted.slice((_accountStratPage - 1) * ps, _accountStratPage * ps);
 
     const tbody = document.getElementById("account-strategies-body");
-    const list = [..._accountStrategies].sort((a, b) => {
-        let va = a[_accountSortCol];
-        let vb = b[_accountSortCol];
-        if (va == null) va = _accountSortAsc ? "\uffff" : "";
-        if (vb == null) vb = _accountSortAsc ? "\uffff" : "";
-        if (typeof va === "number" && typeof vb === "number") {
-            return _accountSortAsc ? va - vb : vb - va;
-        }
-        return _accountSortAsc
-            ? String(va).localeCompare(String(vb))
-            : String(vb).localeCompare(String(va));
-    });
-
     tbody.innerHTML = "";
-    list.forEach((strategy) => {
+    pageList.forEach((strategy) => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
             <td><a href="/strategy/${strategy.id}" style="color:var(--accent)">${strategy.id}</a></td>
@@ -42,6 +41,11 @@ function renderAccountStrategies() {
             <td><span class="badge ${strategy.live ? "badge-live" : "badge-incubation"}">${strategy.live ? "Live" : "Incubation"}</span></td>
         `;
         tbody.appendChild(tr);
+    });
+
+    renderPagination("account-strat-pagination", _accountStratPage, totalPages, (p) => {
+        _accountStratPage = p;
+        renderAccountStrategies();
     });
 }
 

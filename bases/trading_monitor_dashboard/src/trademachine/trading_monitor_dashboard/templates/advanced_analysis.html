@@ -39,7 +39,17 @@
         margin-right: auto;
         width: max-content;
     }
-    #analysis-metrics.metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    #analysis-metrics.metrics-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    #analysis-metrics.metrics-categories { display: flex; flex-direction: column; gap: 1.25rem; }
+    .metrics-category-title {
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        margin: 0 0 0.6rem;
+    }
+    .metrics-category .metrics-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .analysis-status { margin-left:0.75rem; font-size:0.85rem; color:var(--text-muted); }
     .analysis-status.is-loading { color: var(--text-muted); }
     .analysis-status.is-success { color: var(--green); }
@@ -56,9 +66,11 @@
     .analysis-error-message { color: var(--text); font-size: 0.9rem; line-height: 1.4; }
     @media (max-width: 900px) {
         #analysis-metrics.metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .metrics-category .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 640px) {
         #analysis-metrics.metrics-grid { grid-template-columns: 1fr; }
+        .metrics-category .metrics-grid { grid-template-columns: 1fr; }
     }
 </style>
 
@@ -121,7 +133,7 @@
         <div class="section-header">
             <h2>Equity Curve</h2>
             <span id="analysis-range" class="badge badge-neutral"></span>
-            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('equity-chart', 'advanced_equity.png')" title="Export image">⭳ Export</button>
+            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('equity-chart', 'advanced_equity.png')" title="Export image">Export</button>
             <div class="period-tabs" id="analysis-equity-scale-tabs" style="margin-left:0.75rem">
                 <button class="period-tab" data-aes="monetary" onclick="setAnalysisEquityScale('monetary')">$</button>
                 <button class="period-tab" data-aes="pct" onclick="setAnalysisEquityScale('pct')">%</button>
@@ -136,7 +148,7 @@
     <section class="card full-width" id="underwater-section" style="display:none">
         <div class="section-header">
             <h2>Drawdown Underwater</h2>
-            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('analysis-underwater-chart', 'advanced_drawdown.png')" title="Export image">⭳ Export</button>
+            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('analysis-underwater-chart', 'advanced_drawdown.png')" title="Export image">Export</button>
         </div>
         <div class="chart-wrapper" style="height:150px">
             <canvas id="analysis-underwater-chart"></canvas>
@@ -172,7 +184,11 @@
     <section class="card full-width" id="overlay-section" style="display:none">
         <div class="section-header">
             <h2>Strategy Equity Overlay</h2>
-            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('overlay-chart', 'strategy_overlay.png')" title="Export image">⭳ Export</button>
+            <button class="btn-chart-action" style="margin-left:auto" onclick="exportChart('overlay-chart', 'strategy_overlay.png')" title="Export image">Export</button>
+            <div class="period-tabs" id="overlay-scale-tabs" style="margin-left:0.75rem">
+                <button class="period-tab" data-os="monetary" onclick="setOverlayScale('monetary')">$</button>
+                <button class="period-tab" data-os="pct" onclick="setOverlayScale('pct')">%</button>
+            </div>
         </div>
         <div class="chart-wrapper">
             <canvas id="overlay-chart"></canvas>
@@ -184,8 +200,8 @@
         <div class="section-header">
             <h2>P&amp;L Analysis</h2>
             <div style="margin-left:auto; display:flex; gap:0.4rem">
-                <button class="btn-chart-action" onclick="exportChart('monthly-pnl-chart', 'pnl_analysis_month.png')" title="Export P&amp;L by Month">⭳ Export Month</button>
-                <button class="btn-chart-action" onclick="exportChart('annual-pnl-chart', 'pnl_analysis_year.png')" title="Export P&amp;L by Year">⭳ Export Year</button>
+                <button class="btn-chart-action" onclick="exportChart('monthly-pnl-chart', 'pnl_analysis_month.png')" title="Export P&amp;L by Month">Export Month</button>
+                <button class="btn-chart-action" onclick="exportChart('annual-pnl-chart', 'pnl_analysis_year.png')" title="Export P&amp;L by Year">Export Year</button>
             </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
@@ -205,8 +221,8 @@
         <div class="section-header">
             <h2>Trade Distribution</h2>
             <div style="margin-left:auto; display:flex; gap:0.4rem">
-                <button class="btn-chart-action" onclick="exportChart('dist-hour-chart', 'distribution_hour.png')" title="Export Distribution by Hour">⭳ Export Hour</button>
-                <button class="btn-chart-action" onclick="exportChart('dist-dow-chart', 'distribution_dow.png')" title="Export Distribution by Day">⭳ Export Day</button>
+                <button class="btn-chart-action" onclick="exportChart('dist-hour-chart', 'distribution_hour.png')" title="Export Distribution by Hour">Export Hour</button>
+                <button class="btn-chart-action" onclick="exportChart('dist-dow-chart', 'distribution_dow.png')" title="Export Distribution by Day">Export Day</button>
             </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
@@ -224,6 +240,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/table-renderer.js"></script>
-<script src="/static/page-advanced.js"></script>
+<script src="/static/table-renderer.js?v={{ js_v }}"></script>
+<script src="/static/page-advanced.js?v={{ js_v }}"></script>
 {% endblock %}

@@ -67,6 +67,7 @@ from trademachine.tradingmonitor_analytics.public import (
     list_strategies_payload,
     list_strategy_backtests_payload,
     list_symbols_payload,
+    run_benchmark_auto_sync,
     set_default_benchmark_record,
     sync_benchmark_record,
     update_benchmark_record,
@@ -89,6 +90,7 @@ from trademachine.tradingmonitor_storage.public import (  # noqa: F401
     BenchmarkCreate,
     BenchmarkRemoteDatabaseResponse,
     BenchmarkResponse,
+    BenchmarkSchedulerSettings,
     BenchmarkUpdate,
     ConcurrencyResponse,
     ContributionsResponse,
@@ -131,7 +133,13 @@ from trademachine.tradingmonitor_storage.public import (  # noqa: F401
     update_telegram_settings_payload,
 )
 from trademachine.tradingmonitor_storage.public import (
+    get_benchmark_scheduler_settings as load_benchmark_scheduler_settings,
+)
+from trademachine.tradingmonitor_storage.public import (
     get_datamanager_settings as load_datamanager_settings,
+)
+from trademachine.tradingmonitor_storage.public import (
+    update_benchmark_scheduler_settings as save_benchmark_scheduler_settings,
 )
 from trademachine.tradingmonitor_storage.public import (
     update_datamanager_settings as save_datamanager_settings,
@@ -663,6 +671,12 @@ def get_advanced_analysis(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except DashboardAnalysisValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as exc:
+        logger.exception("Unexpected error in advanced analysis")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Analysis failed: {type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @router.get("/correlation", response_model=CorrelationResponse)
@@ -1058,6 +1072,31 @@ def delete_benchmark(benchmark_id: int, db: Session = Depends(get_db)):
         delete_benchmark_record(db, benchmark_id)
     except BenchmarkNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/benchmarks/sync-all")
+def sync_all_benchmarks(db: Session = Depends(get_db)):
+    try:
+        return run_benchmark_auto_sync(db)
+    except Exception as exc:
+        logger.exception("Unexpected error during sync-all benchmarks")
+        raise HTTPException(
+            status_code=500,
+            detail="An internal error occurred while syncing benchmarks",
+        ) from exc
+
+
+@router.get("/settings/benchmark-scheduler", response_model=BenchmarkSchedulerSettings)
+def get_benchmark_scheduler(db: Session = Depends(get_db)):
+    return load_benchmark_scheduler_settings(db)
+
+
+@router.put("/settings/benchmark-scheduler", response_model=BenchmarkSchedulerSettings)
+def update_benchmark_scheduler(
+    payload: BenchmarkSchedulerSettings, db: Session = Depends(get_db)
+):
+    save_benchmark_scheduler_settings(db, payload)
+    return load_benchmark_scheduler_settings(db)
 
 
 # ── Health check (item 8) ─────────────────────────────────────────────────────

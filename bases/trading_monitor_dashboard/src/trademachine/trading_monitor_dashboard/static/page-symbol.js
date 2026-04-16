@@ -1,41 +1,39 @@
 let _symbolStrategies = [];
 let _symbolSortCol = "id";
 let _symbolSortAsc = true;
+let _symbolStratPage = 1;
 
 function symbolSortBy(col) {
-    if (_symbolSortCol === col) _symbolSortAsc = !_symbolSortAsc;
-    else { _symbolSortCol = col; _symbolSortAsc = true; }
+    ({ col: _symbolSortCol, asc: _symbolSortAsc } = toggleSort(_symbolSortCol, _symbolSortAsc, col));
+    _symbolStratPage = 1;
     renderSymbolStrategies();
 }
 
 function renderSymbolStrategies() {
-    const arrow = (col) => _symbolSortCol === col ? (_symbolSortAsc ? " ↑" : " ↓") : "";
-    const thead = document.querySelector("#symbol-strategies-card thead");
-    if (thead) thead.innerHTML = `
-        <tr>
-            <th class="sortable" onclick="symbolSortBy('id')">ID${arrow("id")}</th>
-            <th class="sortable" onclick="symbolSortBy('name')">Name${arrow("name")}</th>
-            <th class="sortable" onclick="symbolSortBy('symbol')">Symbol${arrow("symbol")}</th>
-            <th class="sortable" onclick="symbolSortBy('account_name')">Account${arrow("account_name")}</th>
-            <th class="sortable" onclick="symbolSortBy('live')">Status${arrow("live")}</th>
+    const q = (document.getElementById("symbol-strat-search")?.value || "").toLowerCase().trim();
+    const list = _symbolStrategies.filter((s) =>
+        !q || `${s.id} ${s.name || ""} ${s.symbol || ""} ${s.account_name || s.account_id || ""}`.toLowerCase().includes(q)
+    );
+
+    const thead = document.getElementById("symbol-strategies-head");
+    if (thead) {
+        const th = (label, col) => sortTh(label, col, _symbolSortCol, _symbolSortAsc, "symbolSortBy");
+        thead.innerHTML = `<tr>
+            ${th("ID", "id")}${th("Name", "name")}${th("Symbol", "symbol")}
+            ${th("Account", "account_name")}${th("Status", "live")}
         </tr>`;
+    }
+
+    const sorted = sortList(list, _symbolSortCol, _symbolSortAsc);
+
+    const ps = parseInt(document.getElementById("symbol-strat-page-size")?.value || "25");
+    const totalPages = Math.max(1, Math.ceil(sorted.length / ps));
+    if (_symbolStratPage > totalPages) _symbolStratPage = 1;
+    const pageList = sorted.slice((_symbolStratPage - 1) * ps, _symbolStratPage * ps);
 
     const tbody = document.getElementById("symbol-strategies-body");
-    const list = [..._symbolStrategies].sort((a, b) => {
-        let va = a[_symbolSortCol];
-        let vb = b[_symbolSortCol];
-        if (va == null) va = _symbolSortAsc ? "\uffff" : "";
-        if (vb == null) vb = _symbolSortAsc ? "\uffff" : "";
-        if (typeof va === "number" && typeof vb === "number") {
-            return _symbolSortAsc ? va - vb : vb - va;
-        }
-        return _symbolSortAsc
-            ? String(va).localeCompare(String(vb))
-            : String(vb).localeCompare(String(va));
-    });
-
     tbody.innerHTML = "";
-    list.forEach((s) => {
+    pageList.forEach((s) => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
             <td><a href="/strategy/${s.id}" style="color:var(--accent)">${s.id}</a></td>
@@ -45,6 +43,11 @@ function renderSymbolStrategies() {
             <td><span class="badge ${s.live ? "badge-live" : "badge-incubation"}">${s.live ? "Live" : "Incubation"}</span></td>
         `;
         tbody.appendChild(tr);
+    });
+
+    renderPagination("symbol-strat-pagination", _symbolStratPage, totalPages, (p) => {
+        _symbolStratPage = p;
+        renderSymbolStrategies();
     });
 }
 

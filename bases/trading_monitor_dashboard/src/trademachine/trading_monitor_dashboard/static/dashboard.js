@@ -135,8 +135,7 @@ function esc(str) {
 function fmt(value, decimals = 2) {
     if (value === null || value === undefined) return "—";
     if (typeof value !== "number") return value;
-    const locale = navigator.language || "en-US";
-    return value.toLocaleString(locale, {
+    return value.toLocaleString("en-US", {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
     });
@@ -178,11 +177,40 @@ function renderMetricsGrid(container, metrics, options = {}) {
         ...(options.thresholdPositiveKeys || {}),
     };
 
-    container.innerHTML = Object.entries(metrics)
-        .filter(([key]) => {
-            const keyLower = key.toLowerCase();
-            return !advancedKeys.has(keyLower) && !hiddenKeys.has(keyLower);
-        })
+    // Filter metrics first
+    const filteredMetrics = Object.entries(metrics).filter(([key]) => {
+        const keyLower = key.toLowerCase();
+        return !advancedKeys.has(keyLower) && !hiddenKeys.has(keyLower);
+    });
+
+    // Define preferred order for main metrics
+    // "Avg Profit" is placed penultimate before "Ret/DD" and "Win Rate (%)" might follow,
+    // but the user said "penúltima posição da aba Performance Metrics".
+    // Usually Performance Metrics has: Total Trades, Profit, Return (%), Profit Factor, Drawdown, Win Rate (%) ...
+    // Let's see the keys in _ORDERED_KEYS from calculator.py:
+    // Total Trades, Profit, Avg Profit, Return (%), Profit Factor, Ret/DD, Win Rate (%), Drawdown...
+    // In the dashboard, we want to ensure Avg Profit is there and in a good spot.
+
+    const preferredOrder = [
+        "total trades",
+        "profit",
+        "return (%)",
+        "profit factor",
+        "drawdown",
+        "avg profit",
+        "win rate (%)"
+    ];
+
+    const sortedMetrics = filteredMetrics.sort((a, b) => {
+        const idxA = preferredOrder.indexOf(a[0].toLowerCase());
+        const idxB = preferredOrder.indexOf(b[0].toLowerCase());
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a[0].localeCompare(b[0]);
+    });
+
+    container.innerHTML = sortedMetrics
         .map(([key, value]) => {
             const keyLower = key.toLowerCase();
             const shouldNegate = negateKeys.has(keyLower);
@@ -197,6 +225,8 @@ function renderMetricsGrid(container, metrics, options = {}) {
                     if (integerKeys.has(keyLower)) {
                         formattedValue = displayValue.toFixed(0);
                     } else if (keyLower === "cumulative return (%)" || keyLower === "return (%)") {
+                        formattedValue = `${fmt(displayValue)}%`;
+                    } else if (keyLower === "win rate (%)") {
                         formattedValue = `${fmt(displayValue)}%`;
                     } else {
                         formattedValue = fmt(displayValue);
@@ -248,13 +278,24 @@ function buildEquityChartLabels(points) {
     });
 }
 
-function buildRebasedEquitySeries(points, scale, valueGetter = (point) => point.equity) {
-    const baseline = Number(valueGetter(points[0])) || 1;
+function buildRebasedEquitySeries(points, scale, valueGetter = (point) => point.equity, options = {}) {
+    const { pctBaseline, pctDenominator } = options;
+    const firstValue = Number(valueGetter(points[0])) || 1;
+    const hasExplicitPct =
+        Number.isFinite(Number(pctDenominator)) && Number(pctDenominator) > 0;
     return points.map((point) => {
         const value = Number(valueGetter(point)) || 0;
         if (scale === "pct") {
-            const absBaseline = Math.abs(baseline) || 1;
-            return parseFloat((((value - baseline) / absBaseline) * 100).toFixed(4));
+            if (hasExplicitPct) {
+                const base = Number.isFinite(Number(pctBaseline))
+                    ? Number(pctBaseline)
+                    : 0;
+                return parseFloat(
+                    (((value - base) / Number(pctDenominator)) * 100).toFixed(4)
+                );
+            }
+            const absBaseline = Math.abs(firstValue) || 1;
+            return parseFloat((((value - firstValue) / absBaseline) * 100).toFixed(4));
         }
         return parseFloat(value.toFixed(4));
     });

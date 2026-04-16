@@ -844,6 +844,64 @@ html[data-theme="light"] .nav-dropdown-menu {
 
 .settings-card-mb { margin-bottom: 1.5rem; }
 .settings-wrapper  { max-width: 1000px; width: 100%; }
+.settings-hint--mb { margin-bottom: 1rem; }
+.settings-actions--wrap { flex-wrap: wrap; }
+.settings-status-msg { margin-bottom: 1rem; font-size: 0.85rem; }
+.settings-inline-status { font-size: 0.85rem; color: var(--text-muted); }
+.btn-bordered { border: 1px solid var(--border); }
+.btn-danger-soft {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+.bt-drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 2rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    transition: border-color 0.2s, background 0.2s;
+}
+.bt-drop-zone-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+.bt-drop-zone-hint { font-size: 0.8rem; margin-top: 0.4rem; }
+.bt-file-list { margin-bottom: 1rem; }
+.bt-upload-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; }
+.bt-upload-status { font-size: 0.85rem; color: var(--text-muted); }
+.bt-progress-wrap { margin-bottom: 1rem; }
+.bt-progress-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
+}
+.bt-progress-track { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
+.bt-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width 0.25s ease;
+}
+.bt-results-section { margin-top: 1.25rem; }
+.bt-result-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.csv-select-label { cursor: pointer; }
+.csv-mapping-preview { margin-top: 0.75rem; }
+.csv-preview-table { width: 100%; max-width: 500px; }
+.settings-card-header-row { display: flex; align-items: center; gap: 1rem; }
+.settings-card-header-row .badge { margin-left: auto; }
+.dl-hint { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem; }
+.dl-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.dl-empty { color: var(--text-muted); font-size: 0.85rem; }
 
 
 .edit-toggles {
