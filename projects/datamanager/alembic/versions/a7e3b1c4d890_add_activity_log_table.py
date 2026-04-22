@@ -22,9 +22,7 @@ def upgrade() -> None:
     op.create_table(
         "activity_log",
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
-        sa.Column(
-            "timestamp", sa.DateTime(timezone=True), nullable=False
-        ),
+        sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
         sa.Column("action", sa.String, nullable=False),
         sa.Column("target", sa.String, nullable=False),
         sa.Column("status", sa.String, nullable=False),
