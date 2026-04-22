@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Overview — DataManager{% endblock %}
+
+{% block chartjs %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+        Overview
+    </h1>
+</div>
+
+<div class="summary-cards">
+    <div class="summary-card">
+        <span class="summary-num" id="stat-sources">{{ stats.sources_count|default(0) }}</span>
+        <span class="summary-label">Sources</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="stat-assets">{{ stats.assets_count|default(0) }}</span>
+        <span class="summary-label">Assets</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="stat-rows">{{ "{:,}".format(stats.total_rows|default(0)) }}</span>
+        <span class="summary-label">Total Rows</span>
+    </div>
+    <div class="summary-card">
+        <span class="summary-num" id="stat-series">{{ stats.series_count|default(0) }}</span>
+        <span class="summary-label">FRED Series</span>
+    </div>
+</div>
+
+<div class="charts-row">
+    <div class="card">
+        <h2>Assets by Source</h2>
+        <div class="chart-box">
+            <canvas id="chart-sources"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <h2>Data Coverage</h2>
+        <div class="chart-box">
+            <canvas id="chart-coverage"></canvas>
+        </div>
+    </div>
+</div>
+
+{% if databases %}
+<div class="card">
+    <h2>Recent Assets</h2>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Source</th>
+                    <th>Asset</th>
+                    <th>Timeframe</th>
+                    <th>Rows</th>
+                    <th>From</th>
+                    <th>To</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for db in databases[:10] %}
+                <tr>
+                    <td><span class="badge badge-source">{{ db.source }}</span></td>
+                    <td style="font-weight: 600;">{{ db.asset }}</td>
+                    <td>{{ db.timeframe }}</td>
+                    <td style="font-family: var(--mono);">{{ "{:,}".format(db.rows|default(0)) }}</td>
+                    <td style="color: var(--text-muted);">{{ db.start_date|default("—") }}</td>
+                    <td style="color: var(--text-muted);">{{ db.end_date|default("—") }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/ui/static/page-overview.js"></script>
+<script>
+    initOverviewCharts({{ source_distribution|tojson }}, {{ coverage_data|tojson }});
+</script>
+{% endblock %}

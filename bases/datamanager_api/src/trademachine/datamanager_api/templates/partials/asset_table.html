@@ -1,0 +1,40 @@
+{% if databases %}
+{% for db in databases %}
+<tr>
+    <td><input type="checkbox" class="asset-select"
+         data-source="{{ db.source }}" data-asset="{{ db.asset }}"
+         data-timeframe="{{ db.timeframe }}" onchange="updateBulkBar('.asset-select', '#bulk-actions', '#bulk-count', '#select-all-assets')"></td>
+    <td><span class="badge badge-source">{{ db.source }}</span></td>
+    <td style="font-weight: 600;">{{ db.asset }}</td>
+    <td>{{ db.timeframe }}</td>
+    <td style="font-family: var(--mono);">{{ "{:,}".format(db.rows|default(0)) }}</td>
+    <td style="color: var(--text-muted);">{{ db.start_date|default("—") }}</td>
+    <td style="color: var(--text-muted);">{{ db.end_date|default("—") }}</td>
+    <td>
+        <div style="display: flex; gap: 0.35rem;">
+            <button class="btn btn-sm btn-ghost"
+                    hx-get="/ui/api/asset-info/{{ db.source }}/{{ db.asset }}/{{ db.timeframe }}"
+                    hx-target="#asset-detail" hx-swap="innerHTML"
+                    title="View details">Info</button>
+            <button class="btn btn-sm btn-success"
+                    onclick="updateAsset('{{ db.source }}', '{{ db.asset }}', '{{ db.timeframe }}', this)"
+                    title="Update data">Update</button>
+            <button class="btn btn-sm btn-danger"
+                    onclick="confirmDeleteAsset('{{ db.source }}', '{{ db.asset }}', '{{ db.timeframe }}')"
+                    title="Delete data">Del</button>
+        </div>
+    </td>
+</tr>
+{% endfor %}
+{% else %}
+<tr>
+    <td colspan="8">
+        <div class="empty-state">
+            <div class="empty-state-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>
+            </div>
+            <div class="empty-state-text">No assets found. Download some data to get started.</div>
+        </div>
+    </td>
+</tr>
+{% endif %}

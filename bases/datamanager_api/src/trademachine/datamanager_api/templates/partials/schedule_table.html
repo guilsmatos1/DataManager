@@ -1,0 +1,33 @@
+{% if jobs %}
+{% for job in jobs %}
+<tr>
+    <td class="cell-truncate" style="font-family: var(--mono); font-size: 0.75rem;" title="{{ job.job_id }}">{{ job.job_id }}</td>
+    <td><span class="badge badge-source">{{ job.source|default("—") }}</span></td>
+    <td style="font-weight: 600;">{{ job.asset|default("—") }}</td>
+    <td>{{ job.timeframe|default("—") }}</td>
+    <td style="font-family: var(--mono); font-size: 0.75rem;">{{ job.trigger|default(job.cron|default(job.interval|default("—"))) }}</td>
+    <td style="color: var(--text-muted);">{{ job.next_run_time|default("—") }}</td>
+    <td>
+        <div style="display: flex; gap: 0.35rem;">
+            <button class="btn btn-sm btn-ghost"
+                    onclick="editJob('{{ job.job_id }}', '{{ job.source|default('') }}', '{{ job.asset|default('') }}', '{{ job.timeframe|default('') }}', '{{ job.cron|default('') }}', '{{ job.interval|default('') }}')"
+                    title="Edit job">Edit</button>
+            <button class="btn btn-sm btn-danger"
+                    onclick="confirmDeleteJob('{{ job.job_id }}')"
+                    title="Remove job">Remove</button>
+        </div>
+    </td>
+</tr>
+{% endfor %}
+{% else %}
+<tr>
+    <td colspan="7">
+        <div class="empty-state">
+            <div class="empty-state-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="empty-state-text">No scheduled jobs. Create one to automate data updates.</div>
+        </div>
+    </td>
+</tr>
+{% endif %}

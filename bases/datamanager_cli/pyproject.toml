@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trademachine-datamanager-cli"
+version = "0.1.0"
+description = "trademachine-datamanager-cli brick"
+dependencies = ["trademachine-core", "trademachine-datamanager"]
+
+[project.scripts]
+datamanager = "trademachine.datamanager_cli.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["trademachine*"]

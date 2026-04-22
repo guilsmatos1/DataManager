@@ -1,0 +1,35 @@
+<div class="detail-panel">
+    <div class="detail-panel-header">
+        <span class="detail-panel-title">
+            <span class="badge badge-source">{{ info.source }}</span>
+            {{ info.asset }} — {{ info.timeframe }}
+        </span>
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('asset-detail').innerHTML=''">Close</button>
+    </div>
+    <div class="info-grid">
+        <div class="info-item">
+            <span class="info-label">Source</span>
+            <span class="info-value">{{ info.source }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">Asset</span>
+            <span class="info-value">{{ info.asset }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">Timeframe</span>
+            <span class="info-value">{{ info.timeframe }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">Row Count</span>
+            <span class="info-value" style="font-family: var(--mono);">{{ "{:,}".format(info.rows|default(0)) }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">From</span>
+            <span class="info-value">{{ info.start_date|default("—") }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">To</span>
+            <span class="info-value">{{ info.end_date|default("—") }}</span>
+        </div>
+    </div>
+</div>
