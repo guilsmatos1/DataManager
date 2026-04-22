@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from trademachine.core.logger import LOGGER_NAME
+from trademachine.datamanager.db.database import SessionLocal
 from trademachine.datamanager.db.models import ActivityLog
-from trademachine.datamanager.infrastructure.database import SessionLocal
 
 logger = logging.getLogger(LOGGER_NAME)
 

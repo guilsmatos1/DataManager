@@ -23,9 +23,10 @@ COPY bases/ ./bases/
 COPY components/ ./components/
 COPY projects/ ./projects/
 COPY pyproject.toml ./pyproject.toml
+COPY uv.lock ./uv.lock
 
 # Install dependencies into /app/.venv
-RUN uv sync --no-dev
+RUN uv sync --no-dev --frozen
 
 # --- Stage 2: Final ---
 FROM python:3.12-slim

@@ -223,10 +223,7 @@ class SeriesStorageManager:
                 batch = records[i : i + self._INSERT_BATCH_SIZE]
                 stmt = pg_insert(EconomicObservation).values(batch)
                 upsert_stmt = stmt.on_conflict_do_update(
-                    index_elements=[
-                        EconomicObservation.timestamp,
-                        EconomicObservation.series_ref_id,
-                    ],
+                    constraint="uq_economic_observation_timestamp",
                     set_={"value": stmt.excluded.value},
                 )
                 db.execute(upsert_stmt)

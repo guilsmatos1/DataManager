@@ -102,12 +102,11 @@
     "projects/datamanager/docs/MIGRATION.md",
     "projects/datamanager/metadata/dukas_assets.csv",
     "projects/datamanager/metadata/scheduler_jobs.json",
-    "projects/datamanager/new-docker-compose.yml",
     "projects/datamanager/pyproject.toml",
     "pyproject.toml",
     "workspace.toml"
   ],
   "project": "datamanager",
-  "source_commit": "2d1040093fa0cc2b7b45b490ca1118e9dfaa246c-dirty",
+  "source_commit": "87a69c8abd5fe8c4bc40582331b865c387aa70e9-dirty",
   "source_repo": "TradeMachine"
 }

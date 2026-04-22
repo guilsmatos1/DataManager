@@ -116,7 +116,7 @@ class StorageManager:
                 batch = records[i : i + self._INSERT_BATCH_SIZE]
                 stmt = pg_insert(OhlcvM1).values(batch)
                 upsert_stmt = stmt.on_conflict_do_update(
-                    index_elements=[OhlcvM1.timestamp, OhlcvM1.asset_id],
+                    constraint="ohlcv_m1_pkey",
                     set_={
                         "open": stmt.excluded.open,
                         "high": stmt.excluded.high,
