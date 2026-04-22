@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — DataManager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/ui/static/style.css">
+    <script>
+        (function() {
+            const t = localStorage.getItem("dm-theme") || "dark";
+            document.documentElement.setAttribute("data-theme", t);
+        })();
+    </script>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-title">DataManager</div>
+            <div class="login-subtitle">Enter your API key to continue</div>
+            {% if error %}
+            <div class="login-error">{{ error }}</div>
+            {% endif %}
+            <form method="post" action="/ui/login">
+                <div class="field-group" style="margin-bottom: 1.25rem;">
+                    <label class="field-label" for="api_key">API Key</label>
+                    <input class="field-input" type="password" id="api_key" name="api_key" placeholder="Enter your API key" required autofocus>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Sign In</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

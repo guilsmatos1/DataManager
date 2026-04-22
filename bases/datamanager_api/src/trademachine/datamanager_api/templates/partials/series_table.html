@@ -1,0 +1,39 @@
+{% if series_list %}
+{% for s in series_list %}
+<tr>
+    <td><input type="checkbox" class="series-select"
+         data-source="{{ s.source|default('fred') }}" data-series-id="{{ s.series_id }}"
+         onchange="updateSeriesBulkBar()"></td>
+    <td><span class="badge badge-source">{{ s.source|default("fred") }}</span></td>
+    <td style="font-weight: 600; font-family: var(--mono);">{{ s.series_id }}</td>
+    <td class="cell-truncate" title="{{ s.title|default('') }}">{{ s.title|default("—") }}</td>
+    <td>{{ s.frequency|default("—") }}</td>
+    <td style="font-family: var(--mono);">{{ "{:,}".format(s.rows|default(0)) }}</td>
+    <td>
+        <div style="display: flex; gap: 0.35rem;">
+            <button class="btn btn-sm btn-ghost"
+                    hx-get="/ui/api/series-info/{{ s.source|default('fred') }}/{{ s.series_id }}"
+                    hx-target="#series-detail" hx-swap="innerHTML"
+                    title="View details">Info</button>
+            <button class="btn btn-sm btn-success"
+                    onclick="updateSeries('{{ s.source|default('fred') }}', '{{ s.series_id }}', this)"
+                    title="Update series">Update</button>
+            <button class="btn btn-sm btn-danger"
+                    onclick="confirmDeleteSeries('{{ s.source|default('fred') }}', '{{ s.series_id }}')"
+                    title="Delete series">Del</button>
+        </div>
+    </td>
+</tr>
+{% endfor %}
+{% else %}
+<tr>
+    <td colspan="7">
+        <div class="empty-state">
+            <div class="empty-state-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+            </div>
+            <div class="empty-state-text">No FRED series found. Download some to get started.</div>
+        </div>
+    </td>
+</tr>
+{% endif %}

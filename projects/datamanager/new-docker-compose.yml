@@ -1,0 +1,74 @@
+name: pure_jun
+services:
+  datamanager_api:
+    cpu_shares: 90
+    container_name: datamanager-server
+    depends_on:
+      timescaledb:
+        condition: service_started
+        required: true
+    deploy:
+      resources:
+        limits:
+          memory: 9892M
+    environment:
+      # URL CORRIGIDA COM USUÁRIO, SENHA E DB
+      - DATAMANAGER_DATABASE_URL=postgresql://datamanager:6APIn4CVtH7VspqA9wkjKmeVVLqyRb@timescaledb:5432/datamanager
+      - DATAMANAGER_API_KEY=S3DbyzkxbeShC7XHQZFZh4sLXWi12A
+      - DATAMANAGER_HOST=0.0.0.0
+      - DATAMANAGER_PORT=8686
+      - FRED_API_KEY=4d3f0ee7c8ed642dcf3607e601fcb00d
+    hostname: datamanager-server
+    image: guilsmatos/datamanager:latest
+    labels:
+      icon: https://raw.githubusercontent.com/guilsmatos1/DataManager/main/docs/icon.png
+    ports:
+      - target: 8686
+        published: "8686"
+        protocol: tcp
+    restart: always
+
+
+  timescaledb:
+    cpu_shares: 90
+    container_name: datamanager-timescaledb
+    deploy:
+      resources:
+        limits:
+          memory: 9892M
+    environment:
+      - POSTGRES_DB=datamanager
+      - POSTGRES_PASSWORD=6APIn4CVtH7VspqA9wkjKmeVVLqyRb
+      - POSTGRES_USER=datamanager
+    hostname: datamanager-timescaledb
+    image: timescale/timescaledb:latest-pg17
+    labels:
+      icon: https://raw.githubusercontent.com/guilsmatos1/DataManager/main/docs/icon.png
+    restart: always
+    volumes:
+      - type: bind
+        # CAMINHO DE VOLUME CORRIGIDO PARA O PADRÃO CASAOS
+        source: /DATA/AppData/datamanager/postgres
+        target: /var/lib/postgresql/data
+
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  author: guilsmatos1
+  category: Finance
+  description:
+    en_us: Centralized financial data management system (OHLCV)
+  icon: https://raw.githubusercontent.com/guilsmatos1/DataManager/main/docs/icon.png
+  index: /
+  is_uncontrolled: false
+  main: datamanager_api
+  port_map: "8686"
+  scheme: http
+  store_app_id: pure_jun
+  tagline:
+    en_us: Financial Data Manager
+  title:
+    custom: ""
+    en_us: DataManager

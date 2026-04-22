@@ -1,0 +1,73 @@
+"""Public API for cross-component DataManager access."""
+
+from trademachine.datamanager.db.activity_storage import ActivityStorageManager
+from trademachine.datamanager.infrastructure import (
+    DATABASE_URL,
+    DataManagerClient,
+    SessionLocal,
+    Settings,
+    engine,
+    get_db,
+    get_settings,
+    init_db,
+    settings,
+)
+from trademachine.datamanager.schemas import (
+    DatabaseInfo,
+    DeleteRequest,
+    DownloadRequest,
+    ListResponse,
+    QualityReport,
+    ResampleRequest,
+    ScheduleJobInfo,
+    ScheduleListResponse,
+    ScheduleRequest,
+    ScheduleUpdateAllRequest,
+    SearchResponse,
+    SeriesDeleteRequest,
+    SeriesDownloadRequest,
+    SeriesInfo,
+    SeriesListResponse,
+    SeriesSearchResponse,
+    SeriesUpdateRequest,
+    TaskResponse,
+    UpdateRequest,
+)
+from trademachine.datamanager.services.manager import DataManager
+from trademachine.datamanager.services.scheduler import SchedulerService
+from trademachine.datamanager.services.series_manager import SeriesManager
+
+__all__ = [
+    "ActivityStorageManager",
+    "DATABASE_URL",
+    "DataManager",
+    "DataManagerClient",
+    "DatabaseInfo",
+    "DeleteRequest",
+    "DownloadRequest",
+    "ListResponse",
+    "QualityReport",
+    "ResampleRequest",
+    "ScheduleJobInfo",
+    "ScheduleListResponse",
+    "ScheduleRequest",
+    "ScheduleUpdateAllRequest",
+    "SchedulerService",
+    "SearchResponse",
+    "SeriesDeleteRequest",
+    "SeriesDownloadRequest",
+    "SeriesInfo",
+    "SeriesListResponse",
+    "SeriesManager",
+    "SeriesSearchResponse",
+    "SeriesUpdateRequest",
+    "SessionLocal",
+    "Settings",
+    "TaskResponse",
+    "UpdateRequest",
+    "engine",
+    "get_db",
+    "get_settings",
+    "init_db",
+    "settings",
+]

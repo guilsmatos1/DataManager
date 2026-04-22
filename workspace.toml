@@ -1,0 +1,12 @@
+[tool.polylith]
+namespace = "trademachine"
+
+[tool.polylith.test]
+enabled = true
+
+[tool.polylith.structure]
+theme = "tdd"
+
+[tool.polylith.resources]
+bases = "bases"
+components = "components"

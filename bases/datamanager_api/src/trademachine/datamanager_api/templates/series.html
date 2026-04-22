@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}FRED Series — DataManager{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+        FRED Series
+    </h1>
+    <div class="page-header-actions">
+        <button class="btn btn-primary" onclick="showSeriesForm()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+            Download Series
+        </button>
+    </div>
+</div>
+
+<!-- Download Form (hidden by default) -->
+<div id="series-form" class="card" style="display: none;">
+    <h2>Download FRED Series</h2>
+    <form id="series-download-form" onsubmit="return submitSeriesDownload(event)">
+        <div class="form-grid">
+            <div class="field-group">
+                <label class="field-label" for="sd-source">Source</label>
+                <select class="field-input" id="sd-source" name="source">
+                    <option value="fred">FRED</option>
+                </select>
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="sd-series-id">Series ID</label>
+                <input class="field-input" type="text" id="sd-series-id" name="series_id" placeholder="e.g. GDP, UNRATE, DFF" required>
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="sd-start">Start Date <span class="tz-hint">UTC</span></label>
+                <input class="field-input" type="date" id="sd-start" name="start_date">
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="sd-end">End Date <span class="tz-hint">UTC</span></label>
+                <input class="field-input" type="date" id="sd-end" name="end_date">
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Start Download</button>
+            <button type="button" class="btn btn-ghost" onclick="hideSeriesForm()">Cancel</button>
+        </div>
+    </form>
+</div>
+
+<!-- Search -->
+<div class="card">
+    <div class="field-group" style="max-width: 400px;">
+        <label class="field-label" for="series-query">Search Stored Series</label>
+        <input class="field-input" type="text" id="series-query" name="q" placeholder="Filter by series ID or title..."
+               hx-get="/ui/api/series" hx-target="#series-table-body"
+               hx-trigger="keyup changed delay:300ms">
+    </div>
+</div>
+
+<!-- Bulk Actions Bar -->
+<div id="series-bulk-actions" class="bulk-bar" style="display: none;">
+    <span id="series-bulk-count">0 selected</span>
+    <button class="btn btn-sm btn-success" onclick="bulkUpdateSeries()">Update Selected</button>
+    <button class="btn btn-sm btn-danger" onclick="bulkDeleteSeries()">Delete Selected</button>
+    <button class="btn btn-sm btn-ghost" onclick="bulkClearSeries()">Clear</button>
+</div>
+
+<!-- Series Table -->
+<div class="card">
+    <h2>Stored Series</h2>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 30px;"><input type="checkbox" id="select-all-series" onchange="toggleSelectAllSeries(this)"></th>
+                    <th>Source</th>
+                    <th>Series ID</th>
+                    <th>Title</th>
+                    <th>Frequency</th>
+                    <th>Observations</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="series-table-body"
+                   hx-get="/ui/api/series" hx-trigger="load" hx-swap="innerHTML">
+                <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Detail Panel -->
+<div id="series-detail"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/ui/static/api-client.js"></script>
+<script src="/ui/static/page-series.js"></script>
+{% endblock %}

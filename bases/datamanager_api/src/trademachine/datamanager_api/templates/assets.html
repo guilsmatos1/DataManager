@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Assets — DataManager{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+        Assets
+    </h1>
+    <div class="page-header-actions">
+        <button class="btn btn-primary" onclick="showDownloadForm()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+            Download New
+        </button>
+    </div>
+</div>
+
+<!-- Download Form (hidden by default) -->
+<div id="download-form" class="card" style="display: none;">
+    <h2>Download OHLCV Data</h2>
+    <form id="download-data-form" onsubmit="return submitDownload(event)">
+        <div class="form-grid">
+            <div class="field-group">
+                <label class="field-label" for="dl-source">Source</label>
+                <select class="field-input" id="dl-source" name="source" required>
+                    <option value="dukascopy">Dukascopy (Forex/Commodities)</option>
+                    <option value="openbb">OpenBB (Stocks/ETFs)</option>
+                    <option value="ccxt">CCXT (Crypto)</option>
+                </select>
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="dl-asset">Asset</label>
+                <input class="field-input" type="text" id="dl-asset" name="asset" placeholder="e.g. EURUSD, AAPL, binance:BTC/USDT" required>
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="dl-start">Start Date <span class="tz-hint">UTC</span></label>
+                <input class="field-input" type="date" id="dl-start" name="start_date" value="2024-01-01">
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="dl-end">End Date <span class="tz-hint">UTC</span></label>
+                <input class="field-input" type="date" id="dl-end" name="end_date" value="{{ today }}">
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Start Download</button>
+            <button type="button" class="btn btn-ghost" onclick="hideDownloadForm()">Cancel</button>
+            <span id="dl-status" class="spinner htmx-indicator"></span>
+        </div>
+    </form>
+</div>
+
+<!-- Search & Filter -->
+<div class="card">
+    <div style="display: flex; gap: 0.75rem; align-items: end; flex-wrap: wrap;">
+        <div class="field-group" style="min-width: 140px;">
+            <label class="field-label" for="filter-source">Source</label>
+            <select class="field-input" id="filter-source"
+                    hx-get="/ui/api/assets" hx-target="#asset-table-body"
+                    hx-include="#filter-query" hx-trigger="change">
+                <option value="">All Sources</option>
+                <option value="dukascopy">Dukascopy</option>
+                <option value="openbb">OpenBB</option>
+                <option value="ccxt">CCXT</option>
+            </select>
+        </div>
+        <div class="field-group" style="flex: 1; min-width: 200px;">
+            <label class="field-label" for="filter-query">Search</label>
+            <input class="field-input" type="text" id="filter-query" name="q" placeholder="Search assets..."
+                   hx-get="/ui/api/assets" hx-target="#asset-table-body"
+                   hx-include="#filter-source" hx-trigger="keyup changed delay:300ms">
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Actions Bar -->
+<div id="bulk-actions" class="bulk-bar" style="display: none;">
+    <span id="bulk-count">0 selected</span>
+    <button class="btn btn-sm btn-success" onclick="bulkUpdate()">Update Selected</button>
+    <button class="btn btn-sm btn-danger" onclick="bulkDelete()">Delete Selected</button>
+    <button class="btn btn-sm btn-ghost" onclick="bulkClear()">Clear</button>
+</div>
+
+<!-- Asset Table -->
+<div class="card">
+    <h2>Stored Assets</h2>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 30px;"><input type="checkbox" id="select-all-assets" onchange="toggleSelectAll(this, '.asset-select')"></th>
+                    <th>Source</th>
+                    <th>Asset</th>
+                    <th>Timeframe</th>
+                    <th>Rows</th>
+                    <th>From <span class="tz-hint">UTC</span></th>
+                    <th>To <span class="tz-hint">UTC</span></th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="asset-table-body"
+                   hx-get="/ui/api/assets" hx-trigger="load" hx-swap="innerHTML">
+                <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Detail Panel -->
+<div id="asset-detail"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/ui/static/api-client.js"></script>
+<script src="/ui/static/page-assets.js"></script>
+{% endblock %}

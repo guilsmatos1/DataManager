@@ -1,52 +1,88 @@
 [project]
-name = "datamanager"
+name = "trademachine-datamanager-export"
 version = "0.1.0"
-description = "Financial data management system for OHLCV and FRED economic data"
+description = "Exported TradeMachine partial workspace for datamanager"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.18.4",
+    "apscheduler>=3.11.2",
+    "ccxt>=4.5.44",
+    "colorama>=0.4.6",
+    "dukascopy-python>=4.0.1",
     "fastapi>=0.128.8",
-    "uvicorn>=0.40.0",
-    "pandas>=2.2.3,<3.0.0",
     "fastparquet>=2025.12.0",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.0",
     "openbb>=4.7.1",
     "openbb-yfinance>=1.6.0",
+    "pandas>=2.2.3,<3.0.0",
+    "prompt_toolkit>=3.0.0",
+    "psycopg2-binary>=2.9.11",
+    "pyarrow>=23.0.1",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
-    "sqlalchemy>=2.0.48",
-    "psycopg2-binary>=2.9.11",
-    "alembic>=1.18.4",
-    "ccxt>=4.5.44",
-    "dukascopy-python>=4.0.1",
-    "apscheduler>=3.11.2",
-    "colorama>=0.4.6",
     "python-dateutil>=2.9.0",
-    "prompt_toolkit>=3.0.0",
+    "python-multipart>=0.0.22",
     "requests>=2.32.5",
-    "pyarrow>=23.0.1",
+    "slowapi>=0.1.9",
+    "sqlalchemy>=2.0.48",
     "tenacity>=9.0.0",
     "tqdm>=4.67.3",
+    "uvicorn>=0.40.0",
+    "trademachine-datamanager",
+    "trademachine-core",
+    "trademachine-datamanager-api",
+    "trademachine-datamanager-cli",
 ]
 
-[project.scripts]
-datamanager = "trademachine.datamanager_cli.cli:main"
+[tool.uv.workspace]
+members = [
+    "projects/datamanager",
+    "components/datamanager",
+    "components/core",
+    "bases/datamanager_api",
+    "bases/datamanager_cli",
+]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "import-linter>=2.11",
+    "xenon>=0.9.3",
+    "vulture>=2.15",
+    "polylith-cli>=1.44.0",
+]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/trademachine"]
+[tool.uv.sources]
+"trademachine-datamanager" = { workspace = true }
+"trademachine-core" = { workspace = true }
+"trademachine-datamanager-api" = { workspace = true }
+"trademachine-datamanager-cli" = { workspace = true }
+
+[tool.polylith]
+namespace = "trademachine"
+
+[tool.polylith.test]
+enabled = true
+
+[tool.polylith.structure]
+theme = "tdd"
+
+[tool.polylith.resources]
+bases = "bases"
+components = "components"
 
 [tool.pytest.ini_options]
-testpaths = ["test"]
-markers = [
-    "integration: marks tests that require external services",
+addopts = "--import-mode=importlib"
+testpaths = [
+    "components/datamanager/test",
+    "bases/datamanager_api/test",
+    "bases/datamanager_cli/test",
 ]
-
-[tool.uv]
-dev-dependencies = [
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-mock>=3.12.0",
-    "ruff>=0.9.0",
+pythonpath = [
+    "components/datamanager/src",
+    "components/core/src",
+    "bases/datamanager_api/src",
+    "bases/datamanager_cli/src",
 ]

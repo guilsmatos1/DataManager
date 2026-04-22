@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Scheduler — DataManager{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Scheduler
+    </h1>
+    <div class="page-header-actions">
+        <button class="btn btn-primary" onclick="showScheduleForm()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/></svg>
+            New Job
+        </button>
+    </div>
+</div>
+
+<!-- Create Job Form (hidden by default) -->
+<div id="schedule-form" class="card" style="display: none;">
+    <h2>Create Scheduled Job</h2>
+    <form id="create-schedule-form" onsubmit="return submitSchedule(event)">
+        <input type="hidden" id="sj-job-id" name="job_id" value="">
+        <div class="form-grid">
+            <div class="field-group">
+                <label class="field-label" for="sj-source">Source</label>
+                <select class="field-input" id="sj-source" name="source" required>
+                    <option value="dukascopy">Dukascopy</option>
+                    <option value="openbb">OpenBB</option>
+                    <option value="ccxt">CCXT</option>
+                </select>
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="sj-asset">Asset</label>
+                <input class="field-input" type="text" id="sj-asset" name="asset" placeholder="e.g. EURUSD" required>
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="sj-timeframe">Timeframe</label>
+                <select class="field-input" id="sj-timeframe" name="timeframe">
+                    <option value="M1">M1</option>
+                    <option value="M5">M5</option>
+                    <option value="M15">M15</option>
+                    <option value="H1">H1</option>
+                    <option value="H4">H4</option>
+                    <option value="D1">D1</option>
+                </select>
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="sj-interval">Interval (minutes)</label>
+                <input class="field-input" type="number" id="sj-interval" name="interval_minutes" placeholder="e.g. 60" min="1">
+            </div>
+            <div class="field-group" style="grid-column: 1 / -1;">
+                <label class="field-label" for="sj-cron">Cron Expression (alternative to interval)</label>
+                <input class="field-input" type="text" id="sj-cron" name="cron" placeholder="e.g. 0 */2 * * *">
+                <div class="field-hint">
+                    Format: <code>min hour day month weekday</code> &mdash;
+                    <code>0 */4 * * *</code> every 4h,
+                    <code>30 2 * * *</code> daily 2:30 AM,
+                    <code>0 0 * * 1</code> weekly Mon
+                </div>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Create Job</button>
+            <button type="button" class="btn btn-ghost" onclick="hideScheduleForm()">Cancel</button>
+        </div>
+    </form>
+</div>
+
+<!-- Jobs Table -->
+<div class="card">
+    <h2>Active Jobs</h2>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Job ID</th>
+                    <th>Source</th>
+                    <th>Asset</th>
+                    <th>Timeframe</th>
+                    <th>Schedule</th>
+                    <th>Next Run <span class="tz-hint">UTC</span></th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="schedule-table-body"
+                   hx-get="/ui/api/schedules" hx-trigger="load" hx-swap="innerHTML">
+                <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/ui/static/api-client.js"></script>
+<script src="/ui/static/page-scheduler.js"></script>
+{% endblock %}
